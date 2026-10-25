@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>LTUDM_DoAn</groupId>
+        <artifactId>DoAn-root</artifactId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>ServerApp</artifactId>
+    <packaging>jar</packaging>
+
+    <name>ServerApp</name>
+
+    <dependencies>
+        <!-- Khai báo nhận dependency từ module dùng chung common-dto -->
+        <dependency>
+            <groupId>LTUDM_DoAn</groupId>
+            <artifactId>dtoShared</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
+        <!-- Thư viện kết nối cơ sở dữ liệu MySQL cho ServerApp -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <version>8.3.0</version>
+        </dependency>
+    </dependencies>
+</project>
