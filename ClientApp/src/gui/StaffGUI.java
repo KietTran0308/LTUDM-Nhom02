@@ -3,9 +3,9 @@ package gui;
 import bus.StaffBUS;
 import dto.*;
 import gui.components.*;
+import utils.Utils;
 
 import javax.swing.*;
-import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
 import javax.swing.table.DefaultTableModel;
@@ -16,19 +16,13 @@ import java.util.List;
 
 public class StaffGUI extends JFrame {
 
-    private static final Color FOREST_BG = new Color(32, 43, 37);
-    private static final Color FOREST_CIRCLE = new Color(26, 36, 30);
-    private static final Color TERRACOTTA = new Color(206, 93, 52);
-    private static final Color GOLD_ACCENT = new Color(201, 142, 84);
-    private static final Color CREAM_BG = new Color(247, 248, 246);
     private static final Color TABLE_FREE_COLOR = new Color(38, 77, 56);
-    private static final Color TABLE_BUSY_COLOR = new Color(206, 93, 52);
-    private static final Color TEXT_DARK = new Color(23, 31, 26);
+    private static final Color TABLE_BUSY_COLOR = Utils.TERRACOTTA;
 
     private static final DecimalFormat MONEY_FMT = new DecimalFormat("#,### VNĐ");
 
-    private StaffBUS posBUS;
-    private UserDTO currentStaff;
+    private final StaffBUS posBUS;
+    private final UserDTO currentStaff;
     private Long selectedTableId = null;
     private String selectedTableName = "";
 
@@ -51,8 +45,8 @@ public class StaffGUI extends JFrame {
         this.currentStaff = loggedInStaff;
 
         setExtendedState(JFrame.MAXIMIZED_BOTH);
-        setTitle("Bếp Nhà Restaurant - Quầy Thu Ngân & Điều Phối Bàn (POS)");
-        setSize(1340, 800);
+        setUndecorated(true);
+        setSize(1360, 820);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
         setLayout(new BorderLayout());
@@ -100,36 +94,35 @@ public class StaffGUI extends JFrame {
                 super.paintComponent(g);
                 Graphics2D g2 = (Graphics2D) g;
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(FOREST_CIRCLE);
+                g2.setColor(Utils.FOREST_CIRCLE_1);
                 g2.fillOval(getWidth() / 2 - 150, -180, 380, 380);
             }
         };
-        header.setBackground(FOREST_BG);
+        header.setBackground(Utils.FOREST_BG);
         header.setPreferredSize(new Dimension(getWidth(), 78));
         header.setBorder(new EmptyBorder(14, 28, 14, 28));
 
-        // Cụm Logo + Tên thương hiệu
         JPanel leftBrand = new JPanel();
         leftBrand.setLayout(new BoxLayout(leftBrand, BoxLayout.X_AXIS));
         leftBrand.setOpaque(false);
 
-        JLabel lblIcon = new JLabel(new CustomerGUI.BrandLogoIcon());
-        lblIcon.setBorder(new EmptyBorder(0, 0, 0, 12));
+        JLabel lblIcon = new JLabel(Utils.getScaledIcon("img/logo.png", 40, 40));
+        lblIcon.setBorder(new EmptyBorder(0, 0, 0, 10));
 
         JPanel titleCol = new JPanel();
         titleCol.setLayout(new BoxLayout(titleCol, BoxLayout.Y_AXIS));
         titleCol.setOpaque(false);
 
-        JLabel lblBrand = new JLabel("Bếp Nhà  |  QUẦY THU NGÂN & QUẢN LÝ BÀN");
-        lblBrand.setFont(getCustomFont("Be Vietnam Pro Black", Font.BOLD, 20));
+        JLabel lblBrand = new JLabel("Nhà hàng An Nhiên  |  QUẦY THU NGÂN & QUẢN LÝ BÀN");
+        lblBrand.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 20));
         lblBrand.setForeground(Color.WHITE);
 
         String staffInfo = (currentStaff != null)
                 ? "Nhân viên trực ca: " + currentStaff.getFullName() + " (" + currentStaff.getEmail() + ")"
                 : "Hệ thống POS kết nối thời gian thực (TCP Socket)";
         JLabel lblSub = new JLabel(staffInfo);
-        lblSub.setFont(getCustomFont("Inter", Font.PLAIN, 12));
-        lblSub.setForeground(GOLD_ACCENT);
+        lblSub.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 12));
+        lblSub.setForeground(Utils.GOLD_ACCENT);
 
         titleCol.add(lblBrand);
         titleCol.add(Box.createVerticalStrut(2));
@@ -138,7 +131,6 @@ public class StaffGUI extends JFrame {
         leftBrand.add(lblIcon);
         leftBrand.add(titleCol);
 
-        // Nút Làm mới & Đăng xuất
         JPanel rightActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 4));
         rightActions.setOpaque(false);
 
@@ -146,7 +138,7 @@ public class StaffGUI extends JFrame {
         btnRefresh.addActionListener(e -> posBUS.requestAllTables());
 
         JButton btnLogout = new JButton("Đăng xuất");
-        btnLogout.setFont(getCustomFont("Be Vietnam Pro Black", Font.BOLD, 13));
+        btnLogout.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 13));
         btnLogout.setForeground(Color.WHITE);
         btnLogout.setBackground(new Color(52, 66, 58));
         btnLogout.setFocusPainted(false);
@@ -155,7 +147,7 @@ public class StaffGUI extends JFrame {
         btnLogout.setCursor(new Cursor(Cursor.HAND_CURSOR));
         btnLogout.addActionListener(e -> {
             new AuthGUI().setVisible(true);
-            this.dispose();
+            dispose();
         });
 
         rightActions.add(btnRefresh);
@@ -166,13 +158,11 @@ public class StaffGUI extends JFrame {
         add(header, BorderLayout.NORTH);
     }
 
-    // 2. KHÔNG GIAN LÀM VIỆC CHÍNH: TRÁI (SƠ ĐỒ BÀN) - PHẢI (HÓA ĐƠN GỘP)
     private void initMainWorkspace() {
         JPanel workspace = new JPanel(new GridLayout(1, 2, 22, 0));
-        workspace.setBackground(CREAM_BG);
+        workspace.setBackground(Utils.CREAM_BG);
         workspace.setBorder(new EmptyBorder(22, 25, 25, 25));
 
-        // --- CỘT TRÁI: SƠ ĐỒ BÀN NHÀ HÀNG ---
         JPanel leftCard = new JPanel(new BorderLayout(0, 15));
         leftCard.setBackground(Color.WHITE);
         leftCard.setBorder(BorderFactory.createCompoundBorder(
@@ -182,13 +172,14 @@ public class StaffGUI extends JFrame {
 
         JPanel leftHeader = new JPanel(new BorderLayout());
         leftHeader.setOpaque(false);
+
         JLabel lblMapTitle = new JLabel("Sơ Đồ Bàn Phục Vụ");
-        lblMapTitle.setFont(getCustomFont("Be Vietnam Pro Black", Font.BOLD, 22));
-        lblMapTitle.setForeground(TEXT_DARK);
+        lblMapTitle.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 22));
+        lblMapTitle.setForeground(Utils.TEXT_DARK);
 
         JLabel lblLegend = new JLabel("● Xanh rừng: Bàn trống   |   ● Cam đất: Đang dùng bữa");
-        lblLegend.setFont(getCustomFont("Inter", Font.BOLD, 12));
-        lblLegend.setForeground(GOLD_ACCENT);
+        lblLegend.setFont(Utils.getCustomFont("Inter", Font.BOLD, 12));
+        lblLegend.setForeground(Utils.GOLD_ACCENT);
 
         leftHeader.add(lblMapTitle, BorderLayout.NORTH);
         leftHeader.add(lblLegend, BorderLayout.SOUTH);
@@ -198,12 +189,12 @@ public class StaffGUI extends JFrame {
         tableGridPanel.setBorder(new EmptyBorder(10, 5, 10, 5));
 
         JScrollPane tableScroll = new JScrollPane(tableGridPanel);
+        tableScroll.setVerticalScrollBar(new CScrollBar());
         tableScroll.setBorder(null);
 
         leftCard.add(leftHeader, BorderLayout.NORTH);
         leftCard.add(tableScroll, BorderLayout.CENTER);
 
-        // --- CỘT PHẢI: CHI TIẾT GỘP ĐƠN & THANH TOÁN ---
         JPanel rightCard = new JPanel(new BorderLayout(0, 15));
         rightCard.setBackground(Color.WHITE);
         rightCard.setBorder(BorderFactory.createCompoundBorder(
@@ -216,11 +207,11 @@ public class StaffGUI extends JFrame {
         billHeader.setOpaque(false);
 
         lblSelectedTableInfo = new JLabel("Chưa chọn bàn cần thanh toán");
-        lblSelectedTableInfo.setFont(getCustomFont("Be Vietnam Pro Black", Font.BOLD, 22));
-        lblSelectedTableInfo.setForeground(TEXT_DARK);
+        lblSelectedTableInfo.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 22));
+        lblSelectedTableInfo.setForeground(Utils.TEXT_DARK);
 
         lblRootOrderCode = new JLabel("Mã đơn gốc (Root Order): ---");
-        lblRootOrderCode.setFont(getCustomFont("Inter", Font.PLAIN, 13));
+        lblRootOrderCode.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 13));
         lblRootOrderCode.setForeground(Color.GRAY);
 
         billHeader.add(lblSelectedTableInfo);
@@ -230,32 +221,34 @@ public class StaffGUI extends JFrame {
         String[] cols = {"Lượt Gọi", "Tên Món Ăn", "Đơn Giá", "SL", "Thành Tiền", "Trạng Thái"};
         billItemsModel = new DefaultTableModel(cols, 0) {
             @Override
-            public boolean isCellEditable(int r, int c) { return false; }
+            public boolean isCellEditable(int r, int c) {
+                return false;
+            }
         };
+
         JTable billTable = new JTable(billItemsModel);
         billTable.setRowHeight(34);
-        billTable.setFont(getCustomFont("Inter", Font.PLAIN, 13));
+        billTable.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 13));
         billTable.setShowVerticalLines(false);
         billTable.setGridColor(new Color(240, 240, 240));
 
         JTableHeader th = billTable.getTableHeader();
-        th.setFont(getCustomFont("Be Vietnam Pro Black", Font.BOLD, 13));
-        th.setBackground(FOREST_BG);
+        th.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 13));
+        th.setBackground(Utils.FOREST_BG);
         th.setForeground(Color.WHITE);
         th.setPreferredSize(new Dimension(th.getWidth(), 38));
 
-        // Khung tổng kết hóa đơn
         JPanel summaryBox = new JPanel(new GridLayout(5, 2, 10, 10));
-        summaryBox.setBackground(CREAM_BG);
+        summaryBox.setBackground(Utils.CREAM_BG);
         summaryBox.setBorder(new EmptyBorder(16, 18, 16, 18));
 
-        lblSubtotal = createValueLabel("0 VNĐ", Font.BOLD, 14, TEXT_DARK);
+        lblSubtotal = createValueLabel("0 VNĐ", Font.BOLD, 14, Utils.TEXT_DARK);
         lblDiscount = createValueLabel("0 VNĐ", Font.BOLD, 14, new Color(46, 125, 50));
-        lblTaxVAT = createValueLabel("0 VNĐ", Font.BOLD, 14, TEXT_DARK);
-        lblFinalTotal = createValueLabel("0 VNĐ", Font.BOLD, 22, TERRACOTTA);
+        lblTaxVAT = createValueLabel("0 VNĐ", Font.BOLD, 14, Utils.TEXT_DARK);
+        lblFinalTotal = createValueLabel("0 VNĐ", Font.BOLD, 22, Utils.TERRACOTTA);
 
         cboPaymentMethod = new JComboBox<>(PaymentMethod.values());
-        cboPaymentMethod.setFont(getCustomFont("Inter", Font.BOLD, 14));
+        cboPaymentMethod.setFont(Utils.getCustomFont("Inter", Font.BOLD, 14));
         cboPaymentMethod.setBackground(Color.WHITE);
 
         summaryBox.add(createTitleLabel("Tổng tiền món (Đã gộp các lượt):"));
@@ -279,7 +272,10 @@ public class StaffGUI extends JFrame {
         southPanel.add(btnCheckout, BorderLayout.SOUTH);
 
         rightCard.add(billHeader, BorderLayout.NORTH);
-        rightCard.add(new JScrollPane(billTable), BorderLayout.CENTER);
+        JScrollPane billScroll = new JScrollPane(billTable);
+        billScroll.setVerticalScrollBar(new CScrollBar());
+        billScroll.setBorder(BorderFactory.createEmptyBorder());
+        rightCard.add(billScroll, BorderLayout.CENTER);
         rightCard.add(southPanel, BorderLayout.SOUTH);
 
         workspace.add(leftCard);
@@ -289,14 +285,14 @@ public class StaffGUI extends JFrame {
 
     private JLabel createTitleLabel(String text) {
         JLabel lbl = new JLabel(text);
-        lbl.setFont(getCustomFont("Be Vietnam Pro Black", Font.PLAIN, 14));
-        lbl.setForeground(TEXT_DARK);
+        lbl.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.PLAIN, 14));
+        lbl.setForeground(Utils.TEXT_DARK);
         return lbl;
     }
 
     private JLabel createValueLabel(String text, int style, int size, Color color) {
         JLabel lbl = new JLabel(text, SwingConstants.RIGHT);
-        lbl.setFont(getCustomFont("Be Vietnam Pro Black", style, size));
+        lbl.setFont(Utils.getCustomFont("Be Vietnam Pro Black", style, size));
         lbl.setForeground(color);
         return lbl;
     }
@@ -321,7 +317,7 @@ public class StaffGUI extends JFrame {
                     + (isFree ? "● BÀN TRỐNG" : "● ĐANG DÙNG BỮA") + "</center></html>");
 
             btnTable.setPreferredSize(new Dimension(150, 125));
-            btnTable.setFont(getCustomFont("Be Vietnam Pro Black", Font.PLAIN, 14));
+            btnTable.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.PLAIN, 14));
             btnTable.setForeground(Color.WHITE);
             btnTable.setContentAreaFilled(false);
             btnTable.setFocusPainted(false);
@@ -352,7 +348,8 @@ public class StaffGUI extends JFrame {
             return;
         }
 
-        lblRootOrderCode.setText("Mã đơn gốc: " + mergedOrder.getOrderCode() + " (ID gốc: #" + mergedOrder.getId() + " — Đã gộp toàn bộ các lượt gọi thêm)");
+        lblRootOrderCode.setText("Mã đơn gốc: " + mergedOrder.getOrderCode()
+                + " (ID gốc: #" + mergedOrder.getId() + " — Đã gộp toàn bộ các lượt gọi thêm)");
 
         for (OrderItemDTO item : mergedOrder.getItems()) {
             String turnLabel = item.getOrderId().equals(mergedOrder.getId())
@@ -392,10 +389,10 @@ public class StaffGUI extends JFrame {
         PaymentMethod method = (PaymentMethod) cboPaymentMethod.getSelectedItem();
         int confirm = JOptionPane.showConfirmDialog(
                 this,
-                "Xác nhận xuất hóa đơn thanh toán cho " + selectedTableName + "?\n" +
-                        "- Tổng thanh toán: " + lblFinalTotal.getText() + "\n" +
-                        "- Phương thức: " + method.name() + "\n\n" +
-                        "Sau khi xác nhận, tất cả các lượt gọi món sẽ chuyển sang COMPLETED và bàn sẽ mở trống.",
+                "Xác nhận xuất hóa đơn thanh toán cho " + selectedTableName + "?\n"
+                        + "- Tổng thanh toán: " + lblFinalTotal.getText() + "\n"
+                        + "- Phương thức: " + method.name() + "\n\n"
+                        + "Sau khi xác nhận, tất cả các lượt gọi món sẽ chuyển sang COMPLETED và bàn sẽ mở trống.",
                 "Xác Nhận Thanh Toán - Bếp Nhà Restaurant",
                 JOptionPane.YES_NO_OPTION
         );
@@ -405,20 +402,12 @@ public class StaffGUI extends JFrame {
         }
     }
 
-    private Font getCustomFont(String fontName, int style, int size) {
-        return new Font(fontName, style, size);
-    }
-
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
             try {
-                System.out.println("Đang khởi động StaffGUI...");
-                StaffGUI gui = new StaffGUI();
-                gui.setVisible(true);
-                System.out.println("StaffGUI đã hiển thị thành công!");
+                new StaffGUI().setVisible(true);
             } catch (Throwable t) {
-                System.err.println("LỖI NGHIÊM TRỌNG KHI KHỞI CHẠY GIAO DIỆN:");
-                t.printStackTrace(); // In toàn bộ lỗi ra console để biết bị văng ở đâu
+                t.printStackTrace();
             }
         });
     }

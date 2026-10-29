@@ -2,15 +2,16 @@ package bus;
 
 import api.SocketClient;
 import dto.*;
+
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.Map;
 
 public class ClientTabletBUS {
 
-    private final Long tableId;
-    private final Long defaultTableUserId;
+    private final Long tableId, defaultTableUserId;
     private final SocketClient socketClient = new SocketClient();
 
     private List<CategoryDTO> categories = new ArrayList<>();
@@ -35,16 +36,23 @@ public class ClientTabletBUS {
         if (packet.isSuccess()) {
             switch (packet.getAction()) {
                 case GET_MENU_AND_CATEGORIES:
-                    this.menuFoods = (List<FoodDTO>) packet.getData();
-                    this.categories = (List<CategoryDTO>) packet.getExtraData();
+                    this.menuFoods = packet.getData() instanceof List<?>
+                            ? (List<FoodDTO>) packet.getData() : new ArrayList<>();
+                    this.categories = packet.getExtraData() instanceof List<?>
+                            ? (List<CategoryDTO>) packet.getExtraData() : new ArrayList<>();
                     break;
 
                 case PLACE_ORDER:
-                    this.trackedItems = (List<OrderItemDTO>) packet.getExtraData();
+                    // Chỉ xóa giỏ hàng sau khi server xác nhận thành công.
+                    this.currentCart.clear();
+                    if (packet.getExtraData() instanceof List<?>) {
+                        this.trackedItems = (List<OrderItemDTO>) packet.getExtraData();
+                    }
                     break;
 
                 case GET_TABLE_TRACKING:
-                    this.trackedItems = (List<OrderItemDTO>) packet.getData();
+                    this.trackedItems = packet.getData() instanceof List<?>
+                            ? (List<OrderItemDTO>) packet.getData() : new ArrayList<>();
                     break;
 
                 case KITCHEN_UPDATE_STATUS:
@@ -108,7 +116,7 @@ public class ClientTabletBUS {
     /**
      * Gửi đơn hàng từ giỏ kèm mã Voucher và ghi chú qua TCP Socket
      */
-    public boolean submitOrderToServer(String voucherCode, String note) {
+    public boolean submitOrderToServer(String voucherCode, Map<Long, String> itemNotes){
         if (currentCart.isEmpty() || !socketClient.isConnected()) return false;
 
         OrderDTO order = new OrderDTO();
@@ -116,11 +124,10 @@ public class ClientTabletBUS {
         order.setTableId(this.tableId);
         order.setOrderType(OrderType.DINE_IN);
         order.setStatus(OrderStatus.PENDING);
-        order.setNote(note);
+        order.setNote(buildOrderNote(itemNotes));
         order.setItems(new ArrayList<>(currentCart));
 
         socketClient.sendOrderToServer(order, voucherCode);
-        currentCart.clear();
         return true;
     }
 
@@ -128,8 +135,52 @@ public class ClientTabletBUS {
         socketClient.callStaff(message);
     }
 
-    public List<CategoryDTO> getCategories() { return categories; }
-    public List<FoodDTO> getMenuFoods() { return menuFoods; }
-    public List<OrderItemDTO> getCurrentCart() { return currentCart; }
-    public List<OrderItemDTO> getTrackedItems() { return trackedItems; }
+    public void requestTableTracking() {
+        if (socketClient.isConnected()) socketClient.requestTableTracking();
+    }
+
+    public boolean isServerConnected() {
+        return socketClient.isConnected();
+    }
+
+    private String buildOrderNote(Map<Long, String> itemNotes) {
+        if (itemNotes == null || itemNotes.isEmpty()) {
+            return "";
+        }
+
+        List<String> notes = new ArrayList<>();
+
+        for (OrderItemDTO item : currentCart) {
+            String note = itemNotes.get(item.getFoodsId());
+            if (note == null || note.isBlank()) continue;
+
+            notes.add(item.getFoodsName() + " (x" + item.getQuantity() + "): " + note.trim());
+
+        }
+
+        return String.join(" | ", notes);
+    }
+
+    public boolean canRequestCancelOrEdit(OrderItemDTO item) {
+        if (item == null) return false;
+        OrderStatus status = item.getStatus();
+
+        return status == OrderStatus.PENDING || status == OrderStatus.RECEIVED;
+    }
+
+    public List<CategoryDTO> getCategories() {
+        return categories;
+    }
+
+    public List<FoodDTO> getMenuFoods() {
+        return menuFoods;
+    }
+
+    public List<OrderItemDTO> getCurrentCart() {
+        return currentCart;
+    }
+
+    public List<OrderItemDTO> getTrackedItems() {
+        return trackedItems;
+    }
 }
