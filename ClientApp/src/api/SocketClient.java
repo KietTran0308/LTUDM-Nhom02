@@ -4,97 +4,100 @@ import dto.*;
 import java.io.*;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.util.function.Consumer;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 
+/** Mot ket noi TCP xuyen suot phien dang nhap, GUI lay packet qua pollPacket(). */
 public class SocketClient {
-
     private Socket socket;
     private PrintWriter out;
     private BufferedReader in;
-    private boolean isConnected = false;
+    private volatile boolean connected;
     private Long tableId;
+    private final BlockingQueue<SocketPacket> packetQueue = new LinkedBlockingQueue<>();
 
-    private Consumer<SocketPacket> onServerPacketReceived;
-
-    public boolean connect(String host, int port, Long tableId, Consumer<SocketPacket> onServerPacketReceived) {
+    public synchronized boolean connect(String host, int port, Long tableId) {
+        if (connected) return true;
         this.tableId = tableId;
-        this.onServerPacketReceived = onServerPacketReceived;
-
         try {
-            socket = new Socket(host, port);
-            out = new PrintWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8), true);
-            in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
-            isConnected = true;
-
-            Thread listenerThread = new Thread(this::listenFromServer);
-            listenerThread.setDaemon(true);
-            listenerThread.start();
-
-            if (tableId != null && tableId > 0) {
-                sendRequest(new SocketPacket(SocketAction.REGISTER_TABLE, tableId, null, null));
-                requestMenuAndCategories();
-            }
-
+            Socket s = new Socket();
+            s.connect(new java.net.InetSocketAddress(host, port), 3000);
+            s.setKeepAlive(true);
+            socket = s;
+            out = new PrintWriter(new OutputStreamWriter(s.getOutputStream(), StandardCharsets.UTF_8), true);
+            in = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.UTF_8));
+            connected = true;
+            Thread reader = new Thread(this::listenFromServer, "client-socket-reader");
+            reader.setDaemon(true);
+            reader.start();
+            // KHONG tu dong REGISTER_TABLE: phai LOGIN va co token phien ban truoc.
             return true;
         } catch (IOException e) {
-            System.err.println("[SocketClient - JSON] Không kết nối được TCP Server (" + host + ":" + port + ").");
-            isConnected = false;
+            System.err.println("Khong ket noi TCP " + host + ":" + port + " - " + e.getMessage());
+            close();
             return false;
         }
     }
 
     private void listenFromServer() {
         try {
-            String rawJsonLine;
-            while (isConnected && !socket.isClosed() && (rawJsonLine = in.readLine()) != null) {
-                System.out.println("[Client <- Server JSON]: " + rawJsonLine);
-
-                // Giải mã chuỗi JSON nhận được bằng org.json thành SocketPacket
-                SocketPacket packet = SocketJsonMapper.fromJsonString(rawJsonLine);
-                if (onServerPacketReceived != null) {
-                    onServerPacketReceived.accept(packet);
+            String line;
+            while (connected && (line = in.readLine()) != null) {
+                try {
+                    packetQueue.offer(SocketJsonMapper.fromJsonString(line));
+                } catch (RuntimeException badPacket) {
+                    System.err.println("Goi tin JSON khong hop le: " + badPacket.getMessage());
                 }
             }
-        } catch (Exception e) {
-            isConnected = false;
-            System.err.println("[SocketClient - JSON] Mất kết nối tới Server: " + e.getMessage());
+        } catch (IOException e) {
+            if (connected) System.err.println("Mat ket noi Server: " + e.getMessage());
+        } finally {
+            connected = false;
         }
     }
 
-    /**
-     * Đóng gói SocketPacket thành chuỗi JSON bằng org.json và gửi qua TCP Socket
-     */
-    public synchronized void sendRequest(SocketPacket packet) {
-        if (!isConnected || out == null) return;
+    public synchronized boolean sendRequest(SocketPacket packet) {
+        if (!connected || out == null || packet == null) return false;
         try {
-            String jsonPayload = SocketJsonMapper.toJsonString(packet);
-            System.out.println("[Client -> Server JSON]: " + jsonPayload);
-            out.println(jsonPayload); // Gửi 1 dòng JSON kết thúc bằng \n
-        } catch (Exception e) {
-            e.printStackTrace();
+            // Tuyet doi khong log JSON thuc: LOGIN chua mat khau, REGISTER_TABLE chua token.
+            out.println(SocketJsonMapper.toJsonString(packet));
+            if (out.checkError()) {
+                connected = false;
+                System.err.println("Gui yeu cau that bai: " + packet.getAction());
+                return false;
+            }
+            return true;
+        } catch (RuntimeException e) {
+            System.err.println("Khong the ma hoa yeu cau " + packet.getAction() + ": " + e.getMessage());
+            return false;
         }
     }
 
+    public SocketPacket pollPacket() { return packetQueue.poll(); }
+    public boolean isConnected() { return connected; }
     public void requestMenuAndCategories() {
         sendRequest(new SocketPacket(SocketAction.GET_MENU_AND_CATEGORIES, tableId, null, null));
     }
-
-    // 2. Gửi đối tượng OrderDTO và mã Voucher xuống Server
-    public void sendOrderToServer(OrderDTO order, String voucherCode) {
-        sendRequest(new SocketPacket(SocketAction.PLACE_ORDER, tableId, order, voucherCode));
+    public boolean sendOrderToServer(OrderDTO order, String voucherCode) {
+        return sendRequest(new SocketPacket(SocketAction.PLACE_ORDER, tableId, order, voucherCode));
     }
-
-    // 3. Yêu cầu làm mới bảng Theo dõi đơn hàng của bàn
     public void requestTableTracking() {
         sendRequest(new SocketPacket(SocketAction.GET_TABLE_TRACKING, tableId, null, null));
     }
-
-    // 4. Bấm chuông gọi nhân viên tại bàn
-    public void callStaff(String note) {
-        sendRequest(new SocketPacket(SocketAction.CALL_STAFF, tableId, note, null));
+    public boolean callStaff(String note) {
+        return sendRequest(new SocketPacket(SocketAction.CALL_STAFF, tableId, note, null));
     }
-
-    public boolean isConnected() {
-        return isConnected;
+    public void registerTable(Long tableId, String token) {
+        this.tableId = tableId;
+        sendRequest(new SocketPacket(SocketAction.REGISTER_TABLE, tableId, token, null));
+    }
+    public void logout() { sendRequest(new SocketPacket(SocketAction.LOGOUT, null, null, null)); }
+    public synchronized void close() {
+        connected = false;
+        if (socket != null) try { socket.close(); } catch (IOException ignored) { }
+        if (out != null) out.close();
+        if (in != null) try { in.close(); } catch (IOException ignored) { }
+        socket = null; in = null; out = null;
+        packetQueue.clear();
     }
 }

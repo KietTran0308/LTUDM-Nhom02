@@ -4,13 +4,15 @@ import bus.AuthBUS;
 import dto.SocketAction;
 import dto.SocketPacket;
 import dto.UserDTO;
-import gui.components.*;
+import components.*;
 import utils.Utils;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.*;
+import java.util.Locale;
+import api.SocketClient;
 
 public class AuthGUI extends JFrame {
 
@@ -21,6 +23,8 @@ public class AuthGUI extends JFrame {
     private final CardLayout cardLayout = new CardLayout();
     private final JPanel rightCardPanel = new JPanel(cardLayout);
     private final AuthBUS authBUS;
+
+    private Timer responseTimer;
 
     private JCheckBox chkRemember;
     private CButton btnLogin, btnRegister;
@@ -52,7 +56,13 @@ public class AuthGUI extends JFrame {
             }
         });
 
-        authBUS = new AuthBUS(this::onAuthServerResponse);
+        authBUS = new AuthBUS();
+        startResponseTimer();
+        addWindowListener(new WindowAdapter() {
+            @Override public void windowClosed(WindowEvent e) {
+                if (responseTimer != null) responseTimer.stop();
+            }
+        });
     }
 
     private JPanel createLeftPanel() {
@@ -276,17 +286,19 @@ public class AuthGUI extends JFrame {
         String pass = new String(txtLoginPassword.getPassword()).trim();
 
         if (account.isEmpty() || account.equals("name@bepnha.vn") || pass.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Vui lòng nhập Email/SĐT và Mật khẩu!", "Nhắc nhở", JOptionPane.WARNING_MESSAGE);
+            CToast.show(this, "Vui lòng nhập Email/SĐT và Mật khẩu!", "Nhắc nhở", CToast.WARNING);
             return;
         }
 
-        if (!authBUS.login(account, pass)) {
-            if (account.toLowerCase().contains("staff")) {
-                new StaffGUI().setVisible(true);
-            } else {
-                new CustomerGUI(1L, 1L).setVisible(true);
-            }
-            dispose();
+        if(!authBUS.login(account, pass)){
+            CToast.show(
+                    this,
+                    "Không kết nối được Server.\n"
+                            + "Vui lòng kiểm tra ServerApp tại cổng 8888.",
+                    "Lỗi kết nối",
+                    CToast.ERROR
+            );
+            return;
         }
     }
 
@@ -298,45 +310,92 @@ public class AuthGUI extends JFrame {
         String confirm = new String(txtRegConfirmPassword.getPassword()).trim();
 
         if (fullName.isEmpty() || email.isEmpty() || pass.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Vui lòng điền đầy đủ thông tin bắt buộc!", "Lỗi", JOptionPane.WARNING_MESSAGE);
+            CToast.show(this, "Vui lòng điền đầy đủ thông tin bắt buộc!", "Lỗi", CToast.WARNING);
             return;
         }
         if (!pass.equals(confirm)) {
-            JOptionPane.showMessageDialog(this, "Mật khẩu xác nhận không khớp!", "Lỗi", JOptionPane.ERROR_MESSAGE);
+            CToast.show(this, "Mật khẩu xác nhận không khớp!", "Lỗi", CToast.ERROR);
             return;
         }
         if (!authBUS.register(fullName, email, phone, pass)) {
-            JOptionPane.showMessageDialog(this, "Không kết nối được ServerApp (Port 8888)!", "Lỗi mạng", JOptionPane.ERROR_MESSAGE);
+            CToast.show(this, "Không kết nối được ServerApp (Port 8888)!", "Lỗi mạng", CToast.ERROR);
         }
     }
 
     private void onAuthServerResponse(SocketPacket packet) {
-        SwingUtilities.invokeLater(() -> {
-            if (packet.getAction() == SocketAction.LOGIN) {
-                if (!packet.isSuccess()) {
-                    JOptionPane.showMessageDialog(this, packet.getMessage(), "Đăng nhập thất bại", JOptionPane.ERROR_MESSAGE);
+        if (packet.getAction() == SocketAction.REGISTER) {
+            if (packet.isSuccess()) {
+                CToast.success(this, "Đăng ký thành công. Vui lòng đăng nhập.");
+                txtLoginEmail.setText(txtRegEmail.getText());
+                cardLayout.show(rightCardPanel, CARD_LOGIN);
+            } else {
+                CToast.error(this, packet.getMessage());
+            }
+            return;
+        }
+        if (packet.getAction() != SocketAction.LOGIN) return;
+        if (!packet.isSuccess()) {
+            CToast.error(this, packet.getMessage());
+            return;
+        }
+        if (!(packet.getData() instanceof UserDTO)) {
+            CToast.error(this, "Server không trả thông tin người dùng hợp lệ.");
+            return;
+        }
+        UserDTO user = (UserDTO) packet.getData();
+        String role = user.getRoleName();
+        if (role == null) {
+            CToast.error(this, "Tài khoản chưa được phân quyền.");
+            return;
+        }
+        SocketClient session = authBUS.getSocketClient();
+        JFrame next;
+        switch (role.toUpperCase(Locale.ROOT)) {
+            case "STAFF":
+            case "ADMIN":
+                next = new StaffGUI(user, session);
+                break;
+            case "KITCHEN":
+                next = new StaffGUI(user, session);
+                break;
+            case "CUSTOMER":
+                JPanel inputPanel = new JPanel(new GridLayout(2, 2, 10, 10));
+                JTextField txtTableId = new JTextField();
+                JTextField txtToken = new JTextField();
+                inputPanel.add(new JLabel("Mã bàn:")); inputPanel.add(txtTableId);
+                inputPanel.add(new JLabel("Mã phiên bàn:")); inputPanel.add(txtToken);
+                int result = JOptionPane.showConfirmDialog(this, inputPanel,
+                        "Xác minh bàn phục vụ", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+                if (result != JOptionPane.OK_OPTION) {
+                    resetAuthenticatedLogin();
                     return;
                 }
-                UserDTO user = (UserDTO) packet.getData();
-                String role = user.getRoleName() != null ? user.getRoleName().toUpperCase() : "CUSTOMER";
-
-                if (role.contains("STAFF") || role.contains("CASHIER") || role.contains("ADMIN")) {
-                    new StaffGUI(user).setVisible(true);
-                } else {
-                    new CustomerGUI(1L, user.getId()).setVisible(true);
+                try {
+                    long tableId = Long.parseLong(txtTableId.getText().trim());
+                    String token = txtToken.getText().trim();
+                    if (tableId <= 0 || token.isEmpty()) throw new IllegalArgumentException();
+                    next = new CustomerGUI(tableId, user.getId(), session, token);
+                } catch (IllegalArgumentException ex) {
+                    CToast.warning(this, "Mã bàn hoặc mã phiên không hợp lệ. Vui lòng đăng nhập lại.");
+                    resetAuthenticatedLogin();
+                    return;
                 }
-                dispose();
+                break;
+            default:
+                CToast.error(this, "Vai trò không được hỗ trợ: " + role);
+                resetAuthenticatedLogin();
+                return;
+        }
+        responseTimer.stop();
+        next.setVisible(true);
+        dispose();
+    }
 
-            } else if (packet.getAction() == SocketAction.REGISTER) {
-                if (packet.isSuccess()) {
-                    JOptionPane.showMessageDialog(this, packet.getMessage() + "\nVui lòng đăng nhập.", "Thành công", JOptionPane.INFORMATION_MESSAGE);
-                    txtLoginEmail.setText(txtRegEmail.getText());
-                    cardLayout.show(rightCardPanel, CARD_LOGIN);
-                } else {
-                    JOptionPane.showMessageDialog(this, packet.getMessage(), "Đăng ký thất bại", JOptionPane.ERROR_MESSAGE);
-                }
-            }
-        });
+    private void resetAuthenticatedLogin() {
+        if (responseTimer != null) responseTimer.stop();
+        authBUS.close();
+        new AuthGUI().setVisible(true);
+        dispose();
     }
 
     private JPanel createTitleHeader(String text) {
@@ -385,6 +444,22 @@ public class AuthGUI extends JFrame {
         panel.add(lblPrompt);
         panel.add(lblLink);
         return panel;
+    }
+
+    private void startResponseTimer() {
+        responseTimer = new Timer(100, e -> {
+            SocketPacket packet;
+
+            while ((packet = authBUS.pollPacket()) != null) {
+                handleServerResponse(packet);
+            }
+        });
+
+        responseTimer.start();
+    }
+
+    private void handleServerResponse(SocketPacket packet) {
+        onAuthServerResponse(packet);
     }
 
     public static void main(String[] args) {

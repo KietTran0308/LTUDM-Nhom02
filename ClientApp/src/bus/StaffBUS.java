@@ -2,26 +2,39 @@ package bus;
 
 import dto.*;
 import api.SocketClient;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Consumer;
 
 public class StaffBUS {
 
-    private final SocketClient socketClient = new SocketClient();
+    private final SocketClient socketClient;
     private List<TableDTO> tableList = new ArrayList<>();
-    private OrderDTO currentPreviewOrder; // Chứa đơn gốc + toàn bộ món gộp từ các lượt gọi thêm
-    private final Consumer<SocketPacket> guiCallback;
-
-    // Thuế VAT nhà hàng tiêu chuẩn (8%)
+    private OrderDTO currentPreviewOrder;
     private static final BigDecimal VAT_RATE = new BigDecimal("0.08");
 
-    public StaffBUS(Consumer<SocketPacket> guiCallback) {
-        this.guiCallback = guiCallback;
-        // Thu ngân kết nối với tableId = 0L (Định danh máy POS Thu ngân)
-        socketClient.connect("localhost", 8888, 0L, this::onServerResponse);
+    public StaffBUS(SocketClient sessionSocket) {
+        this.socketClient = java.util.Objects.requireNonNull(sessionSocket);
+    }
+
+    /**
+     * Chi goi tu Swing Timer tren EDT de update model va giao dien cung luc.
+     */
+    public SocketPacket pollPacket() {
+        SocketPacket packet = socketClient.pollPacket();
+        if (packet != null) onServerResponse(packet);
+        return packet;
+    }
+
+    public void logout() {
+        socketClient.logout();
+        socketClient.close();
+    }
+
+    public boolean isServerConnected() {
+        return socketClient.isConnected();
     }
 
     @SuppressWarnings("unchecked")
@@ -41,9 +54,6 @@ public class StaffBUS {
                 default:
                     break;
             }
-        }
-        if (guiCallback != null) {
-            guiCallback.accept(packet);
         }
     }
 
@@ -72,19 +82,26 @@ public class StaffBUS {
     }
 
     public boolean confirmCheckout(Long tableId, PaymentMethod paymentMethod) {
-        if (currentPreviewOrder == null) return false;
+        if (currentPreviewOrder == null || currentPreviewOrder.getTableSessionId() == null ||
+                tableId == null || !socketClient.isConnected() || paymentMethod == null) return false;
 
         BillDTO bill = new BillDTO();
-        bill.setOrderId(currentPreviewOrder.getId()); // Gắn vào ID của đơn gốc (parent_order_id IS NULL)
+        // SQL hien tai: bill.table_session_id; KHONG con bill.order_id.
+        // Server se doi chieu phien ACTIVE theo tableId va tinh lai tong tien.
+        bill.setTableSessionId(currentPreviewOrder.getTableSessionId());
         bill.setDiscount(currentPreviewOrder.getDiscountAmount());
         bill.setTax(calculateVAT());
         bill.setTotalAmount(calculateFinalBillTotal());
         bill.setPaymentMethod(paymentMethod);
 
-        socketClient.sendRequest(new SocketPacket(SocketAction.PAY_TABLE_BILL, tableId, bill, null));
-        return true;
+        return socketClient.sendRequest(new SocketPacket(SocketAction.PAY_TABLE_BILL, tableId, bill, null));
     }
 
-    public List<TableDTO> getTableList() { return tableList; }
-    public OrderDTO getCurrentPreviewOrder() { return currentPreviewOrder; }
+    public List<TableDTO> getTableList() {
+        return tableList;
+    }
+
+    public OrderDTO getCurrentPreviewOrder() {
+        return currentPreviewOrder;
+    }
 }
