@@ -1,9 +1,10 @@
 package gui;
 
+import api.SocketClient;
 import bus.ClientTabletBUS;
+import components.*;
 import dto.*;
-import gui.components.*;
-import utils.*;
+import utils.Utils;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -20,7 +21,6 @@ import java.awt.image.BufferedImage;
 import java.text.DecimalFormat;
 import java.util.*;
 import java.util.List;
-import java.util.stream.Collectors;
 
 public class CustomerGUI extends JFrame {
 
@@ -39,17 +39,12 @@ public class CustomerGUI extends JFrame {
     private static final int CARD_GAP = 16;
 
     private final Long currentTableId;
-    private final Long currentUserId;
-
     private final ClientTabletBUS tabletBUS;
-    private List<FoodDTO> displayFoods = new ArrayList<>();
+    private javax.swing.Timer responseTimer;
     private Long activeCategoryId = null;
 
     private final Map<Long, String> itemNotesMap = new HashMap<>();
-    private final Map<String, BufferedImage> foodImageCache = new HashMap<>();
-    private final Map<String, Long> failedImageTimes = new HashMap<>();
-    private static final long IMAGE_RETRY_MS = 30_000L;
-    private final Map<String, List<JLabel>> loadingFoodImages = new HashMap<>();
+    private final Map<Long, JLabel> foodImageLabels = new HashMap<>();
     private final Set<Long> completedNotified = new HashSet<>();
 
     private JPanel categoryListPanel, menuGridPanel;
@@ -77,11 +72,11 @@ public class CustomerGUI extends JFrame {
     private JLabel lblCartDetailTotal;
     private CTextField txtVoucher;
 
-    public CustomerGUI(Long tableId, Long userId) {
-        if (tableId == null || tableId <= 0 || userId == null || userId <= 0) throw new IllegalArgumentException("Cần tableId và userId hợp lệ từ phiên đăng nhập.");
-
+    public CustomerGUI(Long tableId, Long userId, SocketClient sessionSocket, String token) {
+        if (tableId == null || tableId <= 0 || userId == null || userId <= 0) {
+            throw new IllegalArgumentException("Cần tableId và userId hợp lệ từ phiên đăng nhập.");
+        }
         this.currentTableId = tableId;
-        this.currentUserId = userId;
 
         setExtendedState(JFrame.MAXIMIZED_BOTH);
         setUndecorated(true);
@@ -94,87 +89,107 @@ public class CustomerGUI extends JFrame {
         initLeftSidebar();
         initCenterContentArea();
 
-        tabletBUS = new ClientTabletBUS(currentTableId, currentUserId, this::onServerPacketCallback);
+        tabletBUS = new ClientTabletBUS(currentTableId, userId, sessionSocket, token);
+        startResponseTimer();
 
-        SwingUtilities.invokeLater(() -> {
-            rebuildCategoryButtons(tabletBUS.getCategories());
-            refreshAllCartViews();
-            refreshTrackTable();
+        rebuildCategoryButtons(tabletBUS.getCategories());
+        refreshAllCartViews();
+        refreshTrackTable();
+    }
+
+    private void startResponseTimer() {
+        responseTimer = new javax.swing.Timer(100, e -> {
+            if (!tabletBUS.isServerConnected()) {
+                if (awaitingOrderConfirmation) {
+                    resetSendOrderButtonState();
+                    CToast.error(this, "Đã mất kết nối với Server. Hãy kiểm tra đơn trước khi gửi lại.");
+                }
+            }
+            // 1. Lấy các gói tin phản hồi từ hàng đợi của BUS
+            SocketPacket packet;
+            while ((packet = tabletBUS.pollPacket()) != null) {
+                onServerPacketCallback(packet);
+            }
+
+            // 2. Lấy các ảnh món ăn vừa tải xong từ hàng đợi ảnh của BUS
+            Long loadedFoodId;
+            while ((loadedFoodId = tabletBUS.pollLoadedImageFoodId()) != null) {
+                JLabel lbl = foodImageLabels.get(loadedFoodId);
+                if (lbl != null) {
+                    lbl.putClientProperty("foodImage", tabletBUS.getCachedFoodImage(loadedFoodId));
+                    lbl.repaint();
+                }
+            }
         });
+        responseTimer.start();
     }
 
     private void onServerPacketCallback(SocketPacket packet) {
-        SwingUtilities.invokeLater(() -> {
-            if (!packet.isSuccess()) {
-                if (packet.getAction() == SocketAction.PLACE_ORDER) {
-                    resetSendOrderButtonState();
-                }
-                JOptionPane.showMessageDialog(this, packet.getMessage(), "Thông báo từ Bếp Nhà", JOptionPane.WARNING_MESSAGE);
-                return;
+        if (!packet.isSuccess()) {
+            if (packet.getAction() == SocketAction.PLACE_ORDER) {
+                resetSendOrderButtonState();
             }
+            CToast.show(this, packet.getMessage(), "Thông báo từ Bếp Nhà", CToast.WARNING);
+            return;
+        }
 
-            switch (packet.getAction()) {
-                case REGISTER_TABLE:
-                    lblConnectionStatus.setText("● Đã kết nối hệ thống Bếp");
-                    lblConnectionStatus.setForeground(new Color(110, 231, 183));
-                    tabletBUS.requestTableTracking();
-                    break;
+        switch (packet.getAction()) {
+            case REGISTER_TABLE:
+                lblConnectionStatus.setText("● Đã kết nối hệ thống Bếp");
+                lblConnectionStatus.setForeground(new Color(110, 231, 183));
+                tabletBUS.requestTableTracking();
+                break;
 
-                case GET_MENU_AND_CATEGORIES:
-                    this.displayFoods = tabletBUS.getMenuFoods();
-                    rebuildCategoryButtons(tabletBUS.getCategories());
-                    renderMenuCards(activeCategoryId);
-                    break;
+            case GET_MENU_AND_CATEGORIES:
+                rebuildCategoryButtons(tabletBUS.getCategories());
+                renderMenuCards(activeCategoryId);
+                break;
 
-                case PLACE_ORDER:
-                    resetSendOrderButtonState();
-                    itemNotesMap.clear();
-                    refreshAllCartViews();
-                    refreshTrackTable();
-                    switchCenterView(VIEW_ORDER_TRACKING);
-                    tabletBUS.requestTableTracking();
-                    JOptionPane.showMessageDialog(this, packet.getMessage(), "Đặt món thành công", JOptionPane.INFORMATION_MESSAGE);
-                    break;
+            case PLACE_ORDER:
+                resetSendOrderButtonState();
+                itemNotesMap.clear();
+                refreshAllCartViews();
+                refreshTrackTable();
+                switchCenterView(VIEW_ORDER_TRACKING);
+                tabletBUS.requestTableTracking();
+                CToast.show(this, packet.getMessage(), "Đặt món thành công", CToast.SUCCESS);
+                break;
 
-                case GET_TABLE_TRACKING:
-                    refreshTrackTable();
-                    break;
+            case GET_TABLE_TRACKING:
+                refreshTrackTable();
+                break;
 
-                case KITCHEN_UPDATE_STATUS:
-                    refreshTrackTable();
-                    if (packet.getData() instanceof Long && packet.getExtraData() == OrderStatus.COMPLETED) {
-                        Long completedId = (Long) packet.getData();
-                        if (completedNotified.add(completedId)) {
-                            String foodName = tabletBUS.getTrackedItems().stream()
-                                    .filter(item -> completedId.equals(item.getId()))
-                                    .map(OrderItemDTO::getFoodsName)
-                                    .findFirst()
-                                    .orElse("Món #" + completedId);
-                            lblKitchenNotice.setText("🔔 " + foodName + " đã chế biến xong — vui lòng chờ nhân viên mang món.");
-                            lblKitchenNotice.setVisible(true);
-                        }
+            case KITCHEN_UPDATE_STATUS:
+                refreshTrackTable();
+                if (packet.getData() instanceof Long && packet.getExtraData() == OrderStatus.COMPLETED) {
+                    Long completedId = (Long) packet.getData();
+                    if (completedNotified.add(completedId)) {
+                        OrderItemDTO completedItem = tabletBUS.getTrackedItemById(completedId);
+                        String foodName = completedItem != null ? completedItem.getFoodsName() : "Món #" + completedId;
+                        lblKitchenNotice.setText("🔔 " + foodName + " đã chế biến xong — vui lòng chờ nhân viên mang món.");
+                        lblKitchenNotice.setVisible(true);
                     }
-                    break;
+                }
+                break;
 
-                case CALL_STAFF:
-                    JOptionPane.showMessageDialog(this, packet.getMessage());
-                    break;
+            case CALL_STAFF:
+                CToast.success(this, packet.getMessage());
+                break;
 
-                case TABLE_CLEARED_RESET:
-                    resetSendOrderButtonState();
-                    completedNotified.clear();
-                    lblKitchenNotice.setVisible(false);
-                    itemNotesMap.clear();
-                    refreshAllCartViews();
-                    refreshTrackTable();
-                    switchCenterView(VIEW_MENU);
-                    JOptionPane.showMessageDialog(this, packet.getMessage(), "Cảm ơn quý khách", JOptionPane.INFORMATION_MESSAGE);
-                    break;
+            case TABLE_CLEARED_RESET:
+                resetSendOrderButtonState();
+                completedNotified.clear();
+                lblKitchenNotice.setVisible(false);
+                itemNotesMap.clear();
+                refreshAllCartViews();
+                refreshTrackTable();
+                switchCenterView(VIEW_MENU);
+                CToast.show(this, packet.getMessage(), "Cảm ơn quý khách", CToast.SUCCESS);
+                break;
 
-                default:
-                    break;
-            }
-        });
+            default:
+                break;
+        }
     }
 
     private void resetSendOrderButtonState() {
@@ -268,7 +283,9 @@ public class CustomerGUI extends JFrame {
                     "Quý khách cần hỗ trợ gì? (Thêm đồ dùng, chỉnh món, hủy món, gọi tính tiền...):",
                     "Gọi nhân viên Bếp Nhà", JOptionPane.PLAIN_MESSAGE);
             if (req != null && !req.trim().isEmpty()) {
-                tabletBUS.callStaffSupport(req.trim());
+                if (!tabletBUS.callStaffSupport(req.trim())) {
+                    CToast.warning(this, "Chưa xác thực phiên bàn hoặc mất kết nối.");
+                }
             }
         });
 
@@ -313,15 +330,16 @@ public class CustomerGUI extends JFrame {
 
     private void requestService(String title, String message) {
         if (tabletBUS == null || !tabletBUS.isServerConnected()) {
-            JOptionPane.showMessageDialog(this,
+            CToast.show(this,
                     "Chưa kết nối ServerApp. Vui lòng báo trực tiếp với nhân viên.",
-                    title, JOptionPane.WARNING_MESSAGE);
+                    title, CToast.WARNING);
             return;
         }
-        tabletBUS.callStaffSupport(message);
-        JOptionPane.showMessageDialog(this,
-                "Đã gửi yêu cầu hỗ trợ. Vui lòng chờ nhân viên xác nhận.",
-                title, JOptionPane.INFORMATION_MESSAGE);
+        if (tabletBUS.callStaffSupport(message)) {
+            CToast.info(this, "Yêu cầu đã gửi qua Socket; đang chờ Server xác nhận.");
+        } else {
+            CToast.warning(this, "Chưa xác thực phiên bàn hoặc mất kết nối.");
+        }
     }
 
     private void logout() {
@@ -331,9 +349,9 @@ public class CustomerGUI extends JFrame {
         int answer = JOptionPane.showConfirmDialog(this,
                 alert + "Các món đã gửi vẫn ở bếp và không tự hủy khi đăng xuất.\nThoát phiên này?",
                 "Thoát phiên tại bàn", JOptionPane.YES_NO_OPTION);
-        if (answer != JOptionPane.YES_OPTION) {
-            return;
-        }
+        if (answer != JOptionPane.YES_OPTION) return;
+        if (responseTimer != null) responseTimer.stop();
+        tabletBUS.logout();
         new AuthGUI().setVisible(true);
         dispose();
     }
@@ -619,7 +637,7 @@ public class CustomerGUI extends JFrame {
         JButton btnRefresh = createOutlineButton("↻ Làm mới tiến độ");
         btnRefresh.addActionListener(e -> {
             if (!tabletBUS.isServerConnected()) {
-                JOptionPane.showMessageDialog(this, "Chưa kết nối được bếp. Vui lòng gọi nhân viên.");
+                CToast.warning(this, "Chưa kết nối được bếp. Vui lòng gọi nhân viên.");
             } else {
                 tabletBUS.requestTableTracking();
             }
@@ -641,12 +659,8 @@ public class CustomerGUI extends JFrame {
 
         rawTable.getSelectionModel().addListSelectionListener(e -> {
             if (e.getValueIsAdjusting()) return;
-
             OrderItemDTO item = getSelectedTrackedItem();
-
-            boolean canRequest = tabletBUS.canRequestCancelOrEdit(item);
-
-            btnRequestCancelSupport.setEnabled(canRequest);
+            btnRequestCancelSupport.setEnabled(tabletBUS != null && tabletBUS.canRequestCancelOrEdit(item));
         });
 
         btnRequestCancelSupport.addActionListener(e -> handleCancelOrEditSupportRequest());
@@ -677,8 +691,8 @@ public class CustomerGUI extends JFrame {
         if (reason == null || reason.trim().isEmpty()) return;
 
         if (!tabletBUS.isServerConnected()) {
-            JOptionPane.showMessageDialog(this, "Chưa kết nối bếp. Vui lòng gọi nhân viên trực tiếp.",
-                    "Không thể gửi yêu cầu", JOptionPane.WARNING_MESSAGE);
+            CToast.show(this, "Chưa kết nối bếp. Vui lòng gọi nhân viên trực tiếp.",
+                    "Không thể gửi yêu cầu", CToast.WARNING);
             return;
         }
 
@@ -762,14 +776,13 @@ public class CustomerGUI extends JFrame {
     }
 
     private void renderMenuCards(Long categoryId) {
-        if (menuGridPanel == null) return;
+        if (menuGridPanel == null || tabletBUS == null) return;
 
         int scrollY = menuScrollPane.getVerticalScrollBar().getValue();
         menuGridPanel.removeAll();
+        foodImageLabels.clear();
 
-        List<FoodDTO> filtered = displayFoods.stream()
-                .filter(f -> categoryId == null || categoryId.equals(f.getCategoryId()))
-                .collect(Collectors.toList());
+        List<FoodDTO> filtered = tabletBUS.getFoodsByCategory(categoryId);
 
         int viewportWidth = menuScrollPane.getViewport().getWidth();
         if (viewportWidth <= 0) {
@@ -779,7 +792,7 @@ public class CustomerGUI extends JFrame {
         int cardWidth = Math.min(MAX_CARD_WIDTH, Math.max(MIN_CARD_WIDTH, (viewportWidth - (columns - 1) * CARD_GAP - 2) / columns));
 
         if (filtered.isEmpty()) {
-            JLabel message = new JLabel(displayFoods.isEmpty()
+            JLabel message = new JLabel(tabletBUS.getMenuFoods().isEmpty()
                     ? "Chưa tải được thực đơn từ máy chủ. Vui lòng kiểm tra kết nối hoặc gọi nhân viên."
                     : "Chưa có món ăn trong danh mục này.");
             message.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 14));
@@ -816,7 +829,7 @@ public class CustomerGUI extends JFrame {
     }
 
     private JPanel createStyledFoodCard(FoodDTO food, int cardWidth) {
-        int currentQty = getFoodQuantityInCart(food.getId());
+        int currentQty = tabletBUS.getFoodQuantityInCart(food.getId());
 
         JPanel card = new JPanel(new BorderLayout(0, 8)) {
             @Override
@@ -866,7 +879,13 @@ public class CustomerGUI extends JFrame {
         lblImg.setOpaque(false);
         lblImg.setFont(new Font("SansSerif", Font.PLAIN, 42));
         lblImg.setPreferredSize(new Dimension(cardWidth - 24, IMAGE_HEIGHT));
-        loadFoodImage(food, lblImg);
+
+        // Đăng ký nhãn ảnh và lấy ảnh qua BUS (dùng hàng đợi, không dùng Consumer)
+        foodImageLabels.put(food.getId(), lblImg);
+        BufferedImage cachedImg = tabletBUS.getOrRequestFoodImage(food);
+        if (cachedImg != null) {
+            lblImg.putClientProperty("foodImage", cachedImg);
+        }
 
         JPanel infoPanel = new JPanel();
         infoPanel.setLayout(new BoxLayout(infoPanel, BoxLayout.Y_AXIS));
@@ -913,7 +932,7 @@ public class CustomerGUI extends JFrame {
             CButton btnAdd = new CButton("+ Chọn Món", cardWidth - 24, 38);
             btnAdd.addActionListener(e -> {
                 if (awaitingOrderConfirmation) {
-                    JOptionPane.showMessageDialog(this, "Đang chờ bếp xác nhận đơn trước. Vui lòng kiểm tra đơn đã gửi.");
+                    CToast.warning(this, "Đang chờ bếp xác nhận đơn trước. Vui lòng kiểm tra đơn đã gửi.");
                     return;
                 }
                 tabletBUS.addFoodToCart(food);
@@ -961,84 +980,6 @@ public class CustomerGUI extends JFrame {
         return card;
     }
 
-    private void loadFoodImage(FoodDTO food, JLabel label) {
-        LinkedHashSet<String> sources = new LinkedHashSet<>();
-        if (food.getCoverImageUrl() != null && !food.getCoverImageUrl().isBlank()) {
-            sources.add(food.getCoverImageUrl().trim());
-        }
-        if (food.getImages() != null) {
-            for (FoodImageDTO img : food.getImages()) {
-                if (img != null && Boolean.TRUE.equals(img.getIsCover()) && img.getUrl() != null && !img.getUrl().isBlank()) {
-                    sources.add(img.getUrl().trim());
-                }
-            }
-            for (FoodImageDTO img : food.getImages()) {
-                if (img != null && img.getUrl() != null && !img.getUrl().isBlank()) {
-                    sources.add(img.getUrl().trim());
-                }
-            }
-        }
-        if (food.getSlug() != null && !food.getSlug().isBlank()) {
-            sources.add("/img/foods/" + food.getSlug().trim());
-        }
-        if (sources.isEmpty()) return;
-
-        List<String> candidates = new ArrayList<>(sources);
-        String cacheKey = String.join("\n", candidates);
-        BufferedImage cached = foodImageCache.get(cacheKey);
-        if (cached != null) {
-            label.putClientProperty("foodImage", cached);
-            return;
-        }
-        Long failedAt = failedImageTimes.get(cacheKey);
-
-        if (failedAt != null && System.currentTimeMillis() - failedAt < IMAGE_RETRY_MS) {
-            return;
-        }
-
-        List<JLabel> listeners = loadingFoodImages.get(cacheKey);
-        if (listeners != null) {
-            listeners.add(label);
-            return;
-        }
-        listeners = new ArrayList<>();
-        listeners.add(label);
-        loadingFoodImages.put(cacheKey, listeners);
-
-        new SwingWorker<BufferedImage, Void>() {
-            @Override
-            protected BufferedImage doInBackground() {
-                for (String source : candidates) {
-                    BufferedImage image = ImageLoader.readImage(source);
-                    if (image != null) return image;
-                }
-                return null;
-            }
-
-            @Override
-            protected void done() {
-                BufferedImage image = null;
-                try {
-                    image = get();
-                } catch (Exception ignored) {
-                }
-                if (image != null) {
-                    foodImageCache.put(cacheKey, image);
-                    failedImageTimes.remove(cacheKey);
-                } else {
-                    failedImageTimes.put(cacheKey, System.currentTimeMillis());
-                }
-                List<JLabel> waiting = loadingFoodImages.remove(cacheKey);
-                if (image != null && waiting != null) {
-                    for (JLabel target : waiting) {
-                        target.putClientProperty("foodImage", image);
-                        target.repaint();
-                    }
-                }
-            }
-        }.execute();
-    }
-
     private CTextField createInlineItemNoteTextField(Long foodId, String placeholder) {
         CTextField txtField = new CTextField("📝 " + placeholder, 110, 36, Utils.getCustomFont("Inter", Font.PLAIN, 12));
         txtField.setBorder(new EmptyBorder(4, 8, 4, 8));
@@ -1078,22 +1019,13 @@ public class CustomerGUI extends JFrame {
         return btn;
     }
 
-    private int getFoodQuantityInCart(Long foodId) {
-        if (tabletBUS == null) return 0;
-        return tabletBUS.getCurrentCart().stream()
-                .filter(item -> item.getFoodsId().equals(foodId))
-                .mapToInt(OrderItemDTO::getQuantity)
-                .findFirst()
-                .orElse(0);
-    }
-
     private void changeFoodQuantity(Long foodId, int delta) {
         if (awaitingOrderConfirmation) {
-            JOptionPane.showMessageDialog(this, "Đơn đang chờ bếp xác nhận. Vui lòng đợi phản hồi trước khi sửa giỏ.");
+            CToast.warning(this, "Đơn đang chờ bếp xác nhận. Vui lòng đợi phản hồi trước khi sửa giỏ.");
             return;
         }
         tabletBUS.updateCartQuantity(foodId, delta);
-        if (getFoodQuantityInCart(foodId) <= 0) {
+        if (tabletBUS.getFoodQuantityInCart(foodId) <= 0) {
             itemNotesMap.remove(foodId);
         }
         refreshAllCartViews();
@@ -1105,10 +1037,7 @@ public class CustomerGUI extends JFrame {
         renderMenuCards(activeCategoryId);
         rebuildCartDetailRows();
 
-        int totalQuantity = tabletBUS.getCurrentCart().stream()
-                .mapToInt(OrderItemDTO::getQuantity)
-                .sum();
-
+        int totalQuantity = tabletBUS.getTotalCartQuantity();
         String formattedSubtotal = MONEY_FORMAT.format(tabletBUS.calculateCartSubtotal());
         lblCartDetailTotal.setText("Tổng tạm tính: " + formattedSubtotal);
 
@@ -1245,33 +1174,20 @@ public class CustomerGUI extends JFrame {
         return btn;
     }
 
-    private String formatStatusVietnamese(OrderStatus st) {
-        if (st == null) return "⏳ Chờ xác nhận";
-        switch (st) {
-            case PENDING: return "⏳ Chờ xác nhận";
-            case RECEIVED: return "📥 Bếp đã nhận";
-            case COOKING: return "🔥 Đang chế biến";
-            case COMPLETED: return "🛎️ Đã nấu xong";
-            case SERVED: return "✅ Đã lên món";
-            case CANCELLED: return "❌ Đã hủy";
-            default: return st.name();
-        }
-    }
-
     private void handleSendOrder() {
         if (tabletBUS.getCurrentCart().isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Giỏ món của bàn đang trống!");
+            CToast.warning(this, "Giỏ món của bàn đang trống!");
             return;
         }
         if (awaitingOrderConfirmation) return;
         if (!tabletBUS.isServerConnected()) {
-            JOptionPane.showMessageDialog(this,
+            CToast.show(this,
                     "Không thể gửi đơn khi chưa kết nối bếp. Vui lòng kiểm tra ServerApp.",
-                    "Chưa kết nối", JOptionPane.WARNING_MESSAGE);
+                    "Chưa kết nối", CToast.WARNING);
             return;
         }
 
-        int quantity = tabletBUS.getCurrentCart().stream().mapToInt(OrderItemDTO::getQuantity).sum();
+        int quantity = tabletBUS.getTotalCartQuantity();
         int confirm = JOptionPane.showConfirmDialog(this,
                 "Bàn #" + currentTableId + " — " + quantity + " phần món\n"
                         + "Tạm tính: " + MONEY_FORMAT.format(tabletBUS.calculateCartSubtotal()) + "\n\n"
@@ -1284,32 +1200,21 @@ public class CustomerGUI extends JFrame {
             voucher = "";
         }
 
-
-
         if (tabletBUS.submitOrderToServer(voucher, new HashMap<>(itemNotesMap))) {
             awaitingOrderConfirmation = true;
             btnSendKitchen.setEnabled(false);
             btnSendKitchen.setText("Đang chờ xác nhận...");
         } else {
-            JOptionPane.showMessageDialog(this,
+            CToast.show(this,
                     "Chưa kết nối được với ServerApp (Port 8888)!\nHãy bật KitchenServerGUI bên ServerApp trước.",
-                    "Lỗi Kết Nối Mạng", JOptionPane.ERROR_MESSAGE);
+                    "Lỗi Kết Nối Mạng", CToast.ERROR);
         }
     }
 
     private OrderItemDTO getSelectedTrackedItem() {
-        if (trackTable == null || tabletBUS == null) {
-            return null;
-        }
-
-        Long itemId = trackTable.getSelectedOrderItemId();
-
-        if (itemId == null) return null;
-
-        return tabletBUS.getTrackedItems().stream()
-                .filter(item -> Objects.equals(item.getId(), itemId))
-                .findFirst()
-                .orElse(null);
+        if (trackTable == null || tabletBUS == null) return null;
+        int row = trackTable.getTable().getSelectedRow();
+        return tabletBUS.getTrackedItemAt(row);
     }
 
     public static void main(String[] args) {

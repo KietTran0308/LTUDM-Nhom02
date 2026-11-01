@@ -46,6 +46,15 @@ public class SocketJsonMapper {
                 }
                 break;
 
+            case REGISTER_TABLE:
+                if (data != null) root.put("data", data.toString()); // session token
+                break;
+
+            case SET_KITCHEN_ITEM_STATUS:
+                if (data != null) root.put("data", data);  // itemId
+                if (extraData instanceof OrderStatus) root.put("extraData", ((OrderStatus) extraData).name());
+                break;
+
             case CALL_STAFF:
                 if (data != null) root.put("data", data.toString()); // Nội dung gọi nhân viên
                 break;
@@ -120,6 +129,18 @@ public class SocketJsonMapper {
                     }
                     break;
 
+                case OPEN_TABLE_SESSION:
+                    data = root.optString("data", "");
+                    break;
+                case GET_KITCHEN_QUEUE:
+                    data = new ArrayList<OrderDTO>();
+                    if (root.has("data") && !root.isNull("data")) {
+                        JSONArray queue = root.getJSONArray("data");
+                        List<OrderDTO> orders = new ArrayList<>();
+                        for (int i=0;i<queue.length();i++) orders.add(jsonToOrder(queue.getJSONObject(i)));
+                        data = orders;
+                    }
+                    break;
                 case GET_ALL_TABLES:
                 case PAY_TABLE_BILL:
                     if (root.has("data") && !root.isNull("data")) {

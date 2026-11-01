@@ -16,7 +16,6 @@ public class ClientHandler implements Runnable {
     private BufferedReader in;
     private Long currentTableId;
 
-    // Khởi tạo các tầng BUS và DAO của Server
     private final FoodDAO foodDAO = new FoodDAO();
     private final CategoryDAO categoryDAO = new CategoryDAO();
     private final ServerOrderBUS serverOrderBUS = new ServerOrderBUS();
@@ -31,15 +30,12 @@ public class ClientHandler implements Runnable {
     @Override
     public void run() {
         try {
-            // Khởi tạo luồng đọc/ghi chuỗi JSON UTF-8 qua TCP Socket
             out = new PrintWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8), true);
             in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
-
             String rawJsonLine;
+
             while (!socket.isClosed() && (rawJsonLine = in.readLine()) != null) {
                 System.out.println("[Server <- Client JSON]: " + rawJsonLine);
-
-                // Giải mã chuỗi JSON bằng org.json thành đối tượng SocketPacket
                 SocketPacket request = SocketJsonMapper.fromJsonString(rawJsonLine);
                 handleClientRequest(request);
             }

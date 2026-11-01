@@ -1,8 +1,9 @@
 package gui;
 
 import bus.StaffBUS;
+import api.SocketClient;
 import dto.*;
-import gui.components.*;
+import components.*;
 import utils.Utils;
 
 import javax.swing.*;
@@ -23,6 +24,8 @@ public class StaffGUI extends JFrame {
 
     private final StaffBUS posBUS;
     private final UserDTO currentStaff;
+    private final Timer responseTimer;
+    private final SocketClient sessionSocket;
     private Long selectedTableId = null;
     private String selectedTableName = "";
 
@@ -37,12 +40,10 @@ public class StaffGUI extends JFrame {
     private JComboBox<PaymentMethod> cboPaymentMethod;
     private CButton btnCheckout;
 
-    public StaffGUI() {
-        this(null);
-    }
-
-    public StaffGUI(UserDTO loggedInStaff) {
+    /** Truy cap POS phai di qua AuthGUI de giu phien dang nhap. */
+    public StaffGUI(UserDTO loggedInStaff, SocketClient sessionSocket) {
         this.currentStaff = loggedInStaff;
+        this.sessionSocket = java.util.Objects.requireNonNull(sessionSocket);
 
         setExtendedState(JFrame.MAXIMIZED_BOTH);
         setUndecorated(true);
@@ -54,7 +55,12 @@ public class StaffGUI extends JFrame {
         initBrandHeader();
         initMainWorkspace();
 
-        posBUS = new StaffBUS(this::onServerPacketReceived);
+        posBUS = new StaffBUS(sessionSocket);
+        responseTimer = new Timer(100, e -> {
+            SocketPacket packet;
+            while ((packet = posBUS.pollPacket()) != null) onServerPacketReceived(packet);
+        });
+        responseTimer.start();
         posBUS.requestAllTables();
     }
 
@@ -62,11 +68,14 @@ public class StaffGUI extends JFrame {
         SwingUtilities.invokeLater(() -> {
             if (!packet.isSuccess()) {
                 clearInvoicePanel();
-                JOptionPane.showMessageDialog(this, packet.getMessage(), "Thông báo Bếp Nhà", JOptionPane.WARNING_MESSAGE);
+                CToast.show(this, packet.getMessage(), "Thông báo Bếp Nhà", CToast.WARNING);
                 return;
             }
 
             switch (packet.getAction()) {
+                case OPEN_TABLE_SESSION:
+                    showTableToken(packet);
+                    break;
                 case GET_ALL_TABLES:
                     renderTableMap(posBUS.getTableList());
                     break;
@@ -78,7 +87,7 @@ public class StaffGUI extends JFrame {
                 case PAY_TABLE_BILL:
                     renderTableMap(posBUS.getTableList());
                     clearInvoicePanel();
-                    JOptionPane.showMessageDialog(this, packet.getMessage(), "Thanh Toán Thành Công", JOptionPane.INFORMATION_MESSAGE);
+                    CToast.show(this, packet.getMessage(), "Thanh Toán Thành Công", CToast.SUCCESS);
                     break;
 
                 default:
@@ -145,11 +154,18 @@ public class StaffGUI extends JFrame {
         btnLogout.setPreferredSize(new Dimension(115, 42));
         btnLogout.setBorder(new LineBorder(new Color(80, 95, 86), 1, true));
         btnLogout.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        btnLogout.addActionListener(e -> {
-            new AuthGUI().setVisible(true);
-            dispose();
-        });
+        btnLogout.addActionListener(e -> logout());
 
+        CButton btnOpenSession = new CButton("Mở phiên bàn", 155, 42);
+        btnOpenSession.addActionListener(e -> {
+            if (selectedTableId == null) {
+                CToast.warning(this, "Hãy chọn bàn trên sơ đồ trước.");
+                return;
+            }
+            sessionSocket.sendRequest(new SocketPacket(
+                    SocketAction.OPEN_TABLE_SESSION, selectedTableId, null, null));
+        });
+        rightActions.add(btnOpenSession);
         rightActions.add(btnRefresh);
         rightActions.add(btnLogout);
 
@@ -329,7 +345,7 @@ public class StaffGUI extends JFrame {
                 lblSelectedTableInfo.setText("Bàn đang chọn: " + selectedTableName + " (#" + selectedTableId + ")");
                 if (isFree) {
                     clearInvoicePanel();
-                    JOptionPane.showMessageDialog(this, selectedTableName + " hiện đang trống!");
+                    CToast.show(this, selectedTableName + " hiện đang trống!");
                 } else {
                     posBUS.requestTableBillPreview(selectedTableId);
                 }
@@ -352,7 +368,7 @@ public class StaffGUI extends JFrame {
                 + " (ID gốc: #" + mergedOrder.getId() + " — Đã gộp toàn bộ các lượt gọi thêm)");
 
         for (OrderItemDTO item : mergedOrder.getItems()) {
-            String turnLabel = item.getOrderId().equals(mergedOrder.getId())
+            String turnLabel = java.util.Objects.equals(item.getOrderId(), mergedOrder.getId())
                     ? "Đơn gốc (#" + item.getOrderId() + ")"
                     : "Gọi thêm (#" + item.getOrderId() + ")";
 
@@ -370,7 +386,10 @@ public class StaffGUI extends JFrame {
         lblDiscount.setText("-" + MONEY_FMT.format(mergedOrder.getDiscountAmount()));
         lblTaxVAT.setText("+" + MONEY_FMT.format(posBUS.calculateVAT()));
         lblFinalTotal.setText(MONEY_FMT.format(posBUS.calculateFinalBillTotal()));
-        btnCheckout.setEnabled(true);
+        btnCheckout.setEnabled(mergedOrder.getTableSessionId() != null);
+        if (mergedOrder.getTableSessionId() == null) {
+            CToast.warning(this, "Server chưa trả tableSessionId. Chưa thể xác nhận thanh toán an toàn.");
+        }
     }
 
     private void clearInvoicePanel() {
@@ -402,10 +421,38 @@ public class StaffGUI extends JFrame {
         }
     }
 
+    private void showTableToken(SocketPacket packet) {
+        String token = String.valueOf(packet.getData());
+        JTextField field = new JTextField(token, 40);
+        field.setEditable(false);
+        field.selectAll();
+        JButton copy = new JButton("Sao chép mã phiên");
+        copy.addActionListener(e -> {
+            field.selectAll();
+            field.copy();
+            CToast.success(this, "Đã sao chép mã phiên bàn.");
+        });
+        JPanel content = new JPanel(new BorderLayout(8, 8));
+        content.add(new JLabel("Bàn #" + packet.getTableId() + " — cung cấp mã cho khách tại bàn:"), BorderLayout.NORTH);
+        content.add(field, BorderLayout.CENTER);
+        content.add(copy, BorderLayout.SOUTH);
+        JDialog dlg = new JDialog(this, "Phiên phục vụ", false);
+        dlg.setContentPane(content);
+        content.setBorder(new EmptyBorder(20, 20, 20, 20));
+        dlg.pack(); dlg.setLocationRelativeTo(this); dlg.setVisible(true);
+    }
+
+    private void logout() {
+        responseTimer.stop();
+        posBUS.logout();
+        new AuthGUI().setVisible(true);
+        dispose();
+    }
+
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
             try {
-                new StaffGUI().setVisible(true);
+                new AuthGUI().setVisible(true);
             } catch (Throwable t) {
                 t.printStackTrace();
             }
