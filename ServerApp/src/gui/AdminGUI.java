@@ -75,7 +75,7 @@ public class AdminGUI extends JFrame {
         mainTabs.addTab("  ⚠️ Kho Nguyên Liệu & Cảnh Báo Tồn  ", createInventoryAlertTab());
         mainTabs.addTab("  📊 Thống Kê Doanh Thu (Bills)  ", createRevenueAnalyticsTab());
         // Chức năng RestaurantKDS đã chuyển thành Java Swing + BUS + JDBC (không module mới).
-    //    mainTabs.addTab("  ⚙️ Quản lý KDS (Java thuần)  ", new KdsManagementPanel());
+        //    mainTabs.addTab("  ⚙️ Quản lý KDS (Java thuần)  ", new KdsManagementPanel());
 
         mainTabs.addChangeListener(e -> refreshAllData());
 
@@ -134,13 +134,9 @@ public class AdminGUI extends JFrame {
         JPanel rightActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 6));
         rightActions.setOpaque(false);
 
-        JButton btnOpenKitchen = createRoundedButton("👨‍🍳 Mở Màn Hình Bếp (Port 8888)", new Color(45, 62, 53), Color.WHITE, 250, 42);
-        btnOpenKitchen.addActionListener(e -> new KitchenGUI().setVisible(true));
-
         JButton btnRefreshAll = createRoundedButton("🔄 Đồng Bộ Dữ Liệu", TERRACOTTA, Color.WHITE, 180, 42);
         btnRefreshAll.addActionListener(e -> refreshAllData());
 
-        rightActions.add(btnOpenKitchen);
         rightActions.add(btnRefreshAll);
 
         header.add(leftBox, BorderLayout.WEST);
@@ -556,7 +552,7 @@ public class AdminGUI extends JFrame {
         for (BillDTO b : bills) {
             billTableModel.addRow(new Object[]{
                     "#" + b.getId(),
-                    "Đơn #" + b.getOrderId(),
+                    "Đơn #" + b.getTableSessionId(),
                     MONEY_FMT.format(b.getDiscount()),
                     MONEY_FMT.format(b.getTax()),
                     MONEY_FMT.format(b.getTotalAmount()),
