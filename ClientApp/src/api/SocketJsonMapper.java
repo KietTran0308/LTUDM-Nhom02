@@ -168,6 +168,7 @@ public class SocketJsonMapper {
         JSONObject obj = new JSONObject();
         if (o.getUserId() != null) obj.put("userId", o.getUserId());
         if (o.getTableId() != null) obj.put("tableId", o.getTableId());
+        if (o.getTableSessionId() != null) obj.put("tableSessionId", o.getTableSessionId());
         if (o.getOrderType() != null) obj.put("orderType", o.getOrderType().name());
         if (o.getStatus() != null) obj.put("status", o.getStatus().name());
         if (o.getNote() != null) obj.put("note", o.getNote());
@@ -182,6 +183,7 @@ public class SocketJsonMapper {
                 itemObj.put("quantity", item.getQuantity());
                 itemObj.put("lineTotal", item.getLineTotal());
                 if (item.getStatus() != null) itemObj.put("status", item.getStatus().name());
+                if (item.getNote() != null) itemObj.put("note", item.getNote());
                 arr.put(itemObj);
             }
         }
@@ -195,6 +197,7 @@ public class SocketJsonMapper {
         o.setOrderCode(obj.optString("orderCode", ""));
         if (obj.has("parentOrderId") && !obj.isNull("parentOrderId")) o.setParentOrderId(obj.getLong("parentOrderId"));
         if (obj.has("tableId") && !obj.isNull("tableId")) o.setTableId(obj.getLong("tableId"));
+        if (obj.has("tableSessionId") && !obj.isNull("tableSessionId")) o.setTableSessionId(obj.getLong("tableSessionId"));
         o.setSubtotal(obj.optBigDecimal("subtotal", BigDecimal.ZERO));
         o.setDiscountAmount(obj.optBigDecimal("discountAmount", BigDecimal.ZERO));
         o.setTotalAmount(obj.optBigDecimal("totalAmount", BigDecimal.ZERO));
@@ -217,7 +220,10 @@ public class SocketJsonMapper {
                     obj.optBigDecimal("unitPrice", BigDecimal.ZERO),
                     obj.optInt("quantity", 1),
                     obj.optBigDecimal("lineTotal", BigDecimal.ZERO),
-                    OrderStatus.valueOf(obj.optString("status", "PENDING"))
+                    OrderStatus.valueOf(obj.optString("status", "PENDING")),
+                    obj.has("note") && !obj.isNull("note") ? obj.getString("note") : null,
+                    readDateTime(obj, "updatedAt"),
+                    readDateTime(obj, "completedAt")
             ));
         }
         return list;
@@ -272,9 +278,14 @@ public class SocketJsonMapper {
         return list;
     }
 
+    private static java.time.LocalDateTime readDateTime(JSONObject obj, String key) {
+        if (!obj.has(key) || obj.isNull(key)) return null;
+        return java.time.LocalDateTime.parse(obj.getString(key));
+    }
+
     private static JSONObject billToJson(BillDTO b) {
         JSONObject obj = new JSONObject();
-        if (b.getOrderId() != null) obj.put("orderId", b.getOrderId());
+        if (b.getTableSessionId() != null) obj.put("tableSessionId", b.getTableSessionId());
         obj.put("totalAmount", b.getTotalAmount());
         obj.put("discount", b.getDiscount());
         obj.put("tax", b.getTax());

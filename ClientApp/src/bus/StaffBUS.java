@@ -72,10 +72,13 @@ public class StaffBUS {
     }
 
     public boolean confirmCheckout(Long tableId, PaymentMethod paymentMethod) {
-        if (currentPreviewOrder == null) return false;
+        if (currentPreviewOrder == null || paymentMethod == null) return false;
+        // Không lấy orderId làm sessionId: Server phải trả đúng phiên đang mở.
+        if (currentPreviewOrder.getTableSessionId() == null
+                || currentPreviewOrder.getTableSessionId() <= 0) return false;
 
         BillDTO bill = new BillDTO();
-        bill.setOrderId(currentPreviewOrder.getId()); // Gắn vào ID của đơn gốc (parent_order_id IS NULL)
+        bill.setTableSessionId(currentPreviewOrder.getTableSessionId());
         bill.setDiscount(currentPreviewOrder.getDiscountAmount());
         bill.setTax(calculateVAT());
         bill.setTotalAmount(calculateFinalBillTotal());
