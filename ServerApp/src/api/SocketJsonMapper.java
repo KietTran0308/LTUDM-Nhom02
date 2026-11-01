@@ -275,7 +275,9 @@ public class SocketJsonMapper {
 
     private static BillDTO jsonToBill(JSONObject obj) {
         BillDTO b = new BillDTO();
-        if (obj.has("orderId") && !obj.isNull("orderId")) b.setOrderId(obj.getLong("orderId"));
+        if (obj.has("tableSessionId") && !obj.isNull("tableSessionId")) {
+            b.setTableSessionId(obj.getLong("tableSessionId"));
+        }
         b.setTotalAmount(obj.optBigDecimal("totalAmount", BigDecimal.ZERO));
         b.setDiscount(obj.optBigDecimal("discount", BigDecimal.ZERO));
         b.setTax(obj.optBigDecimal("tax", BigDecimal.ZERO));

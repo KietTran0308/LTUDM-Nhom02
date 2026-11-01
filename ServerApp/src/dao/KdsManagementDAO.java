@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.sql.SQLException;
 
 /**
  * Chuyển đổi Repository/JPA của RestaurantKDS thành JDBC thuần, dùng dbConnection của project gốc.
@@ -35,7 +36,11 @@ public class KdsManagementDAO {
     }
 
     public List<CategoryDTO> categories() {
-        return new CategoryDAO().getAllCategories();
+        try {
+            return new CategoryDAO().getAllCategories();
+        } catch (SQLException e) {
+            throw new IllegalStateException("Không thể tải danh mục", e);
+        }
     }
 
     public long addCategory(CategoryDTO v) throws SQLException {
@@ -67,14 +72,34 @@ public class KdsManagementDAO {
     }
 
     public List<FoodDTO> foods(String keyword, Long categoryId) {
-        String key = keyword == null ? "" : keyword.trim().toLowerCase(java.util.Locale.ROOT);
+        String key = keyword == null
+                ? ""
+                : keyword.trim().toLowerCase(java.util.Locale.ROOT);
+
         List<FoodDTO> found = new ArrayList<>();
-        for (FoodDTO food : new FoodDAO().getAllFoodsForAdmin()) {
-            if (categoryId != null && !categoryId.equals(food.getCategoryId())) continue;
-            String text = (food.getName() == null ? "" : food.getName()) + " " + (food.getDescription() == null ? "" : food.getDescription());
-            if (text.toLowerCase(java.util.Locale.ROOT).contains(key)) found.add(food);
+
+        try {
+            for (FoodDTO food : new FoodDAO().getAllFoodsForAdmin()) {
+                if (categoryId != null
+                        && !categoryId.equals(food.getCategoryId())) {
+                    continue;
+                }
+
+                String text =
+                        (food.getName() == null ? "" : food.getName())
+                                + " "
+                                + (food.getDescription() == null
+                                ? "" : food.getDescription());
+
+                if (text.toLowerCase(java.util.Locale.ROOT).contains(key)) {
+                    found.add(food);
+                }
+            }
+
+            return found;
+        } catch (SQLException e) {
+            throw new IllegalStateException("Không thể tải món ăn", e);
         }
-        return found;
     }
 
     public List<UserDTO> users() throws SQLException {

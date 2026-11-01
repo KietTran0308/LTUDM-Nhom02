@@ -1,7 +1,12 @@
+package bus;
+
 import java.sql.SQLException;
 
 import dao.CategoryDAO;
 import dto.CategoryDTO;
+import java.sql.SQLException;
+import java.util.List;
+
 public class CategoryBUS {
     private final CategoryDAO categoryDAO;
     public  CategoryBUS(){
@@ -18,7 +23,7 @@ public class CategoryBUS {
         }
         CategoryDTO category = categoryDAO.getCategoryById(id);
         if (category == null) {
-            throw new NotFoundException("Không tìm thấy danh mục với ID: " + id);
+            throw new IllegalArgumentException("Không tìm thấy danh mục với ID: " + id);
         }
         return category;
     }

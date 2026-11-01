@@ -7,6 +7,7 @@ import java.text.Normalizer;
 import java.util.List;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.sql.SQLException;
 
 public class AdminBUS {
     private final FoodDAO foodDAO = new FoodDAO();
@@ -16,11 +17,19 @@ public class AdminBUS {
 
     // --- 1. NGHIỆP VỤ QUẢN LÝ MÓN ĂN ---
     public List<FoodDTO> getAllFoods() {
-        return foodDAO.getAllFoodsForAdmin();
+        try {
+            return foodDAO.getAllFoodsForAdmin();
+        } catch (SQLException e) {
+            throw new IllegalStateException("Không thể tải danh sách món ăn", e);
+        }
     }
 
     public List<CategoryDTO> getAllCategories() {
-        return categoryDAO.getAllCategories();
+        try {
+            return categoryDAO.getAllCategories();
+        } catch (SQLException e) {
+            throw new IllegalStateException("Không thể tải danh mục", e);
+        }
     }
 
     public boolean addNewFood(String sku, Long categoryId, String name, BigDecimal price, String coverUrl, boolean isPublished) {
@@ -33,7 +42,11 @@ public class AdminBUS {
         food.setPrice(price);
         food.setIsPublished(isPublished);
         food.setCoverImageUrl(coverUrl);
-        return foodDAO.insertFoodWithCover(food);
+        try {
+            return foodDAO.insertFoodWithCover(food) != null;
+        } catch (SQLException e) {
+            throw new IllegalStateException("Không thể thêm món ăn", e);
+        }
     }
 
     public boolean updateFood(Long id, String name, BigDecimal price, Long categoryId, boolean isPublished) {
@@ -43,11 +56,19 @@ public class AdminBUS {
         food.setPrice(price);
         food.setCategoryId(categoryId);
         food.setIsPublished(isPublished);
-        return foodDAO.updateFoodBasicInfo(food);
+        try {
+            return foodDAO.updateFoodBasicInfo(food) != null;
+        } catch (SQLException e) {
+            throw new IllegalStateException("Không thể cập nhật món ăn", e);
+        }
     }
 
     public boolean deleteFood(Long id) {
-        return foodDAO.softDeleteFood(id);
+        try {
+            return foodDAO.softDeleteFood(id);
+        } catch (SQLException e) {
+            throw new IllegalStateException("Không thể xóa món ăn", e);
+        }
     }
 
     // --- 2. NGHIỆP VỤ KHO NGUYÊN LIỆU & CẢNH BÁO ---

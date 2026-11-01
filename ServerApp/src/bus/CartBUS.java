@@ -4,6 +4,7 @@ import dao.CartDAO;
 import dao.FoodDAO;
 import dto.CartItemDTO;
 import dto.FoodDTO;
+import java.sql.SQLException;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -38,7 +39,14 @@ public class CartBUS {
         validateQuantity(quantity);
 
         // Kiểm tra món ăn tồn tại và đang được công khai
-        FoodDTO food = foodDAO.getFoodById(foodId);
+        FoodDTO food;
+        try {
+            food = foodDAO.getFoodById(foodId);
+        } catch (SQLException e) {
+            throw new IllegalStateException(
+                    "Không thể kiểm tra món ăn để thêm vào giỏ", e
+            );
+        }
 
         if (food == null) {
             throw new IllegalArgumentException("Món ăn không tồn tại.");
