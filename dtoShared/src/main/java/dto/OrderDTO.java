@@ -13,7 +13,8 @@ public class OrderDTO implements Serializable {
     private String orderCode;
     private Long parentOrderId; // Phục vụ gọi thêm món nhiều lượt tại bàn (Haidilao style)
     private Long userId;
-    private Long tableId;       // Bàn số mấy
+    private Long tableId;       // orders.table_id, nullable
+    private Long tableSessionId; // orders.table_session_id, nullable; phiên bàn gọi món
     private Long voucherId;
     private OrderType orderType;
     private OrderStatus status;
@@ -51,6 +52,9 @@ public class OrderDTO implements Serializable {
 
     public Long getTableId() { return tableId; }
     public void setTableId(Long tableId) { this.tableId = tableId; }
+
+    public Long getTableSessionId() { return tableSessionId; }
+    public void setTableSessionId(Long tableSessionId) { this.tableSessionId = tableSessionId; }
 
     public Long getVoucherId() { return voucherId; }
     public void setVoucherId(Long voucherId) { this.voucherId = voucherId; }

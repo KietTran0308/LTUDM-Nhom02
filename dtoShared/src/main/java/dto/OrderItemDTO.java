@@ -2,6 +2,7 @@ package dto;
 
 import java.io.Serializable;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 public class OrderItemDTO implements Serializable {
     private static final long serialVersionUID = 1L;
@@ -14,6 +15,9 @@ public class OrderItemDTO implements Serializable {
     private Integer quantity;
     private BigDecimal lineTotal;
     private OrderStatus status; // Đồng bộ trạng thái từng món từ Bếp về Tablet
+    private String note; // order_items.note VARCHAR(500), nullable
+    private LocalDateTime updatedAt; // DATETIME(3) NOT NULL
+    private LocalDateTime completedAt; // DATETIME(3), nullable
 
     public OrderItemDTO() {}
 
@@ -27,6 +31,16 @@ public class OrderItemDTO implements Serializable {
         this.quantity = quantity;
         this.lineTotal = lineTotal;
         this.status = status;
+    }
+
+    public OrderItemDTO(Long id, Long orderId, Long foodsId, String foodsName,
+                        BigDecimal unitPrice, Integer quantity, BigDecimal lineTotal,
+                        OrderStatus status, String note, LocalDateTime updatedAt,
+                        LocalDateTime completedAt) {
+        this(id, orderId, foodsId, foodsName, unitPrice, quantity, lineTotal, status);
+        this.note = note;
+        this.updatedAt = updatedAt;
+        this.completedAt = completedAt;
     }
 
     public Long getId() { return id; }
@@ -52,4 +66,13 @@ public class OrderItemDTO implements Serializable {
 
     public OrderStatus getStatus() { return status; }
     public void setStatus(OrderStatus status) { this.status = status; }
+
+    public String getNote() { return note; }
+    public void setNote(String note) { this.note = note; }
+
+    public LocalDateTime getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+
+    public LocalDateTime getCompletedAt() { return completedAt; }
+    public void setCompletedAt(LocalDateTime completedAt) { this.completedAt = completedAt; }
 }
