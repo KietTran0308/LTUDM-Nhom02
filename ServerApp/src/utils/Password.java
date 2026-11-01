@@ -7,11 +7,8 @@ import java.util.Base64;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 
-/**
- * Java thuần; lưu PBKDF2 mới và đọc mật khẩu plaintext cũ để không phá tài khoản hiện có.
- */
-public final class PasswordUtil {
-    private PasswordUtil() {
+public final class Password {
+    private Password() {
     }
 
     private static final int ITERATIONS = 210_000;
@@ -38,7 +35,6 @@ public final class PasswordUtil {
     public static boolean matches(String raw, String stored) {
         if (raw == null || stored == null) return false;
         if (!stored.startsWith("pbkdf2$")) {
-            // Tương thích tài khoản do ứng dụng Java thuần cũ tạo. Nên đổi mật khẩu để nâng cấp hash.
             return MessageDigest.isEqual(raw.getBytes(StandardCharsets.UTF_8), stored.getBytes(StandardCharsets.UTF_8));
         }
         try {

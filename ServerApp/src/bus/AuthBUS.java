@@ -3,14 +3,14 @@ package bus;
 import dao.UserDAO;
 import dto.UserDTO;
 
-public class serverAuthBUS {
+public class AuthBUS {
     private final UserDAO userDAO = new UserDAO();
 
     public UserDTO login(String emailOrPhone, String password) throws Exception {
         if (emailOrPhone == null || emailOrPhone.trim().isEmpty() || password == null || password.isEmpty()) {
             throw new IllegalArgumentException("Vui lòng nhập đầy đủ tài khoản và mật khẩu!");
         }
-        UserDTO user = userDAO.authenticate(emailOrPhone, password);
+        UserDTO user = userDAO.findByEmailOrPhone(emailOrPhone, password);
         if (user == null) {
             throw new Exception("Tài khoản hoặc mật khẩu không chính xác (hoặc đã bị khóa)!");
         }

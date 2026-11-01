@@ -20,7 +20,7 @@ public class ClientHandler implements Runnable {
     private final FoodDAO foodDAO = new FoodDAO();
     private final CategoryDAO categoryDAO = new CategoryDAO();
     private final ServerOrderBUS serverOrderBUS = new ServerOrderBUS();
-    private final serverAuthBUS authBUS = new serverAuthBUS();
+    private final AuthBUS authBUS = new AuthBUS();
     private final Consumer<SocketPacket> onKitchenNotification;
 
     public ClientHandler(Socket socket, Consumer<SocketPacket> onKitchenNotification) {
