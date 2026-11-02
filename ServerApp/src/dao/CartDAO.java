@@ -9,6 +9,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class CartDAO {
+    private static LocalDateTime toLocalDateTime(Timestamp value) {
+        return value == null ? null : value.toLocalDateTime();
+    }
 
     /**
      * Lấy danh sách món ăn trong giỏ hàng của người dùng
@@ -41,8 +44,8 @@ public class CartDAO {
                         rs.getLong("user_id"),
                         rs.getLong("foods_id"),
                         rs.getInt("quantity"),
-                        rs.getObject("created_at", LocalDateTime.class),
-                        rs.getObject("updated_at", LocalDateTime.class)
+                        toLocalDateTime(rs.getTimestamp("created_at")),
+                        toLocalDateTime(rs.getTimestamp("updated_at"))
                 );
 
                 item.setFoodName(rs.getString("food_name"));
@@ -52,7 +55,7 @@ public class CartDAO {
             }
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            throw new IllegalStateException("Không thể tải giỏ hàng", e);
         } finally {
             dbConnection.closeConnection(conn, ps, rs);
         }
@@ -90,8 +93,7 @@ public class CartDAO {
             return ps.executeUpdate() > 0;
 
         } catch (SQLException e) {
-            e.printStackTrace();
-            return false;
+            throw new IllegalStateException("Lỗi SQL trong CartDAO", e);
         } finally {
             dbConnection.closeConnection(conn, ps, null);
         }
@@ -126,8 +128,7 @@ public class CartDAO {
             return ps.executeUpdate() > 0;
 
         } catch (SQLException e) {
-            e.printStackTrace();
-            return false;
+            throw new IllegalStateException("Lỗi SQL trong CartDAO", e);
         } finally {
             dbConnection.closeConnection(conn, ps, null);
         }
@@ -154,8 +155,7 @@ public class CartDAO {
             return ps.executeUpdate() > 0;
 
         } catch (SQLException e) {
-            e.printStackTrace();
-            return false;
+            throw new IllegalStateException("Lỗi SQL trong CartDAO", e);
         } finally {
             dbConnection.closeConnection(conn, ps, null);
         }
@@ -181,8 +181,7 @@ public class CartDAO {
             return true;
 
         } catch (SQLException e) {
-            e.printStackTrace();
-            return false;
+            throw new IllegalStateException("Lỗi SQL trong CartDAO", e);
         } finally {
             dbConnection.closeConnection(conn, ps, null);
         }

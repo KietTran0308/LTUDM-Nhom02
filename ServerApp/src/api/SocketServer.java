@@ -10,7 +10,6 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.function.Consumer;
 
 public class SocketServer {
     private static final int PORT = 8888;
@@ -21,13 +20,34 @@ public class SocketServer {
     private final ExecutorService threadPool = Executors.newCachedThreadPool();
 
     // Lưu trữ kết nối đang hoạt động theo table_id: Key = tableId, Value = ClientHandler
-    private static final Map<Long, ClientHandler> activeTables = new ConcurrentHashMap<>();
 
-    // Callback để thông báo cho Giao diện Bếp/Admin trên Server khi có đơn mới hoặc khách gọi
-    private Consumer<SocketPacket> onKitchenNotification;
+    private static final Map<Long, java.util.Set<ClientHandler>> activeTables = new ConcurrentHashMap<>();
+    private static final java.util.Set<ClientHandler> kitchenClients = ConcurrentHashMap.newKeySet();
+    private static final java.util.Set<ClientHandler> staffClients = ConcurrentHashMap.newKeySet();
 
-    public SocketServer(Consumer<SocketPacket> onKitchenNotification) {
-        this.onKitchenNotification = onKitchenNotification;
+    public SocketServer(Object o) { }
+
+    public static void registerKitchen(ClientHandler client) { kitchenClients.add(client); }
+    public static void registerStaff(ClientHandler client) { staffClients.add(client); }
+    public static void removeConnection(ClientHandler client) {
+        kitchenClients.remove(client);
+        staffClients.remove(client);
+        for (java.util.Set<ClientHandler> handlers : activeTables.values()) handlers.remove(client);
+        activeTables.entrySet().removeIf(e -> e.getValue().isEmpty());
+    }
+
+    public static void broadcastKitchenQueue(java.util.List<dto.OrderDTO> orders) {
+        for (ClientHandler client : kitchenClients) {
+            client.sendPacket(new SocketPacket(SocketAction.GET_KITCHEN_QUEUE, true,
+                    "Hàng đợi bếp đã thay đổi", orders, null));
+        }
+    }
+
+    public static void notifyStaff(Long tableId, String note) {
+        for (ClientHandler client : staffClients) {
+            client.sendPacket(new SocketPacket(SocketAction.CALL_STAFF, true,
+                    "Bàn #" + tableId + ": " + note, note, null));
+        }
     }
 
     public void startServer() {
@@ -40,7 +60,7 @@ public class SocketServer {
                 while (isRunning) {
                     Socket clientSocket = serverSocket.accept();
                     System.out.println("[TCP Server] Kết nối mới từ: " + clientSocket.getInetAddress());
-                    ClientHandler handler = new ClientHandler(clientSocket, onKitchenNotification);
+                    ClientHandler handler = new ClientHandler(clientSocket);
                     threadPool.execute(handler);
                 }
             } catch (IOException e) {
@@ -51,47 +71,28 @@ public class SocketServer {
         }).start();
     }
 
-    /**
-     * Đăng ký Tablet của bàn vào danh sách quản lý trực tuyến
-     */
     public static void registerTableSession(Long tableId, ClientHandler handler) {
-        if (tableId != null) {
-            activeTables.put(tableId, handler);
-            System.out.println("[TCP Server] Đã gắn kết nối cho Bàn số: " + tableId);
-        }
-    }
-
-    public static void removeTableSession(Long tableId) {
-        if (tableId != null) {
-            activeTables.remove(tableId);
-            System.out.println("[TCP Server] Bàn số " + tableId + " đã ngắt kết nối.");
+        if (tableId != null && handler != null) {
+            activeTables.computeIfAbsent(tableId, k -> ConcurrentHashMap.newKeySet()).add(handler);
         }
     }
 
     public static void notifyTableCleared(Long tableId) {
-        ClientHandler handler = activeTables.get(tableId);
-        if (handler != null) {
-            handler.sendPacket(new SocketPacket(
-                    SocketAction.TABLE_CLEARED_RESET, true,
-                    "Cảm ơn quý khách đã dùng bữa tại Haidilao!", null, null
-            ));
+        java.util.Set<ClientHandler> clients = activeTables.remove(tableId);
+        if (clients == null) return;
+        for (ClientHandler client : clients) {
+            client.sendPacket(new SocketPacket(SocketAction.TABLE_CLEARED_RESET, true,
+                    "Cảm ơn quý khách đã dùng bữa tại An Nhiên!", null, null));
         }
     }
 
-    /**
-     * Dành cho Màn hình Bếp (Server): Đẩy thông báo trạng thái món ăn thời gian thực về đúng Tablet của bàn
-     */
     public static void pushStatusToTable(Long tableId, Long orderItemId, OrderStatus newStatus) {
-        ClientHandler handler = activeTables.get(tableId);
-        if (handler != null) {
-            SocketPacket pushPacket = new SocketPacket(
-                    SocketAction.KITCHEN_UPDATE_STATUS,
-                    true,
-                    "Bếp vừa cập nhật trạng thái món #" + orderItemId + " sang: " + newStatus.name(),
-                    orderItemId,
-                    newStatus
-            );
-            handler.sendPacket(pushPacket);
+        java.util.Set<ClientHandler> clients = activeTables.get(tableId);
+        if (clients == null) return;
+        for (ClientHandler client : clients) {
+            client.sendPacket(new SocketPacket(SocketAction.KITCHEN_UPDATE_STATUS, true,
+                    "Bếp cập nhật trạng thái món #" + orderItemId,
+                    orderItemId, newStatus));
         }
     }
 

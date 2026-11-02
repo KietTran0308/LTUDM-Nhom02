@@ -35,7 +35,9 @@ public class ClientTabletBUS {
         this.socketClient = Objects.requireNonNull(sessionSocket, "Phải dùng Socket đã đăng nhập");
         if (!this.socketClient.isConnected()) throw new IllegalStateException("Socket đã ngắt kết nối");
         if (token == null || token.isBlank()) throw new IllegalArgumentException("Thiếu token phiên bàn");
-        this.socketClient.registerTable(tableId, token);
+        if (!this.socketClient.registerTable(tableId, token)) {
+            throw new IllegalStateException("Không gửi được yêu cầu xác minh phiên bàn");
+        }
     }
 
     /**

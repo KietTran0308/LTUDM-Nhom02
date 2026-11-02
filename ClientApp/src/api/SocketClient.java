@@ -1,13 +1,16 @@
 package api;
 
 import dto.*;
+
 import java.io.*;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
-/** Mot ket noi TCP xuyen suot phien dang nhap, GUI lay packet qua pollPacket(). */
+/**
+ * Mot ket noi TCP xuyen suot phien dang nhap, GUI lay packet qua pollPacket().
+ */
 public class SocketClient {
     private Socket socket;
     private PrintWriter out;
@@ -17,7 +20,8 @@ public class SocketClient {
     private final BlockingQueue<SocketPacket> packetQueue = new LinkedBlockingQueue<>();
 
     public synchronized boolean connect(String host, int port, Long tableId) {
-        if (connected) return true;
+        if (connected && socket != null && !socket.isClosed()) return true;
+        if (socket != null) close(); // Dọn kết nối cũ trước khi kết nối lại.
         this.tableId = tableId;
         try {
             Socket s = new Socket();
@@ -27,7 +31,9 @@ public class SocketClient {
             out = new PrintWriter(new OutputStreamWriter(s.getOutputStream(), StandardCharsets.UTF_8), true);
             in = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.UTF_8));
             connected = true;
-            Thread reader = new Thread(this::listenFromServer, "client-socket-reader");
+            BufferedReader activeInput = in;
+            Thread reader = new Thread(
+                    () -> listenFromServer(s, activeInput), "client-socket-reader");
             reader.setDaemon(true);
             reader.start();
             // KHONG tu dong REGISTER_TABLE: phai LOGIN va co token phien ban truoc.
@@ -39,10 +45,11 @@ public class SocketClient {
         }
     }
 
-    private void listenFromServer() {
+    private void listenFromServer(Socket activeSocket, BufferedReader activeInput) {
         try {
             String line;
-            while (connected && (line = in.readLine()) != null) {
+            while (connected && socket == activeSocket
+                    && (line = activeInput.readLine()) != null) {
                 try {
                     packetQueue.offer(SocketJsonMapper.fromJsonString(line));
                 } catch (RuntimeException badPacket) {
@@ -52,7 +59,14 @@ public class SocketClient {
         } catch (IOException e) {
             if (connected) System.err.println("Mat ket noi Server: " + e.getMessage());
         } finally {
-            connected = false;
+            // Không cho thread cũ vô tình đánh dấu kết nối mới là đã ngắt.
+            if (socket == activeSocket) {
+                connected = false;
+                try {
+                    activeSocket.close();
+                } catch (IOException ignored) {
+                }
+            }
         }
     }
 
@@ -73,31 +87,55 @@ public class SocketClient {
         }
     }
 
-    public SocketPacket pollPacket() { return packetQueue.poll(); }
-    public boolean isConnected() { return connected; }
+    public SocketPacket pollPacket() {
+        return packetQueue.poll();
+    }
+
+    public boolean isConnected() {
+        return connected;
+    }
+
     public void requestMenuAndCategories() {
         sendRequest(new SocketPacket(SocketAction.GET_MENU_AND_CATEGORIES, tableId, null, null));
     }
+
     public boolean sendOrderToServer(OrderDTO order, String voucherCode) {
         return sendRequest(new SocketPacket(SocketAction.PLACE_ORDER, tableId, order, voucherCode));
     }
+
     public void requestTableTracking() {
         sendRequest(new SocketPacket(SocketAction.GET_TABLE_TRACKING, tableId, null, null));
     }
+
     public boolean callStaff(String note) {
         return sendRequest(new SocketPacket(SocketAction.CALL_STAFF, tableId, note, null));
     }
-    public void registerTable(Long tableId, String token) {
+
+    public boolean registerTable(Long tableId, String token) {
+        if (tableId == null || tableId <= 0 || token == null || token.isBlank()) return false;
         this.tableId = tableId;
-        sendRequest(new SocketPacket(SocketAction.REGISTER_TABLE, tableId, token, null));
+        return sendRequest(new SocketPacket(SocketAction.REGISTER_TABLE, tableId, token, null));
     }
-    public void logout() { sendRequest(new SocketPacket(SocketAction.LOGOUT, null, null, null)); }
+
+    public void logout() {
+        sendRequest(new SocketPacket(SocketAction.LOGOUT, null, null, null));
+    }
+
     public synchronized void close() {
         connected = false;
-        if (socket != null) try { socket.close(); } catch (IOException ignored) { }
+        if (socket != null) try {
+            socket.close();
+        } catch (IOException ignored) {
+        }
         if (out != null) out.close();
-        if (in != null) try { in.close(); } catch (IOException ignored) { }
-        socket = null; in = null; out = null;
+        if (in != null) try {
+            in.close();
+        } catch (IOException ignored) {
+        }
+        socket = null;
+        in = null;
+        out = null;
+        tableId = null;
         packetQueue.clear();
     }
 }

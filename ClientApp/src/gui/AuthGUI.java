@@ -12,12 +12,18 @@ import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.*;
 import java.util.Locale;
+
 import api.SocketClient;
 
 public class AuthGUI extends JFrame {
 
     private static final String CARD_LOGIN = "LOGIN";
     private static final String CARD_REGISTER = "REGISTER";
+    private static final String CARD_FORGOT = "FORGOT";
+    // Shared ordering device: employee pairs once, guest enters ONLY own credentials.
+    private Long pairedTableId;
+    private String pairedTableCode;
+    private JLabel pairedDeviceHint;
     private static final Color BRAND_ORANGE = new Color(206, 93, 52);
 
     private final CardLayout cardLayout = new CardLayout();
@@ -31,6 +37,9 @@ public class AuthGUI extends JFrame {
 
     private CTextField txtLoginEmail, txtRegFullName, txtRegEmail, txtRegPhone;
     private CPasswordField txtLoginPassword, txtRegPassword, txtRegConfirmPassword;
+    private CTextField txtForgotEmail, txtForgotOtp;
+    private CPasswordField txtForgotNewPassword, txtForgotConfirmPassword;
+    private CButton btnSendResetCode, btnConfirmReset;
 
     public AuthGUI() {
         setExtendedState(JFrame.MAXIMIZED_BOTH);
@@ -45,6 +54,7 @@ public class AuthGUI extends JFrame {
 
         rightCardPanel.add(createLoginPanel(), CARD_LOGIN);
         rightCardPanel.add(createRegisterPanel(), CARD_REGISTER);
+        rightCardPanel.add(createForgotPasswordPanel(), CARD_FORGOT);
         add(rightCardPanel);
 
         addWindowFocusListener(new WindowAdapter() {
@@ -59,7 +69,8 @@ public class AuthGUI extends JFrame {
         authBUS = new AuthBUS();
         startResponseTimer();
         addWindowListener(new WindowAdapter() {
-            @Override public void windowClosed(WindowEvent e) {
+            @Override
+            public void windowClosed(WindowEvent e) {
                 if (responseTimer != null) responseTimer.stop();
             }
         });
@@ -181,9 +192,25 @@ public class AuthGUI extends JFrame {
 
         JLabel lblForgot = createLabel("Quên mật khẩu?", "Be Vietnam Pro Black", Font.BOLD, 14, BRAND_ORANGE, Component.LEFT_ALIGNMENT);
         lblForgot.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        lblForgot.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                txtForgotEmail.setText(txtLoginEmail.getText().trim().equals("name@bepnha.vn")
+                        ? "" : txtLoginEmail.getText().trim());
+                cardLayout.show(rightCardPanel, CARD_FORGOT);
+            }
+        });
 
         pnlOptions.add(chkRemember, BorderLayout.WEST);
         pnlOptions.add(lblForgot, BorderLayout.EAST);
+
+        pairedDeviceHint = new JLabel("Thiết bị chưa được nhân viên liên kết với bàn.");
+        pairedDeviceHint.setFont(new Font("SansSerif", Font.PLAIN, 13));
+        pairedDeviceHint.setForeground(new Color(108, 114, 128));
+        pairedDeviceHint.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JButton btnPairDevice = new JButton("Thiết lập bàn - dành cho nhân viên");
+        btnPairDevice.setAlignmentX(Component.LEFT_ALIGNMENT);
+        btnPairDevice.addActionListener(e -> showEmployeePairingDialog());
 
         btnLogin = new CButton("Đăng nhập", 470, 50);
         btnLogin.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -206,6 +233,10 @@ public class AuthGUI extends JFrame {
         formContainer.add(txtLoginPassword);
         formContainer.add(Box.createVerticalStrut(15));
         formContainer.add(pnlOptions);
+        formContainer.add(Box.createVerticalStrut(10));
+        formContainer.add(pairedDeviceHint);
+        formContainer.add(Box.createVerticalStrut(8));
+        formContainer.add(btnPairDevice);
         formContainer.add(Box.createVerticalStrut(35));
         formContainer.add(btnLogin);
         formContainer.add(Box.createVerticalStrut(30));
@@ -281,6 +312,109 @@ public class AuthGUI extends JFrame {
         return rightWrapper;
     }
 
+    /**
+     * Màn hình đặt lại mật khẩu, dùng cùng CardLayout để không mở JFrame khác.
+     */
+    private JPanel createForgotPasswordPanel() {
+        JPanel wrapper = new JPanel(new GridBagLayout());
+        wrapper.setBackground(Color.WHITE);
+        JPanel form = new JPanel();
+        form.setOpaque(false);
+        form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
+
+        form.add(createTitleHeader("Quên mật khẩu?"));
+        form.add(Box.createVerticalStrut(12));
+        JLabel help = createLabel("Nhập email đã đăng ký để nhận mã OTP qua email.",
+                "Inter", Font.PLAIN, 15, Color.GRAY, Component.LEFT_ALIGNMENT);
+        form.add(help);
+        form.add(Box.createVerticalStrut(24));
+
+        form.add(createFieldLabel("Email đã đăng ký"));
+        form.add(Box.createVerticalStrut(8));
+        txtForgotEmail = new CTextField("Email nhận mã", 470, 48);
+        txtForgotEmail.setAlignmentX(Component.LEFT_ALIGNMENT);
+        form.add(txtForgotEmail);
+        form.add(Box.createVerticalStrut(12));
+
+        btnSendResetCode = new CButton("Gửi mã xác minh", 470, 48);
+        btnSendResetCode.setAlignmentX(Component.LEFT_ALIGNMENT);
+        btnSendResetCode.addActionListener(e -> requestResetCode());
+        form.add(btnSendResetCode);
+        form.add(Box.createVerticalStrut(18));
+
+        form.add(createFieldLabel("Mã OTP (6 chữ số)"));
+        form.add(Box.createVerticalStrut(8));
+        txtForgotOtp = new CTextField("Nhập mã 6 chữ số", 470, 48);
+        txtForgotOtp.setAlignmentX(Component.LEFT_ALIGNMENT);
+        txtForgotOtp.setEnabled(false);
+        form.add(txtForgotOtp);
+        form.add(Box.createVerticalStrut(14));
+
+        form.add(createFieldLabel("Mật khẩu mới (8–72 ký tự)"));
+        form.add(Box.createVerticalStrut(8));
+        txtForgotNewPassword = new CPasswordField("Mật khẩu mới", 470, 48);
+        txtForgotNewPassword.setAlignmentX(Component.LEFT_ALIGNMENT);
+        txtForgotNewPassword.setEnabled(false);
+        form.add(txtForgotNewPassword);
+        form.add(Box.createVerticalStrut(14));
+
+        form.add(createFieldLabel("Xác nhận mật khẩu mới"));
+        form.add(Box.createVerticalStrut(8));
+        txtForgotConfirmPassword = new CPasswordField("Nhập lại mật khẩu", 470, 48);
+        txtForgotConfirmPassword.setAlignmentX(Component.LEFT_ALIGNMENT);
+        txtForgotConfirmPassword.setEnabled(false);
+        form.add(txtForgotConfirmPassword);
+        form.add(Box.createVerticalStrut(22));
+
+        btnConfirmReset = new CButton("Đặt lại mật khẩu", 470, 48);
+        btnConfirmReset.setAlignmentX(Component.LEFT_ALIGNMENT);
+        btnConfirmReset.setEnabled(false);
+        btnConfirmReset.addActionListener(e -> confirmResetPassword());
+        form.add(btnConfirmReset);
+        form.add(Box.createVerticalStrut(20));
+        form.add(createSwitchAuthPanel("Đã nhớ mật khẩu? ", "Quay lại đăng nhập", CARD_LOGIN));
+        wrapper.add(form);
+        return wrapper;
+    }
+
+    private void requestResetCode() {
+        String email = txtForgotEmail.getText().trim();
+        if (email.isEmpty() || !email.contains("@")) {
+            CToast.warning(this, "Vui lòng nhập địa chỉ email hợp lệ.");
+            return;
+        }
+        if (!authBUS.requestPasswordReset(email)) {
+            CToast.error(this, "Không thể kết nối Server để gửi mã.");
+            return;
+        }
+        btnSendResetCode.setEnabled(false);
+    }
+
+    private void confirmResetPassword() {
+        String email = txtForgotEmail.getText().trim();
+        String otp = txtForgotOtp.getText().trim();
+        String password = new String(txtForgotNewPassword.getPassword());
+        String confirm = new String(txtForgotConfirmPassword.getPassword());
+
+        if (!otp.matches("[0-9]{6}")) {
+            CToast.warning(this, "Mã OTP phải gồm đúng 6 chữ số.");
+            return;
+        }
+        if (password.length() < 8 || password.length() > 72) {
+            CToast.warning(this, "Mật khẩu mới phải từ 8 đến 72 ký tự.");
+            return;
+        }
+        if (!password.equals(confirm)) {
+            CToast.warning(this, "Mật khẩu xác nhận không trùng khớp.");
+            return;
+        }
+        if (!authBUS.confirmPasswordReset(email, otp, password)) {
+            CToast.error(this, "Không thể gửi yêu cầu đặt lại mật khẩu tới Server.");
+            return;
+        }
+        btnConfirmReset.setEnabled(false);
+    }
+
     private void handleLogin() {
         String account = txtLoginEmail.getText().trim();
         String pass = new String(txtLoginPassword.getPassword()).trim();
@@ -290,7 +424,7 @@ public class AuthGUI extends JFrame {
             return;
         }
 
-        if(!authBUS.login(account, pass)){
+        if (!authBUS.login(account, pass)) {
             CToast.show(
                     this,
                     "Không kết nối được Server.\n"
@@ -323,6 +457,39 @@ public class AuthGUI extends JFrame {
     }
 
     private void onAuthServerResponse(SocketPacket packet) {
+        if (packet.getAction() == SocketAction.REQUEST_PASSWORD_RESET) {
+            btnSendResetCode.setEnabled(true);
+            if (packet.isSuccess()) {
+                txtForgotOtp.setEnabled(true);
+                txtForgotNewPassword.setEnabled(true);
+                txtForgotConfirmPassword.setEnabled(true);
+                btnConfirmReset.setEnabled(true);
+                btnSendResetCode.setText("Gửi lại mã (sau 60 giây)");
+                CToast.info(this, packet.getMessage());
+            } else {
+                CToast.error(this, packet.getMessage());
+            }
+            return;
+        }
+        if (packet.getAction() == SocketAction.CONFIRM_PASSWORD_RESET) {
+            btnConfirmReset.setEnabled(true);
+            if (packet.isSuccess()) {
+                CToast.success(this, "Đổi mật khẩu thành công. Hãy đăng nhập lại.");
+                txtLoginEmail.setText(txtForgotEmail.getText().trim());
+                txtLoginPassword.setText("");
+                txtForgotOtp.setText("");
+                txtForgotNewPassword.setText("");
+                txtForgotConfirmPassword.setText("");
+                txtForgotOtp.setEnabled(false);
+                txtForgotNewPassword.setEnabled(false);
+                txtForgotConfirmPassword.setEnabled(false);
+                btnConfirmReset.setEnabled(false);
+                cardLayout.show(rightCardPanel, CARD_LOGIN);
+            } else {
+                CToast.warning(this, packet.getMessage());
+            }
+            return;
+        }
         if (packet.getAction() == SocketAction.REGISTER) {
             if (packet.isSuccess()) {
                 CToast.success(this, "Đăng ký thành công. Vui lòng đăng nhập.");
@@ -356,30 +523,18 @@ public class AuthGUI extends JFrame {
                 next = new StaffGUI(user, session);
                 break;
             case "KITCHEN":
-                next = new StaffGUI(user, session);
+                next = new KitchenGUI(user, session);
                 break;
             case "CUSTOMER":
-                JPanel inputPanel = new JPanel(new GridLayout(2, 2, 10, 10));
-                JTextField txtTableId = new JTextField();
-                JTextField txtToken = new JTextField();
-                inputPanel.add(new JLabel("Mã bàn:")); inputPanel.add(txtTableId);
-                inputPanel.add(new JLabel("Mã phiên bàn:")); inputPanel.add(txtToken);
-                int result = JOptionPane.showConfirmDialog(this, inputPanel,
-                        "Xác minh bàn phục vụ", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-                if (result != JOptionPane.OK_OPTION) {
+                // The staff pairs the shared device before the customer logs in.
+                if (pairedTableId == null || pairedTableCode == null) {
+                    CToast.warning(this, "Nhờ nhân viên thiết lập bàn trên thiết bị trước khi đăng nhập.");
                     resetAuthenticatedLogin();
                     return;
                 }
-                try {
-                    long tableId = Long.parseLong(txtTableId.getText().trim());
-                    String token = txtToken.getText().trim();
-                    if (tableId <= 0 || token.isEmpty()) throw new IllegalArgumentException();
-                    next = new CustomerGUI(tableId, user.getId(), session, token);
-                } catch (IllegalArgumentException ex) {
-                    CToast.warning(this, "Mã bàn hoặc mã phiên không hợp lệ. Vui lòng đăng nhập lại.");
-                    resetAuthenticatedLogin();
-                    return;
-                }
+                next = new CustomerGUI(pairedTableId, user.getId(), session, pairedTableCode);
+                pairedTableCode = null; // CustomerGUI already issued REGISTER_TABLE.
+                pairedTableId = null;
                 break;
             default:
                 CToast.error(this, "Vai trò không được hỗ trợ: " + role);
@@ -389,6 +544,33 @@ public class AuthGUI extends JFrame {
         responseTimer.stop();
         next.setVisible(true);
         dispose();
+    }
+
+    /** Staff enters pairing data received from STAFF POS; customer never sees token. */
+    private void showEmployeePairingDialog() {
+        JTextField tableField = new JTextField(16);
+        JPasswordField codeField = new JPasswordField(16);
+        JPanel panel = new JPanel(new GridLayout(2, 2, 8, 8));
+        panel.add(new JLabel("Mã bàn:"));
+        panel.add(tableField);
+        panel.add(new JLabel("Mã ghép từ StaffGUI:"));
+        panel.add(codeField);
+        int result = JOptionPane.showConfirmDialog(this, panel,
+                "Thiết lập thiết bị dùng chung (nhân viên)",
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (result != JOptionPane.OK_OPTION) return;
+        try {
+            long id = Long.parseLong(tableField.getText().trim());
+            String code = new String(codeField.getPassword()).trim();
+            java.util.Arrays.fill(codeField.getPassword(), '\0');
+            if (id <= 0 || !code.matches("[A-Za-z0-9-]{10,15}")) throw new IllegalArgumentException();
+            pairedTableId = id;
+            pairedTableCode = code;
+            pairedDeviceHint.setText("Thiết bị đã chọn bàn #" + id + " — chờ Server xác minh sau đăng nhập.");
+            CToast.info(this, "Đã nhập thông tin bàn. Mời khách tự đăng nhập.");
+        } catch (IllegalArgumentException e) {
+            CToast.warning(this, "Thông tin bàn/mã ghép không hợp lệ. Nhờ nhân viên kiểm tra.");
+        }
     }
 
     private void resetAuthenticatedLogin() {

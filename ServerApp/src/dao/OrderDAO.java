@@ -1,628 +1,655 @@
-
 package dao;
 
-import dto.*;
+import dto.OrderDTO;
+import dto.OrderItemDTO;
+import dto.OrderStatus;
+import dto.OrderType;
 
+import java.math.BigDecimal;
 import java.sql.*;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
+/**
+ * Data access for orders, kitchen tracking and table-session checkout.
+ * SQL targets MySQL 8 / MariaDB 10.4 and the DTO schema supplied with this project.
+ */
 public class OrderDAO {
 
-    // =====================================================
-    // 1. TÌM ĐƠN GỐC ĐANG HOẠT ĐỘNG CỦA BÀN
-    // =====================================================
+    private static final String ACTIVE_ROOT_SQL =
+            "SELECT o.id FROM orders o " +
+                    "JOIN table_sessions ts ON ts.id = o.table_session_id " +
+                    "WHERE ts.table_id = ? AND ts.status = 'ACTIVE' " +
+                    "AND o.parent_order_id IS NULL AND o.status <> 'CANCELLED' " +
+                    "ORDER BY o.created_at ASC LIMIT 1";
 
-    /**
-     * Tìm đơn hàng gốc đang hoạt động của một bàn.
-     * Đơn gốc có parent_order_id = NULL.
-     */
     public Long findActiveRootOrderByTable(Long tableId) {
-
-        String sql = "SELECT id FROM orders " +
-                "WHERE table_id = ? " +
-                "AND parent_order_id IS NULL " +
-                "AND status NOT IN ('COMPLETED', 'CANCELLED') " +
-                "ORDER BY created_at DESC LIMIT 1";
-
+        if (tableId == null || tableId <= 0) return null;
         try (Connection conn = dbConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-
+             PreparedStatement ps = conn.prepareStatement(ACTIVE_ROOT_SQL)) {
             ps.setLong(1, tableId);
-
             try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getLong("id");
-                }
+                return rs.next() ? rs.getLong("id") : null;
             }
-
         } catch (SQLException e) {
-            e.printStackTrace();
+            throw new IllegalStateException("Lỗi tìm đơn gốc đang hoạt động", e);
         }
-
-        return null;
     }
-
-    // =====================================================
-    // 2. TẠO ĐƠN HÀNG VÀ LƯU CHI TIẾT ĐƠN
-    // =====================================================
 
     /**
-     * Tạo đơn hàng bằng Transaction:
-     * 1. Lưu orders.
-     * 2. Lưu order_items.
-     * 3. Kiểm tra và trừ kho ingredients theo recipes.
-     * 4. Cập nhật trạng thái bàn.
-     *
-     * Nếu có lỗi thì rollback toàn bộ.
+     * A transaction owns the table lock, active session, root/sub-order selection,
+     * stock deduction, order/items creation, and restaurant-table status.
+     * Never use client-supplied prices or totals.
      */
-    public Long createTableOrderTransaction(OrderDTO order)
-            throws SQLException {
-
-        if (order == null) {
-            throw new IllegalArgumentException("Thông tin đơn hàng không được để trống.");
+    public Long createTableOrderTransaction(OrderDTO order) throws SQLException {
+        if (order == null || order.getOrderType() != OrderType.DINE_IN ||
+                order.getTableId() == null || order.getTableId() <= 0 ||
+                order.getItems() == null || order.getItems().isEmpty()) {
+            throw new IllegalArgumentException("Đơn tại bàn phải có bàn và ít nhất một món");
         }
-
-        if (order.getItems() == null || order.getItems().isEmpty()) {
-            throw new IllegalArgumentException("Đơn hàng phải có ít nhất một món.");
-        }
-
-        String sqlOrder = "INSERT INTO orders (" +
-                "order_code, parent_order_id, user_id, table_id, voucher_id, " +
-                "order_type, status, subtotal, shipping_fee, discount_amount, " +
-                "total_amount, note" +
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-
-        String sqlItem = "INSERT INTO order_items (" +
-                "order_id, foods_id, foods_name, unit_price, quantity, line_total, status" +
-                ") VALUES (?, ?, ?, ?, ?, ?, ?)";
-
-        // Kiểm tra nguyên liệu có đủ số lượng trước khi trừ.
-        String sqlCheckStock = "SELECT i.id " +
-                "FROM ingredients i " +
-                "JOIN recipes r ON i.id = r.ingredient_id " +
-                "WHERE r.foods_id = ? " +
-                "AND i.stock_quantity < (r.quantity_required * ?) " +
-                "FOR UPDATE";
-
-        // Trừ nguyên liệu theo công thức món ăn.
-        String sqlDeductStock = "UPDATE ingredients i " +
-                "JOIN recipes r ON i.id = r.ingredient_id " +
-                "SET i.stock_quantity = i.stock_quantity - (r.quantity_required * ?) " +
-                "WHERE r.foods_id = ?";
-
-        String sqlUpdateTable =
-                "UPDATE restaurant_tables SET status = FALSE WHERE id = ?";
-
-        Connection conn = null;
-
-        try {
-            conn = dbConnection.getConnection();
-            conn.setAutoCommit(false);
-
-            Long generatedOrderId;
-
-            // 1. Tạo đơn hàng
-            try (PreparedStatement psOrder = conn.prepareStatement(
-                    sqlOrder, Statement.RETURN_GENERATED_KEYS)) {
-
-                psOrder.setString(1, order.getOrderCode());
-                psOrder.setObject(2, order.getParentOrderId(), Types.BIGINT);
-                psOrder.setLong(3, order.getUserId());
-                psOrder.setObject(4, order.getTableId(), Types.BIGINT);
-                psOrder.setObject(5, order.getVoucherId(), Types.BIGINT);
-                psOrder.setString(6, order.getOrderType().name());
-                psOrder.setString(7, order.getStatus().name());
-                psOrder.setBigDecimal(8, order.getSubtotal());
-                psOrder.setBigDecimal(9, order.getShippingFee());
-                psOrder.setBigDecimal(10, order.getDiscountAmount());
-                psOrder.setBigDecimal(11, order.getTotalAmount());
-                psOrder.setString(12, order.getNote());
-
-                psOrder.executeUpdate();
-
-                try (ResultSet rs = psOrder.getGeneratedKeys()) {
-                    if (!rs.next()) {
-                        throw new SQLException(
-                                "Không thể lấy ID đơn hàng vừa tạo."
-                        );
-                    }
-
-                    generatedOrderId = rs.getLong(1);
-                }
-            }
-
-            // 2. Lưu chi tiết đơn hàng và xử lý kho nguyên liệu
-            try (PreparedStatement psItem = conn.prepareStatement(sqlItem);
-                 PreparedStatement psCheckStock = conn.prepareStatement(sqlCheckStock);
-                 PreparedStatement psDeductStock = conn.prepareStatement(sqlDeductStock)) {
-
-                for (OrderItemDTO item : order.getItems()) {
-
-                    if (item.getFoodsId() == null
-                            || item.getQuantity() == null
-                            || item.getQuantity() <= 0
-                            || item.getUnitPrice() == null
-                            || item.getLineTotal() == null
-                            || item.getStatus() == null) {
-
-                        throw new SQLException(
-                                "Thông tin món ăn trong đơn hàng không hợp lệ."
-                        );
-                    }
-
-                    // 2.1. Kiểm tra nguyên liệu còn đủ không
-                    psCheckStock.setLong(1, item.getFoodsId());
-                    psCheckStock.setInt(2, item.getQuantity());
-
-                    try (ResultSet rs = psCheckStock.executeQuery()) {
-                        if (rs.next()) {
-                            throw new SQLException(
-                                    "Không đủ nguyên liệu để chế biến món: "
-                                            + item.getFoodsName()
-                            );
-                        }
-                    }
-
-                    // 2.2. Lưu món vào order_items
-                    psItem.setLong(1, generatedOrderId);
-                    psItem.setLong(2, item.getFoodsId());
-                    psItem.setString(3, item.getFoodsName());
-                    psItem.setBigDecimal(4, item.getUnitPrice());
-                    psItem.setInt(5, item.getQuantity());
-                    psItem.setBigDecimal(6, item.getLineTotal());
-                    psItem.setString(7, item.getStatus().name());
-
-                    psItem.executeUpdate();
-
-                    // 2.3. Trừ nguyên liệu
-                    psDeductStock.setInt(1, item.getQuantity());
-                    psDeductStock.setLong(2, item.getFoodsId());
-                    psDeductStock.executeUpdate();
-                }
-            }
-
-            // 3. Cập nhật trạng thái bàn nếu là đơn tại bàn
-            if (order.getTableId() != null) {
-
-                try (PreparedStatement psTable =
-                             conn.prepareStatement(sqlUpdateTable)) {
-
-                    psTable.setLong(1, order.getTableId());
-                    psTable.executeUpdate();
-                }
-            }
-
-            conn.commit();
-
-            return generatedOrderId;
-
-        } catch (SQLException | RuntimeException e) {
-
-            if (conn != null) {
-                try {
-                    conn.rollback();
-                } catch (SQLException rollbackError) {
-                    e.addSuppressed(rollbackError);
-                }
-            }
-
-            throw e;
-
-        } finally {
-
-            if (conn != null) {
-                try {
-                    conn.setAutoCommit(true);
-                } finally {
-                    conn.close();
-                }
-            }
-        }
-    }
-
-    // =====================================================
-    // 3. CẬP NHẬT TRẠNG THÁI MỘT MÓN
-    // =====================================================
-
-    /**
-     * Dành cho màn hình Bếp:
-     * Cập nhật trạng thái từng món trong order_items.
-     */
-    public boolean updateOrderItemStatus(
-            Long orderItemId,
-            OrderStatus newStatus
-    ) {
-
-        String sql = "UPDATE order_items SET status = ? WHERE id = ?";
-
-        try (Connection conn = dbConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-
-            ps.setString(1, newStatus.name());
-            ps.setLong(2, orderItemId);
-
-            return ps.executeUpdate() > 0;
-
-        } catch (SQLException e) {
-            e.printStackTrace();
-            return false;
-        }
-    }
-
-    // =====================================================
-    // 4. CẬP NHẬT TRẠNG THÁI ĐƠN HÀNG
-    // =====================================================
-
-    public boolean updateOrderStatus(
-            Long orderId,
-            OrderStatus newStatus
-    ) {
-
-        String sql = "UPDATE orders SET status = ?, " +
-                "updated_at = CURRENT_TIMESTAMP(3) " +
-                "WHERE id = ?";
-
-        try (Connection conn = dbConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-
-            ps.setString(1, newStatus.name());
-            ps.setLong(2, orderId);
-
-            return ps.executeUpdate() > 0;
-
-        } catch (SQLException e) {
-            e.printStackTrace();
-            return false;
-        }
-    }
-
-    // =====================================================
-    // 5. THEO DÕI MÓN ĂN THEO BÀN
-    // =====================================================
-
-    /**
-     * Lấy các món đã gọi của một bàn,
-     * bao gồm đơn gốc và các đơn gọi thêm.
-     */
-    public List<OrderItemDTO> getTrackingItemsByTable(Long tableId) {
-
-        List<OrderItemDTO> items = new ArrayList<>();
-
-        String sql = "SELECT oi.* FROM order_items oi " +
-                "JOIN orders o ON oi.order_id = o.id " +
-                "WHERE o.table_id = ? " +
-                "AND o.status != 'CANCELLED' " +
-                "ORDER BY oi.id DESC";
-
-        try (Connection conn = dbConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-
-            ps.setLong(1, tableId);
-
-            try (ResultSet rs = ps.executeQuery()) {
-
-                while (rs.next()) {
-                    items.add(mapOrderItem(rs));
-                }
-            }
-
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-
-        return items;
-    }
-
-    // =====================================================
-    // 6. GỘP ĐƠN GỐC VÀ CÁC ĐƠN GỌI THÊM ĐỂ THANH TOÁN
-    // =====================================================
-
-    /**
-     * Dành cho Thu ngân:
-     * Gộp đơn gốc và các đơn con có parent_order_id
-     * để tính tổng tiền thanh toán cho một bàn.
-     */
-    public OrderDTO getMergedTableOrderForCheckout(Long tableId) {
-
-        Long rootOrderId = findActiveRootOrderByTable(tableId);
-
-        if (rootOrderId == null) {
-            return null;
-        }
-
-        OrderDTO mergedOrder = new OrderDTO();
-        mergedOrder.setId(rootOrderId);
-        mergedOrder.setTableId(tableId);
-
-        String sqlSum = "SELECT " +
-                "MAX(CASE WHEN id = ? THEN order_code END) AS root_code, " +
-                "COALESCE(SUM(subtotal), 0) AS total_sub, " +
-                "COALESCE(SUM(shipping_fee), 0) AS total_shipping, " +
-                "COALESCE(SUM(discount_amount), 0) AS total_disc, " +
-                "COALESCE(SUM(total_amount), 0) AS total_amount " +
-                "FROM orders " +
-                "WHERE (id = ? OR parent_order_id = ?) " +
-                "AND status != 'CANCELLED'";
-
-        String sqlItems = "SELECT oi.* FROM order_items oi " +
-                "JOIN orders o ON oi.order_id = o.id " +
-                "WHERE (o.id = ? OR o.parent_order_id = ?) " +
-                "AND o.status != 'CANCELLED' " +
-                "AND oi.status != 'CANCELLED' " +
-                "ORDER BY oi.id ASC";
 
         try (Connection conn = dbConnection.getConnection()) {
-
-            // 1. Tính tổng tiền các lượt gọi món
-            try (PreparedStatement psSum = conn.prepareStatement(sqlSum)) {
-
-                psSum.setLong(1, rootOrderId);
-                psSum.setLong(2, rootOrderId);
-                psSum.setLong(3, rootOrderId);
-
-                try (ResultSet rs = psSum.executeQuery()) {
-
-                    if (rs.next()) {
-                        mergedOrder.setOrderCode(rs.getString("root_code"));
-                        mergedOrder.setSubtotal(rs.getBigDecimal("total_sub"));
-                        mergedOrder.setShippingFee(rs.getBigDecimal("total_shipping"));
-                        mergedOrder.setDiscountAmount(rs.getBigDecimal("total_disc"));
-                        mergedOrder.setTotalAmount(rs.getBigDecimal("total_amount"));
+            conn.setAutoCommit(false);
+            try {
+                // Lock the physical table to serialize first orders and add-on orders.
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "SELECT id FROM restaurant_tables WHERE id = ? FOR UPDATE")) {
+                    ps.setLong(1, order.getTableId());
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (!rs.next()) throw new SQLException("Bàn không tồn tại");
                     }
                 }
-            }
 
-            // 2. Lấy toàn bộ món từ đơn gốc và đơn gọi thêm
-            List<OrderItemDTO> allItems = new ArrayList<>();
+                Long sessionId = findActiveSession(conn, order.getTableId());
+                if (sessionId == null || order.getTableSessionId() == null) {
+                    throw new SQLException("Nhân viên chưa mở bàn hoặc thiết bị chưa được xác minh");
+                }
+                if (order.getTableSessionId() != null && !order.getTableSessionId().equals(sessionId)) {
+                    throw new SQLException("Phiên bàn đã thay đổi; hãy tải lại thông tin bàn");
+                }
+                order.setTableSessionId(sessionId);
 
-            try (PreparedStatement psItems = conn.prepareStatement(sqlItems)) {
-
-                psItems.setLong(1, rootOrderId);
-                psItems.setLong(2, rootOrderId);
-
-                try (ResultSet rs = psItems.executeQuery()) {
-
-                    while (rs.next()) {
-                        allItems.add(mapOrderItem(rs));
+                Long rootOrderId = null;
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "SELECT id FROM orders WHERE table_session_id = ? " +
+                                "AND parent_order_id IS NULL AND status <> 'CANCELLED' " +
+                                "ORDER BY created_at ASC LIMIT 1")) {
+                    ps.setLong(1, sessionId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (rs.next()) rootOrderId = rs.getLong(1);
                     }
                 }
+                order.setParentOrderId(rootOrderId); // Ignore a stale parent sent by a client.
+                if (order.getOrderCode() == null || order.getOrderCode().trim().isEmpty()) {
+                    order.setOrderCode("ORD" + UUID.randomUUID().toString()
+                            .replace("-", "").substring(0, 16).toUpperCase(Locale.ROOT));
+                }
+
+                Map<Long, BigDecimal> ingredientRequirements = new HashMap<>();
+                BigDecimal subtotal = BigDecimal.ZERO;
+                for (OrderItemDTO item : order.getItems()) {
+                    if (item == null || item.getFoodsId() == null || item.getFoodsId() <= 0 ||
+                            item.getQuantity() == null || item.getQuantity() <= 0) {
+                        throw new IllegalArgumentException("Mã món hoặc số lượng không hợp lệ");
+                    }
+                    // Price/name/publication status come from DB, not tablet JSON.
+                    try (PreparedStatement ps = conn.prepareStatement(
+                            "SELECT name, price, is_published, is_deleted FROM foods WHERE id = ?")) {
+                        ps.setLong(1, item.getFoodsId());
+                        try (ResultSet rs = ps.executeQuery()) {
+                            if (!rs.next() || !rs.getBoolean("is_published") || rs.getBoolean("is_deleted")) {
+                                throw new SQLException("Món không tồn tại hoặc đã ngừng bán: " + item.getFoodsId());
+                            }
+                            item.setFoodsName(rs.getString("name"));
+                            item.setUnitPrice(rs.getBigDecimal("price"));
+                        }
+                    }
+                    if (item.getUnitPrice() == null || item.getUnitPrice().signum() < 0) {
+                        throw new SQLException("Giá món không hợp lệ: " + item.getFoodsId());
+                    }
+                    item.setLineTotal(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
+                    item.setStatus(OrderStatus.PENDING);
+                    subtotal = subtotal.add(item.getLineTotal());
+                    collectIngredients(conn, item.getFoodsId(), item.getQuantity(), ingredientRequirements);
+                }
+
+                // No voucher logic is provided here. The client cannot set discounts.
+                order.setVoucherId(null);
+                order.setSubtotal(subtotal);
+                order.setShippingFee(BigDecimal.ZERO);
+                order.setDiscountAmount(BigDecimal.ZERO);
+                order.setTotalAmount(subtotal);
+                order.setStatus(OrderStatus.PENDING);
+                deductIngredients(conn, ingredientRequirements);
+
+                final String insertOrder =
+                        "INSERT INTO orders (order_code, parent_order_id, user_id, table_id, " +
+                                "table_session_id, voucher_id, order_type, status, subtotal, shipping_fee, " +
+                                "discount_amount, total_amount, note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                Long orderId;
+                try (PreparedStatement ps = conn.prepareStatement(insertOrder, Statement.RETURN_GENERATED_KEYS)) {
+                    ps.setString(1, order.getOrderCode());
+                    ps.setObject(2, order.getParentOrderId(), Types.BIGINT);
+                    ps.setObject(3, order.getUserId(), Types.BIGINT); // Guests can be anonymous.
+                    ps.setLong(4, order.getTableId());
+                    ps.setLong(5, sessionId);
+                    ps.setNull(6, Types.BIGINT);
+                    ps.setString(7, order.getOrderType().name());
+                    ps.setString(8, order.getStatus().name());
+                    ps.setBigDecimal(9, order.getSubtotal());
+                    ps.setBigDecimal(10, order.getShippingFee());
+                    ps.setBigDecimal(11, order.getDiscountAmount());
+                    ps.setBigDecimal(12, order.getTotalAmount());
+                    ps.setString(13, order.getNote());
+                    if (ps.executeUpdate() != 1) throw new SQLException("Không thể tạo đơn hàng");
+                    try (ResultSet rs = ps.getGeneratedKeys()) {
+                        if (!rs.next()) throw new SQLException("Không nhận được ID đơn hàng mới");
+                        orderId = rs.getLong(1);
+                    }
+                }
+                order.setId(orderId);
+
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO order_items (order_id, foods_id, foods_name, unit_price, " +
+                                "quantity, line_total, status, note) VALUES (?,?,?,?,?,?,?,?)")) {
+                    for (OrderItemDTO item : order.getItems()) {
+                        item.setOrderId(orderId);
+                        ps.setLong(1, orderId);
+                        ps.setLong(2, item.getFoodsId());
+                        ps.setString(3, item.getFoodsName());
+                        ps.setBigDecimal(4, item.getUnitPrice());
+                        ps.setInt(5, item.getQuantity());
+                        ps.setBigDecimal(6, item.getLineTotal());
+                        ps.setString(7, OrderStatus.PENDING.name());
+                        ps.setString(8, item.getNote());
+                        ps.addBatch();
+                    }
+                    ps.executeBatch();
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE restaurant_tables SET status = FALSE WHERE id = ?")) {
+                    ps.setLong(1, order.getTableId());
+                    if (ps.executeUpdate() != 1) throw new SQLException("Không thể cập nhật trạng thái bàn");
+                }
+
+                conn.commit();
+                return orderId;
+            } catch (SQLException | RuntimeException ex) {
+                rollback(conn, ex);
+                throw ex;
             }
-
-            mergedOrder.setItems(allItems);
-
-            return mergedOrder;
-
-        } catch (SQLException e) {
-            e.printStackTrace();
-            return null;
         }
     }
 
-    // =====================================================
-    // 7. LẤY ĐƠN HÀNG THEO ID
-    // =====================================================
+    private Long findActiveSession(Connection conn, Long tableId) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT id FROM table_sessions WHERE table_id = ? AND status = 'ACTIVE' FOR UPDATE")) {
+            ps.setLong(1, tableId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getLong(1) : null;
+            }
+        }
+    }
+
+    private void collectIngredients(Connection conn, long foodId, int quantity,
+                                    Map<Long, BigDecimal> requirements) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT ingredient_id, quantity_required FROM recipes WHERE foods_id = ?")) {
+            ps.setLong(1, foodId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    long ingredientId = rs.getLong("ingredient_id");
+                    BigDecimal required = rs.getBigDecimal("quantity_required");
+                    if (required == null || required.signum() < 0) {
+                        throw new SQLException("Định lượng nguyên liệu không hợp lệ");
+                    }
+                    requirements.merge(ingredientId,
+                            required.multiply(BigDecimal.valueOf(quantity)), BigDecimal::add);
+                }
+            }
+        }
+    }
+
+    private void deductIngredients(Connection conn, Map<Long, BigDecimal> requirements) throws SQLException {
+        // Lock in ascending order to reduce the chance of deadlocks.
+        List<Long> ingredientIds = new ArrayList<>(requirements.keySet());
+        Collections.sort(ingredientIds);
+        for (Long id : ingredientIds) {
+            BigDecimal amount = requirements.get(id);
+            if (amount.signum() == 0) continue;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE ingredients SET stock_quantity = stock_quantity - ? " +
+                            "WHERE id = ? AND stock_quantity >= ?")) {
+                ps.setBigDecimal(1, amount);
+                ps.setLong(2, id);
+                ps.setBigDecimal(3, amount);
+                if (ps.executeUpdate() != 1) {
+                    throw new SQLException("Nguyên liệu ID " + id + " không đủ số lượng hoặc không tồn tại");
+                }
+            }
+        }
+    }
+
+    private void restoreIngredients(Connection conn, Map<Long, BigDecimal> requirements) throws SQLException {
+        for (Map.Entry<Long, BigDecimal> entry : requirements.entrySet()) {
+            if (entry.getValue().signum() == 0) continue;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE ingredients SET stock_quantity = stock_quantity + ? WHERE id = ?")) {
+                ps.setBigDecimal(1, entry.getValue());
+                ps.setLong(2, entry.getKey());
+                if (ps.executeUpdate() != 1) throw new SQLException("Không thể hoàn kho nguyên liệu");
+            }
+        }
+    }
 
     public OrderDTO getOrderById(Long orderId) {
-
-        String sql = "SELECT * FROM orders WHERE id = ?";
-
         try (Connection conn = dbConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-
+             PreparedStatement ps = conn.prepareStatement("SELECT * FROM orders WHERE id = ?")) {
             ps.setLong(1, orderId);
-
             try (ResultSet rs = ps.executeQuery()) {
-
-                if (rs.next()) {
-                    OrderDTO order = mapOrder(rs);
-                    order.setItems(getOrderItemsByOrderId(orderId));
-                    return order;
-                }
+                if (!rs.next()) return null;
+                OrderDTO order = mapOrder(rs);
+                order.setItems(readOrderItems(conn, orderId));
+                return order;
             }
-
         } catch (SQLException e) {
-            e.printStackTrace();
+            throw new IllegalStateException("Lỗi truy vấn đơn hàng ID " + orderId, e);
         }
-
-        return null;
     }
-
-    // =====================================================
-    // 8. LẤY ĐƠN HÀNG THEO MÃ
-    // =====================================================
 
     public OrderDTO getOrderByCode(String orderCode) {
-
-        String sql = "SELECT * FROM orders WHERE order_code = ?";
-
         try (Connection conn = dbConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-
+             PreparedStatement ps = conn.prepareStatement("SELECT * FROM orders WHERE order_code = ?")) {
             ps.setString(1, orderCode);
-
             try (ResultSet rs = ps.executeQuery()) {
-
-                if (rs.next()) {
-                    OrderDTO order = mapOrder(rs);
-                    order.setItems(
-                            getOrderItemsByOrderId(order.getId())
-                    );
-                    return order;
-                }
+                if (!rs.next()) return null;
+                OrderDTO order = mapOrder(rs);
+                order.setItems(readOrderItems(conn, order.getId()));
+                return order;
             }
-
         } catch (SQLException e) {
-            e.printStackTrace();
+            throw new IllegalStateException("Lỗi tìm đơn hàng theo mã", e);
         }
-
-        return null;
     }
 
-    // =====================================================
-    // 9. LẤY LỊCH SỬ ĐƠN HÀNG CỦA NGƯỜI DÙNG
-    // =====================================================
-
     public List<OrderDTO> getOrdersByUserId(Long userId) {
-
-        List<OrderDTO> orders = new ArrayList<>();
-
-        String sql = "SELECT * FROM orders " +
-                "WHERE user_id = ? " +
-                "ORDER BY created_at DESC";
-
+        List<OrderDTO> result = new ArrayList<>();
         try (Connection conn = dbConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC")) {
             ps.setLong(1, userId);
-
             try (ResultSet rs = ps.executeQuery()) {
-
-                while (rs.next()) {
-                    OrderDTO order = mapOrder(rs);
-                    order.setItems(
-                            getOrderItemsByOrderId(order.getId())
-                    );
-                    orders.add(order);
-                }
+                while (rs.next()) result.add(mapOrder(rs));
             }
-
+            return result;
         } catch (SQLException e) {
-            e.printStackTrace();
+            throw new IllegalStateException("Lỗi lấy đơn hàng theo người dùng", e);
         }
+    }
 
+    public List<OrderItemDTO> getOrderItemsByOrderId(Long orderId) {
+        try (Connection conn = dbConnection.getConnection()) {
+            return readOrderItems(conn, orderId);
+        } catch (SQLException e) {
+            throw new IllegalStateException("Lỗi truy vấn chi tiết đơn", e);
+        }
+    }
+
+    private List<OrderItemDTO> readOrderItems(Connection conn, Long orderId) throws SQLException {
+        List<OrderItemDTO> list = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT * FROM order_items WHERE order_id = ? ORDER BY id")) {
+            ps.setLong(1, orderId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) list.add(mapItem(rs));
+            }
+        }
+        return list;
+    }
+
+    /** Kitchen queue only includes orders from ACTIVE table sessions. */
+    public List<OrderDTO> getKitchenQueue() {
+        List<OrderDTO> orders = new ArrayList<>();
+        String sql = "SELECT o.* FROM orders o " +
+                "JOIN table_sessions ts ON ts.id = o.table_session_id " +
+                "WHERE ts.status = 'ACTIVE' AND o.status <> 'CANCELLED' " +
+                "AND EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id " +
+                "AND oi.status NOT IN ('SERVED','CANCELLED')) ORDER BY o.created_at ASC";
+        try (Connection conn = dbConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                OrderDTO o = mapOrder(rs);
+                o.setItems(readOrderItems(conn, o.getId()));
+                orders.add(o);
+            }
+        } catch (SQLException e) { throw new IllegalStateException("Lỗi truy vấn hàng đợi bếp", e); }
         return orders;
     }
 
-    // =====================================================
-    // 10. LẤY CHI TIẾT MÓN CỦA MỘT ĐƠN
-    // =====================================================
-
-    public List<OrderItemDTO> getOrderItemsByOrderId(Long orderId) {
-
-        List<OrderItemDTO> items = new ArrayList<>();
-
-        String sql = "SELECT * FROM order_items " +
-                "WHERE order_id = ? ORDER BY id ASC";
-
+    public Long getTableIdByOrderItem(long itemId) {
+        String sql = "SELECT o.table_id FROM order_items oi JOIN orders o ON o.id = oi.order_id " +
+                "JOIN table_sessions ts ON ts.id = o.table_session_id " +
+                "WHERE oi.id = ? AND ts.status = 'ACTIVE'";
         try (Connection conn = dbConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, itemId);
+            try (ResultSet rs = ps.executeQuery()) { return rs.next() ? rs.getLong(1) : null; }
+        } catch (SQLException e) { throw new IllegalStateException("Lỗi tìm bàn theo món", e); }
+    }
 
+    public boolean updateOrderItemStatus(Long orderItemId, OrderStatus newStatus) {
+        if (newStatus == null) throw new IllegalArgumentException("Trạng thái món không hợp lệ");
+        try (Connection conn = dbConnection.getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                long orderId;
+                long foodId;
+                int quantity;
+                OrderStatus oldStatus;
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "SELECT oi.order_id, oi.foods_id, oi.quantity, oi.status, " +
+                                "o.status AS order_status, ts.status AS session_status " +
+                                "FROM order_items oi JOIN orders o ON o.id = oi.order_id " +
+                                "LEFT JOIN table_sessions ts ON ts.id = o.table_session_id " +
+                                "WHERE oi.id = ? FOR UPDATE")) {
+                    ps.setLong(1, orderItemId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (!rs.next()) { conn.rollback(); return false; }
+                        orderId = rs.getLong("order_id");
+                        foodId = rs.getLong("foods_id");
+                        quantity = rs.getInt("quantity");
+                        oldStatus = OrderStatus.valueOf(rs.getString("status"));
+                        String orderStatus = rs.getString("order_status");
+                        String sessionStatus = rs.getString("session_status");
+                        // A kitchen can mark an order COMPLETED before it is SERVED.
+                        // The session's CLOSED state (payment) is the final barrier.
+                        if ("CANCELLED".equals(orderStatus) || "CLOSED".equals(sessionStatus) ||
+                                ("COMPLETED".equals(orderStatus) && sessionStatus == null)) {
+                            conn.rollback(); return false;
+                        }
+                    }
+                }
+                if (oldStatus == newStatus) { conn.commit(); return true; }
+                if (oldStatus == OrderStatus.CANCELLED || oldStatus == OrderStatus.SERVED ||
+                        (newStatus != OrderStatus.CANCELLED && newStatus.ordinal() <= oldStatus.ordinal()) ||
+                        (newStatus == OrderStatus.CANCELLED &&
+                                oldStatus != OrderStatus.PENDING && oldStatus != OrderStatus.RECEIVED)) {
+                    conn.rollback(); return false;
+                }
+
+                if (newStatus == OrderStatus.CANCELLED) {
+                    Map<Long, BigDecimal> ingredients = new HashMap<>();
+                    collectIngredients(conn, foodId, quantity, ingredients);
+                    restoreIngredients(conn, ingredients);
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE order_items SET status = ?, " +
+                                "completed_at = CASE WHEN ? IN ('COMPLETED','SERVED') " +
+                                "THEN COALESCE(completed_at, NOW(3)) ELSE completed_at END WHERE id = ?")) {
+                    ps.setString(1, newStatus.name());
+                    ps.setString(2, newStatus.name());
+                    ps.setLong(3, orderItemId);
+                    if (ps.executeUpdate() != 1) throw new SQLException("Không cập nhật được trạng thái món");
+                }
+                if (newStatus == OrderStatus.CANCELLED) recalculateOrderAmounts(conn, orderId);
+                conn.commit();
+                return true;
+            } catch (SQLException | RuntimeException ex) {
+                rollback(conn, ex);
+                throw ex;
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Lỗi cập nhật trạng thái món", e);
+        }
+    }
+
+    private void recalculateOrderAmounts(Connection conn, Long orderId) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "UPDATE orders SET subtotal = " +
+                        "(SELECT COALESCE(SUM(line_total), 0) FROM order_items " +
+                        "WHERE order_id = ? AND status <> 'CANCELLED'), " +
+                        "total_amount = (SELECT COALESCE(SUM(line_total), 0) FROM order_items " +
+                        "WHERE order_id = ? AND status <> 'CANCELLED') " +
+                        "- COALESCE(discount_amount, 0) + COALESCE(shipping_fee, 0) WHERE id = ?")) {
             ps.setLong(1, orderId);
+            ps.setLong(2, orderId);
+            ps.setLong(3, orderId);
+            ps.executeUpdate();
+        }
+    }
 
+    public boolean updateOrderStatus(Long orderId, OrderStatus newStatus) {
+        if (newStatus == null) throw new IllegalArgumentException("Trạng thái không hợp lệ");
+        if (newStatus == OrderStatus.CANCELLED) {
+            throw new IllegalArgumentException("Hủy đơn phải có lý do; dùng cancelOrder()");
+        }
+        try (Connection conn = dbConnection.getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                OrderStatus oldStatus;
+                String sessionStatus;
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "SELECT o.status, ts.status AS session_status FROM orders o " +
+                                "LEFT JOIN table_sessions ts ON ts.id = o.table_session_id " +
+                                "WHERE o.id = ? FOR UPDATE")) {
+                    ps.setLong(1, orderId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (!rs.next()) { conn.rollback(); return false; }
+                        oldStatus = OrderStatus.valueOf(rs.getString("status"));
+                        sessionStatus = rs.getString("session_status");
+                    }
+                }
+                if (oldStatus == OrderStatus.CANCELLED || "CLOSED".equals(sessionStatus)) {
+                    conn.rollback(); return false;
+                }
+                if (oldStatus == newStatus) { conn.commit(); return true; }
+                if (newStatus.ordinal() <= oldStatus.ordinal()) {
+                    conn.rollback(); return false;
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE orders SET status = ? WHERE id = ?")) {
+                    ps.setString(1, newStatus.name());
+                    ps.setLong(2, orderId);
+                    if (ps.executeUpdate() != 1) throw new SQLException("Không cập nhật được trạng thái đơn");
+                }
+                conn.commit();
+                return true;
+            } catch (SQLException | RuntimeException ex) {
+                rollback(conn, ex);
+                throw ex;
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Lỗi cập nhật trạng thái đơn", e);
+        }
+    }
+
+    public List<OrderItemDTO> getTrackingItemsByTable(Long tableId) {
+        List<OrderItemDTO> list = new ArrayList<>();
+        try (Connection conn = dbConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT oi.* FROM order_items oi " +
+                             "JOIN orders o ON oi.order_id = o.id " +
+                             "JOIN table_sessions ts ON ts.id = o.table_session_id " +
+                             "WHERE ts.table_id = ? AND ts.status = 'ACTIVE' " +
+                             "AND o.status <> 'CANCELLED' ORDER BY oi.id DESC")) {
+            ps.setLong(1, tableId);
             try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) list.add(mapItem(rs));
+            }
+            return list;
+        } catch (SQLException e) {
+            throw new IllegalStateException("Lỗi theo dõi món tại bàn", e);
+        }
+    }
 
-                while (rs.next()) {
-                    items.add(mapOrderItem(rs));
+    /** All orders in the ACTIVE session, not historical orders at the same table. */
+    public OrderDTO getMergedTableOrderForCheckout(Long tableId) {
+        try (Connection conn = dbConnection.getConnection()) {
+            Long sessionId = null;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT id FROM table_sessions WHERE table_id = ? AND status = 'ACTIVE'")) {
+                ps.setLong(1, tableId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) sessionId = rs.getLong(1);
                 }
             }
+            if (sessionId == null) return null;
+            OrderDTO merged = null;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT * FROM orders WHERE table_session_id = ? " +
+                            "AND parent_order_id IS NULL AND status <> 'CANCELLED' " +
+                            "ORDER BY created_at ASC LIMIT 1")) {
+                ps.setLong(1, sessionId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) merged = mapOrder(rs);
+                }
+            }
+            if (merged == null) return null;
+            merged.setTableId(tableId);
+            merged.setTableSessionId(sessionId);
 
+            List<OrderItemDTO> allItems = new ArrayList<>();
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT oi.* FROM order_items oi JOIN orders o ON oi.order_id = o.id " +
+                            "WHERE o.table_session_id = ? AND o.status <> 'CANCELLED' " +
+                            "AND oi.status <> 'CANCELLED' ORDER BY oi.id")) {
+                ps.setLong(1, sessionId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) allItems.add(mapItem(rs));
+                }
+            }
+            merged.setItems(allItems);
+            BigDecimal subtotal = BigDecimal.ZERO;
+            for (OrderItemDTO item : allItems) subtotal = subtotal.add(item.getLineTotal());
+            BigDecimal discount = BigDecimal.ZERO;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT COALESCE(SUM(discount_amount),0) AS discount " +
+                            "FROM orders WHERE table_session_id = ? AND status <> 'CANCELLED'")) {
+                ps.setLong(1, sessionId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) discount = rs.getBigDecimal("discount");
+                }
+            }
+            merged.setSubtotal(subtotal);
+            merged.setDiscountAmount(discount);
+            merged.setTotalAmount(subtotal.subtract(discount).max(BigDecimal.ZERO));
+            return merged;
         } catch (SQLException e) {
-            e.printStackTrace();
+            throw new IllegalStateException("Lỗi tổng hợp đơn để thanh toán", e);
         }
-
-        return items;
     }
 
-    // =====================================================
-    // 11. HỦY ĐƠN HÀNG
-    // =====================================================
-
-    public boolean cancelOrder(Long orderId, String cancelReason) {
-
-        String sql = "UPDATE orders SET " +
-                "status = ?, " +
-                "cancel_reason = ?, " +
-                "cancelled_at = CURRENT_TIMESTAMP(3), " +
-                "updated_at = CURRENT_TIMESTAMP(3) " +
-                "WHERE id = ?";
-
-        try (Connection conn = dbConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-
-            ps.setString(1, OrderStatus.CANCELLED.name());
-            ps.setString(2, cancelReason);
-            ps.setLong(3, orderId);
-
-            return ps.executeUpdate() > 0;
-
+    /** Cancel only orders whose items have not begun cooking, and restore stock. */
+    public boolean cancelOrder(Long orderId, String reason) {
+        if (reason == null || reason.trim().isEmpty()) {
+            throw new IllegalArgumentException("Phải cung cấp lý do hủy đơn");
+        }
+        try (Connection conn = dbConnection.getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "SELECT status FROM orders WHERE id = ? FOR UPDATE")) {
+                    ps.setLong(1, orderId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (!rs.next() || !"PENDING".equals(rs.getString(1)) &&
+                                !"RECEIVED".equals(rs.getString(1))) {
+                            conn.rollback(); return false;
+                        }
+                    }
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "SELECT id FROM orders WHERE parent_order_id = ? " +
+                                "AND status <> 'CANCELLED' LIMIT 1")) {
+                    ps.setLong(1, orderId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (rs.next()) { conn.rollback(); return false; }
+                    }
+                }
+                Map<Long, BigDecimal> requirements = new HashMap<>();
+                List<long[]> refundableItems = new ArrayList<>();
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "SELECT foods_id, quantity, status FROM order_items " +
+                                "WHERE order_id = ? FOR UPDATE")) {
+                    ps.setLong(1, orderId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        while (rs.next()) {
+                            String itemStatus = rs.getString("status");
+                            if (!"PENDING".equals(itemStatus) && !"RECEIVED".equals(itemStatus) &&
+                                    !"CANCELLED".equals(itemStatus)) {
+                                conn.rollback(); return false;
+                            }
+                            if (!"CANCELLED".equals(itemStatus)) {
+                                refundableItems.add(new long[]{rs.getLong("foods_id"), rs.getInt("quantity")});
+                            }
+                        }
+                    }
+                }
+                for (long[] item : refundableItems) {
+                    collectIngredients(conn, item[0], (int) item[1], requirements);
+                }
+                restoreIngredients(conn, requirements);
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE order_items SET status = 'CANCELLED' WHERE order_id = ? " +
+                                "AND status <> 'CANCELLED'")) {
+                    ps.setLong(1, orderId);
+                    ps.executeUpdate();
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE orders SET status = 'CANCELLED', cancel_reason = ?, " +
+                                "cancelled_at = NOW(3) WHERE id = ?")) {
+                    ps.setString(1, reason.trim());
+                    ps.setLong(2, orderId);
+                    if (ps.executeUpdate() != 1) throw new SQLException("Hủy đơn không thành công");
+                }
+                conn.commit();
+                return true;
+            } catch (SQLException | RuntimeException ex) {
+                rollback(conn, ex);
+                throw ex;
+            }
         } catch (SQLException e) {
-            e.printStackTrace();
-            return false;
+            throw new IllegalStateException("Lỗi hủy đơn", e);
         }
     }
 
-    // =====================================================
-    // 12. MAPPER
-    // =====================================================
-
-    private OrderItemDTO mapOrderItem(ResultSet rs) throws SQLException {
-
-        return new OrderItemDTO(
-                rs.getLong("id"),
-                rs.getLong("order_id"),
-                rs.getLong("foods_id"),
-                rs.getString("foods_name"),
-                rs.getBigDecimal("unit_price"),
-                rs.getInt("quantity"),
-                rs.getBigDecimal("line_total"),
-                OrderStatus.valueOf(rs.getString("status"))
-        );
+    private static void rollback(Connection conn, Throwable cause) {
+        try { conn.rollback(); }
+        catch (SQLException e) { cause.addSuppressed(e); }
     }
 
-    private OrderDTO mapOrder(ResultSet rs) throws SQLException {
+    private static Long nullableLong(ResultSet rs, String column) throws SQLException {
+        long n = rs.getLong(column);
+        return rs.wasNull() ? null : n;
+    }
 
+    private static OrderDTO mapOrder(ResultSet rs) throws SQLException {
         OrderDTO order = new OrderDTO();
-
-        order.setId(rs.getLong("id"));
+        order.setId(nullableLong(rs, "id"));
         order.setOrderCode(rs.getString("order_code"));
-
-        long parentId = rs.getLong("parent_order_id");
-        order.setParentOrderId(rs.wasNull() ? null : parentId);
-
-        long userId = rs.getLong("user_id");
-        order.setUserId(rs.wasNull() ? null : userId);
-
-        long tableId = rs.getLong("table_id");
-        order.setTableId(rs.wasNull() ? null : tableId);
-
-        long voucherId = rs.getLong("voucher_id");
-        order.setVoucherId(rs.wasNull() ? null : voucherId);
-
-        order.setOrderType(
-                OrderType.valueOf(rs.getString("order_type"))
-        );
-
-        order.setStatus(
-                OrderStatus.valueOf(rs.getString("status"))
-        );
-
+        order.setParentOrderId(nullableLong(rs, "parent_order_id"));
+        order.setUserId(nullableLong(rs, "user_id"));
+        order.setTableId(nullableLong(rs, "table_id"));
+        order.setTableSessionId(nullableLong(rs, "table_session_id"));
+        order.setVoucherId(nullableLong(rs, "voucher_id"));
+        String type = rs.getString("order_type");
+        if (type != null) order.setOrderType(OrderType.valueOf(type));
+        String status = rs.getString("status");
+        if (status != null) order.setStatus(OrderStatus.valueOf(status));
         order.setSubtotal(rs.getBigDecimal("subtotal"));
         order.setShippingFee(rs.getBigDecimal("shipping_fee"));
         order.setDiscountAmount(rs.getBigDecimal("discount_amount"));
         order.setTotalAmount(rs.getBigDecimal("total_amount"));
-
         order.setNote(rs.getString("note"));
-        order.setCancelReason(rs.getString("cancel_reason"));
-
-        long confirmedBy = rs.getLong("confirmed_by");
-        order.setConfirmedBy(rs.wasNull() ? null : confirmedBy);
-
-        Timestamp cancelledAt = rs.getTimestamp("cancelled_at");
-        if (cancelledAt != null) {
-            order.setCancelledAt(cancelledAt.toLocalDateTime());
-        }
-
-        Timestamp createdAt = rs.getTimestamp("created_at");
-        if (createdAt != null) {
-            order.setCreatedAt(createdAt.toLocalDateTime());
-        }
-
-        Timestamp updatedAt = rs.getTimestamp("updated_at");
-        if (updatedAt != null) {
-            order.setUpdatedAt(updatedAt.toLocalDateTime());
-        }
-
         return order;
+    }
+
+    private static OrderItemDTO mapItem(ResultSet rs) throws SQLException {
+        OrderItemDTO item = new OrderItemDTO(
+                nullableLong(rs, "id"), nullableLong(rs, "order_id"),
+                nullableLong(rs, "foods_id"), rs.getString("foods_name"),
+                rs.getBigDecimal("unit_price"), rs.getInt("quantity"),
+                rs.getBigDecimal("line_total"), OrderStatus.valueOf(rs.getString("status")));
+        item.setNote(rs.getString("note"));
+        return item;
     }
 }

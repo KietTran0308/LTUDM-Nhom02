@@ -2,11 +2,14 @@ package bus;
 
 import api.SocketClient;
 import dto.*;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-/** Chi gui/nhan Socket; KHONG truy cap JDBC, DAO hay SocketServer. */
+/**
+ * Chi gui/nhan Socket; KHONG truy cap JDBC, DAO hay SocketServer.
+ */
 public class KitchenBUS {
     private final SocketClient socket;
     private List<OrderDTO> queue = new ArrayList<>();
@@ -36,8 +39,14 @@ public class KitchenBUS {
         return packet;
     }
 
-    public List<OrderDTO> getQueue() { return new ArrayList<>(queue); }
-    public boolean isConnected() { return socket.isConnected(); }
+    public List<OrderDTO> getQueue() {
+        return new ArrayList<>(queue);
+    }
+
+    public boolean isConnected() {
+        return socket.isConnected();
+    }
+
     public void logout() {
         socket.logout();
         socket.close();

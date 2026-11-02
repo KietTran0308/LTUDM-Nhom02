@@ -27,6 +27,21 @@ public class SocketJsonMapper {
         Object extraData = null;
 
         switch (action) {
+            case REQUEST_PASSWORD_RESET:
+                data = root.optString("data", "");
+                break;
+
+            case CONFIRM_PASSWORD_RESET:
+                if (root.has("data") && !root.isNull("data")) {
+                    JSONObject obj = root.getJSONObject("data");
+                    java.util.Map<String, String> values = new java.util.HashMap<>();
+                    values.put("email", obj.optString("email", ""));
+                    values.put("otp", obj.optString("otp", ""));
+                    values.put("newPassword", obj.optString("newPassword", ""));
+                    data = values;
+                }
+                break;
+
             case LOGIN:
                 data = root.optString("data", "");          // emailOrPhone
                 extraData = root.optString("extraData", ""); // password
@@ -45,6 +60,16 @@ public class SocketJsonMapper {
                 if (root.has("extraData") && !root.isNull("extraData")) {
                     extraData = root.getString("extraData"); // voucherCode
                 }
+                break;
+
+            case REGISTER_TABLE:
+                data = root.optString("data", ""); // staff pairing code
+                break;
+
+            case SET_KITCHEN_ITEM_STATUS:
+                if (root.has("data") && !root.isNull("data")) data = root.getLong("data");
+                if (root.has("extraData") && !root.isNull("extraData"))
+                    extraData = OrderStatus.valueOf(root.getString("extraData"));
                 break;
 
             case CALL_STAFF:
@@ -116,6 +141,19 @@ public class SocketJsonMapper {
                     if (extraData instanceof OrderStatus) {
                         root.put("extraData", ((OrderStatus) extraData).name());
                     }
+                    break;
+
+                case OPEN_TABLE_SESSION:
+                    if (data instanceof String) root.put("data", data);
+                    break;
+
+                case GET_KITCHEN_QUEUE:
+                    if (data instanceof List<?>) root.put("data", orderListToJson((List<OrderDTO>) data));
+                    break;
+
+                case SET_KITCHEN_ITEM_STATUS:
+                    if (data != null) root.put("data", data);
+                    if (extraData instanceof OrderStatus) root.put("extraData", ((OrderStatus) extraData).name());
                     break;
 
                 case GET_ALL_TABLES:
@@ -193,6 +231,7 @@ public class SocketJsonMapper {
         if (o.getOrderCode() != null) obj.put("orderCode", o.getOrderCode());
         if (o.getParentOrderId() != null) obj.put("parentOrderId", o.getParentOrderId());
         if (o.getTableId() != null) obj.put("tableId", o.getTableId());
+        if (o.getTableSessionId() != null) obj.put("tableSessionId", o.getTableSessionId());
         if (o.getSubtotal() != null) obj.put("subtotal", o.getSubtotal());
         if (o.getDiscountAmount() != null) obj.put("discountAmount", o.getDiscountAmount());
         if (o.getTotalAmount() != null) obj.put("totalAmount", o.getTotalAmount());
@@ -201,6 +240,12 @@ public class SocketJsonMapper {
             obj.put("items", orderItemListToJsonArray(o.getItems()));
         }
         return obj;
+    }
+
+    private static JSONArray orderListToJson(List<OrderDTO> list) {
+        JSONArray arr = new JSONArray();
+        for (OrderDTO order : list) arr.put(orderToJson(order));
+        return arr;
     }
 
     private static JSONArray orderItemListToJsonArray(List<OrderItemDTO> list) {
@@ -275,15 +320,19 @@ public class SocketJsonMapper {
 
     private static BillDTO jsonToBill(JSONObject obj) {
         BillDTO b = new BillDTO();
+
         if (obj.has("tableSessionId") && !obj.isNull("tableSessionId")) {
             b.setTableSessionId(obj.getLong("tableSessionId"));
         }
+
         b.setTotalAmount(obj.optBigDecimal("totalAmount", BigDecimal.ZERO));
         b.setDiscount(obj.optBigDecimal("discount", BigDecimal.ZERO));
         b.setTax(obj.optBigDecimal("tax", BigDecimal.ZERO));
+
         if (obj.has("paymentMethod") && !obj.isNull("paymentMethod")) {
             b.setPaymentMethod(PaymentMethod.valueOf(obj.getString("paymentMethod")));
         }
+
         return b;
     }
 }

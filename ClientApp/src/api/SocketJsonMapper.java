@@ -7,6 +7,7 @@ import org.json.JSONObject;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Đặt tại: ClientApp -> package api
@@ -26,6 +27,21 @@ public class SocketJsonMapper {
         Object extraData = packet.getExtraData();
 
         switch (packet.getAction()) {
+            case REQUEST_PASSWORD_RESET:
+                if (data != null) root.put("data", data.toString());
+                break;
+
+            case CONFIRM_PASSWORD_RESET:
+                if (data instanceof Map<?, ?>) {
+                    Map<?, ?> payload = (Map<?, ?>) data;
+                    JSONObject body = new JSONObject();
+                    body.put("email", payload.get("email"));
+                    body.put("otp", payload.get("otp"));
+                    body.put("newPassword", payload.get("newPassword"));
+                    root.put("data", body);
+                }
+                break;
+
             case LOGIN:
                 if (data != null) root.put("data", data.toString());           // emailOrPhone
                 if (extraData != null) root.put("extraData", extraData.toString()); // password
@@ -129,6 +145,14 @@ public class SocketJsonMapper {
                     }
                     break;
 
+                case SET_KITCHEN_ITEM_STATUS:
+                    if (root.has("data") && !root.isNull("data")) data = root.getLong("data");
+                    if (root.has("extraData") && !root.isNull("extraData"))
+                        extraData = OrderStatus.valueOf(root.getString("extraData"));
+                    break;
+                case CALL_STAFF:
+                    data = root.optString("data", "");
+                    break;
                 case OPEN_TABLE_SESSION:
                     data = root.optString("data", "");
                     break;
