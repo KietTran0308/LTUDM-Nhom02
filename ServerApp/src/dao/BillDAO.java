@@ -78,6 +78,28 @@ public class BillDAO {
                     }
                 }
 
+                // Luon tinh tien tren Server; khong tin totalAmount/discount/tax GUI gui len.
+                BigDecimal serverSubtotal = BigDecimal.ZERO;
+                BigDecimal serverDiscount = BigDecimal.ZERO;
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "SELECT COALESCE(SUM(total_amount),0) AS subtotal, " +
+                                "COALESCE(SUM(discount_amount),0) AS discount_total FROM orders " +
+                                "WHERE table_session_id = ? AND status <> 'CANCELLED'")) {
+                    ps.setLong(1, sessionId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (rs.next()) {
+                            serverSubtotal = rs.getBigDecimal("subtotal");
+                            serverDiscount = rs.getBigDecimal("discount_total");
+                        }
+                    }
+                }
+                // VAT 8% phuc vu mo phong theo giao dien POS hien tai.
+                BigDecimal serverTax = serverSubtotal.multiply(new BigDecimal("0.08"))
+                        .setScale(0, java.math.RoundingMode.HALF_UP);
+                bill.setDiscount(serverDiscount);
+                bill.setTax(serverTax);
+                bill.setTotalAmount(serverSubtotal.add(serverTax));
+
                 try (PreparedStatement ps = conn.prepareStatement(
                         "INSERT INTO bill (table_session_id, total_amount, discount, tax, " +
                                 "payment_method, paid_at, payment_status) " +

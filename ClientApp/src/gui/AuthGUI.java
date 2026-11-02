@@ -20,10 +20,6 @@ public class AuthGUI extends JFrame {
     private static final String CARD_LOGIN = "LOGIN";
     private static final String CARD_REGISTER = "REGISTER";
     private static final String CARD_FORGOT = "FORGOT";
-    // Shared ordering device: employee pairs once, guest enters ONLY own credentials.
-    private Long pairedTableId;
-    private String pairedTableCode;
-    private JLabel pairedDeviceHint;
     private static final Color BRAND_ORANGE = new Color(206, 93, 52);
 
     private final CardLayout cardLayout = new CardLayout();
@@ -204,14 +200,6 @@ public class AuthGUI extends JFrame {
         pnlOptions.add(chkRemember, BorderLayout.WEST);
         pnlOptions.add(lblForgot, BorderLayout.EAST);
 
-        pairedDeviceHint = new JLabel("Thiết bị chưa được nhân viên liên kết với bàn.");
-        pairedDeviceHint.setFont(new Font("SansSerif", Font.PLAIN, 13));
-        pairedDeviceHint.setForeground(new Color(108, 114, 128));
-        pairedDeviceHint.setAlignmentX(Component.LEFT_ALIGNMENT);
-        JButton btnPairDevice = new JButton("Thiết lập bàn - dành cho nhân viên");
-        btnPairDevice.setAlignmentX(Component.LEFT_ALIGNMENT);
-        btnPairDevice.addActionListener(e -> showEmployeePairingDialog());
-
         btnLogin = new CButton("Đăng nhập", 470, 50);
         btnLogin.setAlignmentX(Component.LEFT_ALIGNMENT);
         btnLogin.addActionListener(e -> handleLogin());
@@ -234,13 +222,14 @@ public class AuthGUI extends JFrame {
         formContainer.add(Box.createVerticalStrut(15));
         formContainer.add(pnlOptions);
         formContainer.add(Box.createVerticalStrut(10));
-        formContainer.add(pairedDeviceHint);
+
         formContainer.add(Box.createVerticalStrut(8));
-        formContainer.add(btnPairDevice);
+
         formContainer.add(Box.createVerticalStrut(35));
         formContainer.add(btnLogin);
         formContainer.add(Box.createVerticalStrut(30));
-        formContainer.add(pnlRegister);
+        // Tablet/ POS chi cho nhan vien dang nhap; khach khong can tao tai khoan.
+        // Khong hien thi link dang ky CUSTOMER trong luong moi.
 
         rightWrapper.add(formContainer);
         return rightWrapper;
@@ -500,7 +489,7 @@ public class AuthGUI extends JFrame {
             }
             return;
         }
-        if (packet.getAction() != SocketAction.LOGIN) return;
+        if (packet.getAction() != SocketAction.LOGIN && packet.getAction() != SocketAction.LOGIN_STAFF) return;
         if (!packet.isSuccess()) {
             CToast.error(this, packet.getMessage());
             return;
@@ -519,23 +508,20 @@ public class AuthGUI extends JFrame {
         JFrame next;
         switch (role.toUpperCase(Locale.ROOT)) {
             case "STAFF":
-            case "ADMIN":
+                // Tat ca nhan vien tren ClientApp chi duoc chon ban / ban giao.
                 next = new StaffGUI(user, session);
                 break;
+            case "ADMIN":
+                CToast.warning(this, "Quan tri vien dang nhap truc tiep tren ServerApp (may trung tam).");
+                resetAuthenticatedLogin();
+                return;
             case "KITCHEN":
                 next = new KitchenGUI(user, session);
                 break;
             case "CUSTOMER":
-                // The staff pairs the shared device before the customer logs in.
-                if (pairedTableId == null || pairedTableCode == null) {
-                    CToast.warning(this, "Nhờ nhân viên thiết lập bàn trên thiết bị trước khi đăng nhập.");
-                    resetAuthenticatedLogin();
-                    return;
-                }
-                next = new CustomerGUI(pairedTableId, user.getId(), session, pairedTableCode);
-                pairedTableCode = null; // CustomerGUI already issued REGISTER_TABLE.
-                pairedTableId = null;
-                break;
+                CToast.warning(this, "Khach su dung CUSTOMER MODE do nhan vien ban giao; khong dang nhap tai khoan rieng.");
+                resetAuthenticatedLogin();
+                return;
             default:
                 CToast.error(this, "Vai trò không được hỗ trợ: " + role);
                 resetAuthenticatedLogin();
@@ -544,33 +530,6 @@ public class AuthGUI extends JFrame {
         responseTimer.stop();
         next.setVisible(true);
         dispose();
-    }
-
-    /** Staff enters pairing data received from STAFF POS; customer never sees token. */
-    private void showEmployeePairingDialog() {
-        JTextField tableField = new JTextField(16);
-        JPasswordField codeField = new JPasswordField(16);
-        JPanel panel = new JPanel(new GridLayout(2, 2, 8, 8));
-        panel.add(new JLabel("Mã bàn:"));
-        panel.add(tableField);
-        panel.add(new JLabel("Mã ghép từ StaffGUI:"));
-        panel.add(codeField);
-        int result = JOptionPane.showConfirmDialog(this, panel,
-                "Thiết lập thiết bị dùng chung (nhân viên)",
-                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-        if (result != JOptionPane.OK_OPTION) return;
-        try {
-            long id = Long.parseLong(tableField.getText().trim());
-            String code = new String(codeField.getPassword()).trim();
-            java.util.Arrays.fill(codeField.getPassword(), '\0');
-            if (id <= 0 || !code.matches("[A-Za-z0-9-]{10,15}")) throw new IllegalArgumentException();
-            pairedTableId = id;
-            pairedTableCode = code;
-            pairedDeviceHint.setText("Thiết bị đã chọn bàn #" + id + " — chờ Server xác minh sau đăng nhập.");
-            CToast.info(this, "Đã nhập thông tin bàn. Mời khách tự đăng nhập.");
-        } catch (IllegalArgumentException e) {
-            CToast.warning(this, "Thông tin bàn/mã ghép không hợp lệ. Nhờ nhân viên kiểm tra.");
-        }
     }
 
     private void resetAuthenticatedLogin() {

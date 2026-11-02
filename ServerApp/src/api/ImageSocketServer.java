@@ -24,7 +24,13 @@ public class ImageSocketServer {
              DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
 
             // Đọc tên file ảnh client gửi lên
+            socket.setSoTimeout(5000);
             String imageName = dis.readUTF();
+            // Tranh path traversal qua ten file do client gui.
+            if (!imageName.matches("[A-Za-z0-9_-]+\\.(png|jpg|jpeg|webp)")) {
+                dos.writeLong(0);
+                return;
+            }
 
             // Mở file ảnh từ thư mục tài nguyên hoặc ổ đĩa
             InputStream in = ImageSocketServer.class.getResourceAsStream("/img/foods/" + imageName);
@@ -38,6 +44,11 @@ public class ImageSocketServer {
             }
 
             byte[] fileBytes = in.readAllBytes();
+            if (fileBytes.length == 0 || fileBytes.length > 10_000_000) {
+                dos.writeLong(0);
+                in.close();
+                return;
+            }
             dos.writeLong(fileBytes.length); // Gửi kích thước file trước
 
             // Truyền dữ liệu nhị phân theo khối 8KB (chunked binary)

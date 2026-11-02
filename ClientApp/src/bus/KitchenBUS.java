@@ -7,9 +7,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-/**
- * Chi gui/nhan Socket; KHONG truy cap JDBC, DAO hay SocketServer.
- */
 public class KitchenBUS {
     private final SocketClient socket;
     private List<OrderDTO> queue = new ArrayList<>();
@@ -25,7 +22,7 @@ public class KitchenBUS {
 
     public boolean updateItemStatus(Long itemId, OrderStatus status) {
         if (itemId == null || status == null) return false;
-        return socket.sendRequest(new SocketPacket(SocketAction.SET_KITCHEN_ITEM_STATUS, null, itemId, status));
+        return socket.sendRequest(new SocketPacket(SocketAction.UPDATE_ITEM_STATUS, null, itemId, status));
     }
 
     @SuppressWarnings("unchecked")

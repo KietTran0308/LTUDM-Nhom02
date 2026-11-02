@@ -21,5 +21,9 @@ public enum SocketAction implements Serializable {
     PAY_TABLE_BILL,          // Xác nhận thanh toán (Lưu bảng bill, chốt orders, mở trống bàn)
     TABLE_CLEARED_RESET,     // Server bắn tín hiệu về Tablet của bàn vừa thanh toán để xóa trắng màn hình
 
+    // Phien tablet dung chung: chi nhan vien dang nhap, ban giao roi ha quyen thanh CUSTOMER.
+    LOGIN_STAFF, SET_DEVICE_MODE, LIST_TABLES, ENTER_CUSTOMER_MODE,
+    ORDER_SUBMIT, ORDER_CREATED, UPDATE_ITEM_STATUS, ITEM_STATUS_CHANGED,
+    ORDER_COMPLETED, MARK_ITEM_SERVED, VIEW_SESSION_BILL, SESSION_CLOSED,
     LOGIN, SET_KITCHEN_ITEM_STATUS, OPEN_TABLE_SESSION, GET_KITCHEN_QUEUE, LOGOUT, REQUEST_PASSWORD_RESET, CONFIRM_PASSWORD_RESET, REGISTER
 }

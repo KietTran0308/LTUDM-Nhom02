@@ -95,8 +95,12 @@ public class SocketClient {
         return connected;
     }
 
-    public void requestMenuAndCategories() {
-        sendRequest(new SocketPacket(SocketAction.GET_MENU_AND_CATEGORIES, tableId, null, null));
+    /** Goi SAU khi Server phan hoi ENTER_CUSTOMER_MODE thanh cong. */
+    public void bindCustomerTable(Long tableId) { this.tableId = tableId; }
+
+    /** Tra ve false neu request khong duoc gui (ket noi da dong / loi Socket). */
+    public boolean requestMenuAndCategories() {
+        return sendRequest(new SocketPacket(SocketAction.GET_MENU_AND_CATEGORIES, tableId, null, null));
     }
 
     public boolean sendOrderToServer(OrderDTO order, String voucherCode) {

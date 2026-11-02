@@ -29,15 +29,20 @@ public class ClientTabletBUS {
     private boolean tableRegistered;
     private final BlockingQueue<Long> loadedImageFoodIds = new LinkedBlockingQueue<>();
 
-    public ClientTabletBUS(Long tableId, Long userId, SocketClient sessionSocket, String token) {
-        this.tableId = tableId;
-        this.defaultTableUserId = userId;
-        this.socketClient = Objects.requireNonNull(sessionSocket, "Phải dùng Socket đã đăng nhập");
-        if (!this.socketClient.isConnected()) throw new IllegalStateException("Socket đã ngắt kết nối");
-        if (token == null || token.isBlank()) throw new IllegalArgumentException("Thiếu token phiên bàn");
-        if (!this.socketClient.registerTable(tableId, token)) {
-            throw new IllegalStateException("Không gửi được yêu cầu xác minh phiên bàn");
-        }
+    private final Long sessionId;
+    private boolean menuResponseReceived;
+    private String menuLoadError;
+
+    public ClientTabletBUS(Long tableId, Long sessionId, SocketClient authenticatedCustomerSocket) {
+        this.tableId = Objects.requireNonNull(tableId, "Can ma ban");
+        this.sessionId = Objects.requireNonNull(sessionId, "Can sessionId da duoc Server xac minh");
+        this.defaultTableUserId = null; // Khach khong can dang nhap tai khoan.
+        this.socketClient = Objects.requireNonNull(authenticatedCustomerSocket);
+        if (!socketClient.isConnected()) throw new IllegalStateException("Mat ket noi Server");
+        socketClient.bindCustomerTable(tableId);
+        tableRegistered = true; // Da duoc Server phan hoi ENTER_CUSTOMER_MODE truoc khi mo GUI.
+        reloadMenu();
+        socketClient.requestTableTracking();
     }
 
     /**
@@ -55,6 +60,11 @@ public class ClientTabletBUS {
     private void handleServerResponse(SocketPacket packet) {
         if (!packet.isSuccess()) {
             if (packet.getAction() == SocketAction.REGISTER_TABLE) tableRegistered = false;
+            if (packet.getAction() == SocketAction.GET_MENU_AND_CATEGORIES) {
+                menuResponseReceived = true;
+                menuLoadError = packet.getMessage() == null || packet.getMessage().isBlank()
+                        ? "May chu khong tai duoc thuc don." : packet.getMessage();
+            }
             return;
         }
 
@@ -64,8 +74,11 @@ public class ClientTabletBUS {
                         ? (List<FoodDTO>) packet.getData() : new ArrayList<>();
                 this.categories = packet.getExtraData() instanceof List<?>
                         ? (List<CategoryDTO>) packet.getExtraData() : new ArrayList<>();
+                menuResponseReceived = true;
+                menuLoadError = null;
                 break;
 
+            case ORDER_SUBMIT:
             case PLACE_ORDER:
                 this.currentCart.clear();
                 if (packet.getExtraData() instanceof List<?>) {
@@ -78,6 +91,7 @@ public class ClientTabletBUS {
                         ? (List<OrderItemDTO>) packet.getData() : new ArrayList<>();
                 break;
 
+            case ITEM_STATUS_CHANGED:
             case KITCHEN_UPDATE_STATUS:
                 Long updatedItemId = (Long) packet.getData();
                 OrderStatus newStatus = (OrderStatus) packet.getExtraData();
@@ -88,21 +102,45 @@ public class ClientTabletBUS {
                 }
                 break;
 
+            case SESSION_CLOSED:
             case TABLE_CLEARED_RESET:
                 tableRegistered = false;
                 this.currentCart.clear();
                 this.trackedItems.clear();
+                this.menuFoods.clear();
+                this.categories.clear();
+                this.foodImageCache.clear();
+                this.loadingFoodIds.clear();
+                this.loadedImageFoodIds.clear();
+                menuResponseReceived = false;
+                menuLoadError = null;
                 break;
 
             case REGISTER_TABLE:
                 tableRegistered = true;
-                socketClient.requestMenuAndCategories();
+                reloadMenu();
                 break;
 
             default:
                 break;
         }
     }
+
+    /** Tai lai thuc don: han che hien thi "chua tai" khi Server tra ve mang rong. */
+    public boolean reloadMenu() {
+        menuResponseReceived = false;
+        menuLoadError = null;
+        boolean sent = socketClient.requestMenuAndCategories();
+        if (!sent) {
+            menuResponseReceived = true;
+            menuLoadError = "Khong gui duoc yeu cau tai thuc don. Kiem tra ket noi Server.";
+        }
+        return sent;
+    }
+
+    public boolean hasReceivedMenuResponse() { return menuResponseReceived; }
+    public String getMenuLoadError() { return menuLoadError; }
+    public boolean isConnected() { return socketClient.isConnected(); }
 
     /**
      * Lấy ảnh đã có trong cache hoặc kích hoạt luồng tải ngầm đưa vào hàng đợi
@@ -241,7 +279,13 @@ public class ClientTabletBUS {
         order.setNote(buildOrderNote(itemNotes));
         order.setItems(new ArrayList<>(currentCart));
 
-        return socketClient.sendOrderToServer(order, voucherCode);
+        order.setTableSessionId(sessionId);
+        return socketClient.sendRequest(new SocketPacket(SocketAction.ORDER_SUBMIT, tableId, order, null));
+    }
+
+    public boolean requestBillPreview() {
+        return tableRegistered && socketClient.sendRequest(
+                new SocketPacket(SocketAction.VIEW_SESSION_BILL, tableId, null, null));
     }
 
     public boolean callStaffSupport(String message) {

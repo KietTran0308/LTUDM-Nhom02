@@ -42,6 +42,7 @@ public class SocketJsonMapper {
                 }
                 break;
 
+            case LOGIN_STAFF:
             case LOGIN:
                 if (data != null) root.put("data", data.toString());           // emailOrPhone
                 if (extraData != null) root.put("extraData", extraData.toString()); // password
@@ -53,6 +54,7 @@ public class SocketJsonMapper {
                 }
                 break;
 
+            case ORDER_SUBMIT:
             case PLACE_ORDER:
                 if (data instanceof OrderDTO) {
                     root.put("data", orderToJson((OrderDTO) data));
@@ -62,10 +64,16 @@ public class SocketJsonMapper {
                 }
                 break;
 
+            case ENTER_CUSTOMER_MODE:
+                if (data instanceof Long) root.put("data", data);
+                break;
+
             case REGISTER_TABLE:
                 if (data != null) root.put("data", data.toString()); // session token
                 break;
 
+            case UPDATE_ITEM_STATUS:
+            case MARK_ITEM_SERVED:
             case SET_KITCHEN_ITEM_STATUS:
                 if (data != null) root.put("data", data);  // itemId
                 if (extraData instanceof OrderStatus) root.put("extraData", ((OrderStatus) extraData).name());
@@ -105,10 +113,15 @@ public class SocketJsonMapper {
 
         if (success) {
             switch (action) {
+                case LOGIN_STAFF:
                 case LOGIN:
                 case REGISTER:
                     if (root.has("data") && !root.isNull("data")) {
                         data = jsonToUser(root.getJSONObject("data"));
+                    }
+                    if ((action == SocketAction.LOGIN || action == SocketAction.LOGIN_STAFF)
+                            && root.has("extraData") && !root.isNull("extraData")) {
+                        extraData = root.optBoolean("extraData", false);
                     }
                     break;
 
@@ -121,6 +134,8 @@ public class SocketJsonMapper {
                     }
                     break;
 
+                case ORDER_SUBMIT:
+                case ORDER_CREATED:
                 case PLACE_ORDER:
                     if (root.has("data") && !root.isNull("data")) {
                         data = jsonToOrder(root.getJSONObject("data"));
@@ -136,6 +151,7 @@ public class SocketJsonMapper {
                     }
                     break;
 
+                case ITEM_STATUS_CHANGED:
                 case KITCHEN_UPDATE_STATUS:
                     if (root.has("data") && !root.isNull("data")) {
                         data = root.getLong("data"); // orderItemId
@@ -145,6 +161,8 @@ public class SocketJsonMapper {
                     }
                     break;
 
+                case UPDATE_ITEM_STATUS:
+                case MARK_ITEM_SERVED:
                 case SET_KITCHEN_ITEM_STATUS:
                     if (root.has("data") && !root.isNull("data")) data = root.getLong("data");
                     if (root.has("extraData") && !root.isNull("extraData"))
@@ -153,8 +171,13 @@ public class SocketJsonMapper {
                 case CALL_STAFF:
                     data = root.optString("data", "");
                     break;
+                case ENTER_CUSTOMER_MODE:
+                case ORDER_COMPLETED:
+                case SESSION_CLOSED:
+                    if (root.has("data") && !root.isNull("data")) data = root.getLong("data");
+                    break;
                 case OPEN_TABLE_SESSION:
-                    data = root.optString("data", "");
+                    if (root.has("data") && !root.isNull("data")) data = root.getLong("data");
                     break;
                 case GET_KITCHEN_QUEUE:
                     data = new ArrayList<OrderDTO>();
@@ -165,6 +188,7 @@ public class SocketJsonMapper {
                         data = orders;
                     }
                     break;
+                case LIST_TABLES:
                 case GET_ALL_TABLES:
                 case PAY_TABLE_BILL:
                     if (root.has("data") && !root.isNull("data")) {
@@ -172,6 +196,7 @@ public class SocketJsonMapper {
                     }
                     break;
 
+                case VIEW_SESSION_BILL:
                 case GET_TABLE_BILL_PREVIEW:
                     if (root.has("data") && !root.isNull("data")) {
                         data = jsonToOrder(root.getJSONObject("data"));
@@ -309,12 +334,11 @@ public class SocketJsonMapper {
         List<TableDTO> list = new ArrayList<>();
         for (int i = 0; i < arr.length(); i++) {
             JSONObject obj = arr.getJSONObject(i);
-            list.add(new TableDTO(
-                    obj.getLong("id"),
-                    obj.optString("tableName", ""),
-                    obj.optInt("capacity", 4),
-                    obj.optBoolean("status", true)
-            ));
+            TableDTO t = new TableDTO(obj.getLong("id"), obj.optString("tableName", ""),
+                    obj.optInt("capacity", 4), obj.optBoolean("status", true));
+            if (obj.has("activeSessionId") && !obj.isNull("activeSessionId"))
+                t.setActiveSessionId(obj.getLong("activeSessionId"));
+            list.add(t);
         }
         return list;
     }
