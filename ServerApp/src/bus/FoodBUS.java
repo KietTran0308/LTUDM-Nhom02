@@ -47,7 +47,7 @@ public class FoodBUS {
 
         if (food == null) {
             throw new IllegalArgumentException(
-                "Không tìm thấy món ăn với ID: " + foodId
+                    "Không tìm thấy món ăn với ID: " + foodId
             );
         }
 
@@ -80,7 +80,7 @@ public class FoodBUS {
 
         if (food == null) {
             throw new IllegalArgumentException(
-                "Dữ liệu món ăn không được để trống."
+                    "Dữ liệu món ăn không được để trống."
             );
         }
 
@@ -105,21 +105,21 @@ public class FoodBUS {
         // Kiểm tra trùng SKU
         if (foodDAO.existsBySku(food.getSku())) {
             throw new IllegalArgumentException(
-                "SKU món ăn đã tồn tại."
+                    "SKU món ăn đã tồn tại."
             );
         }
 
         // Kiểm tra trùng tên
         if (foodDAO.existsByName(food.getName())) {
             throw new IllegalArgumentException(
-                "Tên món ăn đã tồn tại."
+                    "Tên món ăn đã tồn tại."
             );
         }
 
         // Kiểm tra trùng slug
         if (foodDAO.existsBySlug(food.getSlug())) {
             throw new IllegalArgumentException(
-                "Slug món ăn đã tồn tại."
+                    "Slug món ăn đã tồn tại."
             );
         }
 
@@ -128,7 +128,12 @@ public class FoodBUS {
             food.setIsPublished(true);
         }
 
-        return foodDAO.insertFoodWithCover(food);
+        if (!foodDAO.insertFoodWithCover(food)) {
+            throw new SQLException("Không thể tạo món ăn mới");
+        }
+        FoodDTO saved = foodDAO.getFoodById(food.getId());
+        if (saved == null) throw new SQLException("Không tìm thấy món vừa thêm");
+        return saved;
     }
 
     // ================= UPDATE =================
@@ -139,7 +144,7 @@ public class FoodBUS {
 
         if (food == null) {
             throw new IllegalArgumentException(
-                "Dữ liệu món ăn không được để trống."
+                    "Dữ liệu món ăn không được để trống."
             );
         }
 
@@ -150,7 +155,7 @@ public class FoodBUS {
 
         if (oldFood == null) {
             throw new IllegalArgumentException(
-                "Không tìm thấy món ăn với ID: " + food.getId()
+                    "Không tìm thấy món ăn với ID: " + food.getId()
             );
         }
 
@@ -164,6 +169,9 @@ public class FoodBUS {
         if (food.getDescription() != null) {
             food.setDescription(food.getDescription().trim());
         }
+        if (food.getCoverImageUrl() != null) {
+            food.setCoverImageUrl(food.getCoverImageUrl().trim());
+        }
 
         // Kiểm tra Category mới nếu có
         validateCategory(food.getCategoryId());
@@ -173,7 +181,7 @@ public class FoodBUS {
                 food.getSku(), food.getId())) {
 
             throw new IllegalArgumentException(
-                "SKU đã được sử dụng bởi món ăn khác."
+                    "SKU đã được sử dụng bởi món ăn khác."
             );
         }
 
@@ -182,7 +190,7 @@ public class FoodBUS {
                 food.getName(), food.getId())) {
 
             throw new IllegalArgumentException(
-                "Tên món ăn đã được sử dụng."
+                    "Tên món ăn đã được sử dụng."
             );
         }
 
@@ -191,7 +199,7 @@ public class FoodBUS {
                 food.getSlug(), food.getId())) {
 
             throw new IllegalArgumentException(
-                "Slug đã được sử dụng."
+                    "Slug đã được sử dụng."
             );
         }
 
@@ -200,7 +208,12 @@ public class FoodBUS {
             food.setIsPublished(oldFood.getIsPublished());
         }
 
-        return foodDAO.updateFoodBasicInfo(food);
+        if (!foodDAO.updateFoodBasicInfo(food)) {
+            throw new SQLException("Không thể cập nhật món ăn");
+        }
+        FoodDTO saved = foodDAO.getFoodById(food.getId());
+        if (saved == null) throw new SQLException("Không tìm thấy món vừa cập nhật");
+        return saved;
     }
 
     // ================= DELETE =================
@@ -215,7 +228,7 @@ public class FoodBUS {
 
         if (food == null) {
             throw new IllegalArgumentException(
-                "Không tìm thấy món ăn với ID: " + foodId
+                    "Không tìm thấy món ăn với ID: " + foodId
             );
         }
 
@@ -235,12 +248,12 @@ public class FoodBUS {
 
         if (food == null) {
             throw new IllegalArgumentException(
-                "Không tìm thấy món ăn với ID: " + foodId
+                    "Không tìm thấy món ăn với ID: " + foodId
             );
         }
 
         return foodDAO.updatePublishedStatus(
-            foodId, isPublished
+                foodId, isPublished
         );
     }
 
@@ -260,19 +273,19 @@ public class FoodBUS {
 
         if (sku.isEmpty()) {
             throw new IllegalArgumentException(
-                "SKU món ăn không được để trống."
+                    "SKU món ăn không được để trống."
             );
         }
 
         if (name.isEmpty()) {
             throw new IllegalArgumentException(
-                "Tên món ăn không được để trống."
+                    "Tên món ăn không được để trống."
             );
         }
 
         if (slug.isEmpty()) {
             throw new IllegalArgumentException(
-                "Slug món ăn không được để trống."
+                    "Slug món ăn không được để trống."
             );
         }
 
@@ -280,7 +293,7 @@ public class FoodBUS {
                 food.getPrice().compareTo(BigDecimal.ZERO) <= 0) {
 
             throw new IllegalArgumentException(
-                "Giá món ăn phải lớn hơn 0."
+                    "Giá món ăn phải lớn hơn 0."
             );
         }
     }
@@ -289,7 +302,7 @@ public class FoodBUS {
     private void validateId(Long id) {
         if (id == null || id <= 0) {
             throw new IllegalArgumentException(
-                "ID món ăn không hợp lệ."
+                    "ID món ăn không hợp lệ."
             );
         }
     }
@@ -306,11 +319,11 @@ public class FoodBUS {
         validateCategoryId(categoryId);
 
         CategoryDTO category =
-            categoryDAO.getCategoryById(categoryId);
+                categoryDAO.getCategoryById(categoryId);
 
         if (category == null) {
             throw new IllegalArgumentException(
-                "Không tìm thấy danh mục với ID: " + categoryId
+                    "Không tìm thấy danh mục với ID: " + categoryId
             );
         }
     }
@@ -318,7 +331,7 @@ public class FoodBUS {
     private void validateCategoryId(Long categoryId) {
         if (categoryId == null || categoryId <= 0) {
             throw new IllegalArgumentException(
-                "ID danh mục không hợp lệ."
+                    "ID danh mục không hợp lệ."
             );
         }
     }

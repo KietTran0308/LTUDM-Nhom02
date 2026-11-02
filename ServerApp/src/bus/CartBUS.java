@@ -37,8 +37,13 @@ public class CartBUS {
         validateId(foodId, "ID món ăn");
         validateQuantity(quantity);
 
-        // Kiểm tra món ăn tồn tại và đang được công khai
-        FoodDTO food = foodDAO.getFoodById(foodId);
+        FoodDTO food;
+        try {
+            // Bọc try-catch để tương thích nếu FoodDAO.getFoodById có throws SQLException
+            food = foodDAO.getFoodById(foodId);
+        } catch (java.sql.SQLException e) {
+            throw new IllegalStateException("Lỗi truy vấn thông tin món ăn", e);
+        }
 
         if (food == null) {
             throw new IllegalArgumentException("Món ăn không tồn tại.");
@@ -100,7 +105,7 @@ public class CartBUS {
         BigDecimal total = BigDecimal.ZERO;
 
         for (CartItemDTO item : items) {
-            total = total.add(item.getLineTotal());
+            if (item != null) total = total.add(item.getLineTotal());
         }
 
         return total;

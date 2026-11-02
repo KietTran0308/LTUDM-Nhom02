@@ -26,6 +26,11 @@ public class SocketServer {
     // Callback để thông báo cho Giao diện Bếp/Admin trên Server khi có đơn mới hoặc khách gọi
     private Consumer<SocketPacket> onKitchenNotification;
 
+    // Tương thích entry point ServerMain hiện tại (không cần UI callback).
+    public SocketServer() {
+        this(null);
+    }
+
     public SocketServer(Consumer<SocketPacket> onKitchenNotification) {
         this.onKitchenNotification = onKitchenNotification;
     }

@@ -7,6 +7,7 @@ import org.json.JSONObject;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Đặt tại: ClientApp -> package api
@@ -26,6 +27,21 @@ public class SocketJsonMapper {
         Object extraData = packet.getExtraData();
 
         switch (packet.getAction()) {
+            case REQUEST_PASSWORD_RESET:
+                if (data != null) root.put("data", data.toString());
+                break;
+
+            case CONFIRM_PASSWORD_RESET:
+                if (data instanceof Map<?, ?>) {
+                    Map<?, ?> payload = (Map<?, ?>) data;
+                    JSONObject body = new JSONObject();
+                    body.put("email", payload.get("email"));
+                    body.put("otp", payload.get("otp"));
+                    body.put("newPassword", payload.get("newPassword"));
+                    root.put("data", body);
+                }
+                break;
+
             case LOGIN:
                 if (data != null) root.put("data", data.toString());           // emailOrPhone
                 if (extraData != null) root.put("extraData", extraData.toString()); // password
@@ -44,6 +60,15 @@ public class SocketJsonMapper {
                 if (extraData != null) {
                     root.put("extraData", extraData.toString()); // voucherCode
                 }
+                break;
+
+            case REGISTER_TABLE:
+                if (data != null) root.put("data", data.toString()); // session token
+                break;
+
+            case SET_KITCHEN_ITEM_STATUS:
+                if (data != null) root.put("data", data);  // itemId
+                if (extraData instanceof OrderStatus) root.put("extraData", ((OrderStatus) extraData).name());
                 break;
 
             case CALL_STAFF:
@@ -120,6 +145,26 @@ public class SocketJsonMapper {
                     }
                     break;
 
+                case SET_KITCHEN_ITEM_STATUS:
+                    if (root.has("data") && !root.isNull("data")) data = root.getLong("data");
+                    if (root.has("extraData") && !root.isNull("extraData"))
+                        extraData = OrderStatus.valueOf(root.getString("extraData"));
+                    break;
+                case CALL_STAFF:
+                    data = root.optString("data", "");
+                    break;
+                case OPEN_TABLE_SESSION:
+                    data = root.optString("data", "");
+                    break;
+                case GET_KITCHEN_QUEUE:
+                    data = new ArrayList<OrderDTO>();
+                    if (root.has("data") && !root.isNull("data")) {
+                        JSONArray queue = root.getJSONArray("data");
+                        List<OrderDTO> orders = new ArrayList<>();
+                        for (int i=0;i<queue.length();i++) orders.add(jsonToOrder(queue.getJSONObject(i)));
+                        data = orders;
+                    }
+                    break;
                 case GET_ALL_TABLES:
                 case PAY_TABLE_BILL:
                     if (root.has("data") && !root.isNull("data")) {
@@ -168,6 +213,7 @@ public class SocketJsonMapper {
         JSONObject obj = new JSONObject();
         if (o.getUserId() != null) obj.put("userId", o.getUserId());
         if (o.getTableId() != null) obj.put("tableId", o.getTableId());
+        if (o.getTableSessionId() != null) obj.put("tableSessionId", o.getTableSessionId());
         if (o.getOrderType() != null) obj.put("orderType", o.getOrderType().name());
         if (o.getStatus() != null) obj.put("status", o.getStatus().name());
         if (o.getNote() != null) obj.put("note", o.getNote());
@@ -195,6 +241,7 @@ public class SocketJsonMapper {
         o.setOrderCode(obj.optString("orderCode", ""));
         if (obj.has("parentOrderId") && !obj.isNull("parentOrderId")) o.setParentOrderId(obj.getLong("parentOrderId"));
         if (obj.has("tableId") && !obj.isNull("tableId")) o.setTableId(obj.getLong("tableId"));
+        if (obj.has("tableSessionId") && !obj.isNull("tableSessionId")) o.setTableSessionId(obj.getLong("tableSessionId"));
         o.setSubtotal(obj.optBigDecimal("subtotal", BigDecimal.ZERO));
         o.setDiscountAmount(obj.optBigDecimal("discountAmount", BigDecimal.ZERO));
         o.setTotalAmount(obj.optBigDecimal("totalAmount", BigDecimal.ZERO));
@@ -274,7 +321,7 @@ public class SocketJsonMapper {
 
     private static JSONObject billToJson(BillDTO b) {
         JSONObject obj = new JSONObject();
-        if (b.getOrderId() != null) obj.put("orderId", b.getOrderId());
+        if (b.getTableSessionId() != null) obj.put("tableSessionId", b.getTableSessionId());
         obj.put("totalAmount", b.getTotalAmount());
         obj.put("discount", b.getDiscount());
         obj.put("tax", b.getTax());

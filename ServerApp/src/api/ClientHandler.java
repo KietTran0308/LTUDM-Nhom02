@@ -35,8 +35,9 @@ public class ClientHandler implements Runnable {
             String rawJsonLine;
 
             while (!socket.isClosed() && (rawJsonLine = in.readLine()) != null) {
-                System.out.println("[Server <- Client JSON]: " + rawJsonLine);
+                // Không log raw JSON: LOGIN/đặt lại mật khẩu chứa thông tin bí mật.
                 SocketPacket request = SocketJsonMapper.fromJsonString(rawJsonLine);
+                System.out.println("[Server] Nhận action: " + request.getAction());
                 handleClientRequest(request);
             }
         } catch (Exception e) {
@@ -75,11 +76,20 @@ public class ClientHandler implements Runnable {
                     OrderDTO incomingOrder = (OrderDTO) req.getData();
                     String voucherCode = (String) req.getExtraData();
 
+                    // Đồng bộ tableId giữa gói tin SocketPacket, phiên kết nối hiện tại và OrderDTO
+                    Long targetTableId = req.getTableId() != null ? req.getTableId() : this.currentTableId;
+                    if (targetTableId == null && incomingOrder != null) {
+                        targetTableId = incomingOrder.getTableId();
+                    }
+                    if (incomingOrder != null && incomingOrder.getTableId() == null) {
+                        incomingOrder.setTableId(targetTableId);
+                    }
+
                     // Gọi xuống ServerOrderBUS để kiểm tra đơn gốc parent_order_id, tính tiền, lưu DB & trừ kho
                     OrderDTO savedOrder = serverOrderBUS.processIncomingTableOrder(incomingOrder, voucherCode);
 
                     // Lấy lại toàn bộ danh sách món đang theo dõi của bàn này trả về cho Tablet
-                    List<OrderItemDTO> updatedTrackingList = serverOrderBUS.getTableTrackingItems(req.getTableId());
+                    List<OrderItemDTO> updatedTrackingList = serverOrderBUS.getTableTrackingItems(targetTableId);
 
                     sendPacket(new SocketPacket(
                             SocketAction.PLACE_ORDER, true,
@@ -90,7 +100,7 @@ public class ClientHandler implements Runnable {
                     // Báo lên màn hình Bếp / Admin ở Server có đơn hàng mới
                     if (onKitchenNotification != null) {
                         onKitchenNotification.accept(new SocketPacket(
-                                SocketAction.PLACE_ORDER, req.getTableId(), savedOrder, null
+                                SocketAction.PLACE_ORDER, targetTableId, savedOrder, null
                         ));
                     }
                     break;
@@ -161,6 +171,62 @@ public class ClientHandler implements Runnable {
                                 SocketAction.PAY_TABLE_BILL, false,
                                 "Thanh toán thất bại (Đơn hàng đã được thanh toán hoặc lỗi CSDL)!", null, null
                         ));
+                    }
+                    break;
+                }
+
+                case REQUEST_PASSWORD_RESET: {
+                    // Không yêu cầu đăng nhập vì người dùng đang quên mật khẩu.
+                    try {
+                        authBUS.requestPasswordReset((String) req.getData());
+                        sendPacket(new SocketPacket(
+                                SocketAction.REQUEST_PASSWORD_RESET, true,
+                                "Nếu email đã đăng ký, mã xác minh sẽ được gửi tới hộp thư. Vui lòng kiểm tra cả Spam.",
+                                null, null));
+                    } catch (IllegalArgumentException ex) {
+                        sendPacket(new SocketPacket(SocketAction.REQUEST_PASSWORD_RESET, false,
+                                ex.getMessage(), null, null));
+                    } catch (IllegalStateException ex) {
+                        System.err.println("Gửi OTP thất bại: " + ex.getClass().getSimpleName());
+                        // SMTP chưa cấu hình: cùng một lỗi cho mọi email, không lộ tài khoản tồn tại.
+                        if ("Server chưa cấu hình SMTP".equals(ex.getMessage())) {
+                            sendPacket(new SocketPacket(SocketAction.REQUEST_PASSWORD_RESET, false,
+                                    "Server chưa cấu hình gửi email OTP. Vui lòng liên hệ quản trị.", null, null));
+                        } else {
+                            sendPacket(new SocketPacket(SocketAction.REQUEST_PASSWORD_RESET, true,
+                                    "Nếu email đã đăng ký, bạn sẽ nhận mã xác minh. Hãy kiểm tra Spam hoặc thử lại sau.",
+                                    null, null));
+                        }
+                    } catch (Exception ex) {
+                        // Không tiết lộ email có tồn tại hay chi tiết SMTP/DB cho Client.
+                        System.err.println("Gửi OTP thất bại: " + ex.getClass().getSimpleName());
+                        sendPacket(new SocketPacket(SocketAction.REQUEST_PASSWORD_RESET, true,
+                                "Nếu email đã đăng ký, bạn sẽ nhận mã xác minh. Hãy kiểm tra Spam hoặc thử lại sau.",
+                                null, null));
+                    }
+                    break;
+                }
+
+                case CONFIRM_PASSWORD_RESET: {
+                    try {
+                        if (!(req.getData() instanceof java.util.Map<?, ?>)) {
+                            throw new IllegalArgumentException("Dữ liệu đặt lại mật khẩu không hợp lệ.");
+                        }
+                        java.util.Map<?, ?> body = (java.util.Map<?, ?>) req.getData();
+                        boolean reset = authBUS.confirmPasswordReset(
+                                (String) body.get("email"), (String) body.get("otp"),
+                                (String) body.get("newPassword"));
+                        sendPacket(new SocketPacket(SocketAction.CONFIRM_PASSWORD_RESET, reset,
+                                reset ? "Đổi mật khẩu thành công. Bạn có thể đăng nhập bằng mật khẩu mới."
+                                        : "Mã xác minh không đúng, đã hết hạn hoặc đã vượt số lần thử.",
+                                null, null));
+                    } catch (IllegalArgumentException ex) {
+                        sendPacket(new SocketPacket(SocketAction.CONFIRM_PASSWORD_RESET, false,
+                                ex.getMessage(), null, null));
+                    } catch (Exception ex) {
+                        System.err.println("Đặt lại mật khẩu lỗi: " + ex.getClass().getSimpleName());
+                        sendPacket(new SocketPacket(SocketAction.CONFIRM_PASSWORD_RESET, false,
+                                "Chưa thể đặt lại mật khẩu. Vui lòng thử lại sau.", null, null));
                     }
                     break;
                 }

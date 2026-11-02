@@ -27,6 +27,21 @@ public class SocketJsonMapper {
         Object extraData = null;
 
         switch (action) {
+            case REQUEST_PASSWORD_RESET:
+                data = root.optString("data", "");
+                break;
+
+            case CONFIRM_PASSWORD_RESET:
+                if (root.has("data") && !root.isNull("data")) {
+                    JSONObject obj = root.getJSONObject("data");
+                    java.util.Map<String, String> values = new java.util.HashMap<>();
+                    values.put("email", obj.optString("email", ""));
+                    values.put("otp", obj.optString("otp", ""));
+                    values.put("newPassword", obj.optString("newPassword", ""));
+                    data = values;
+                }
+                break;
+
             case LOGIN:
                 data = root.optString("data", "");          // emailOrPhone
                 extraData = root.optString("extraData", ""); // password
@@ -275,13 +290,19 @@ public class SocketJsonMapper {
 
     private static BillDTO jsonToBill(JSONObject obj) {
         BillDTO b = new BillDTO();
-        if (obj.has("orderId") && !obj.isNull("orderId")) b.setOrderId(obj.getLong("orderId"));
+
+        if (obj.has("tableSessionId") && !obj.isNull("tableSessionId")) {
+            b.setTableSessionId(obj.getLong("tableSessionId"));
+        }
+
         b.setTotalAmount(obj.optBigDecimal("totalAmount", BigDecimal.ZERO));
         b.setDiscount(obj.optBigDecimal("discount", BigDecimal.ZERO));
         b.setTax(obj.optBigDecimal("tax", BigDecimal.ZERO));
+
         if (obj.has("paymentMethod") && !obj.isNull("paymentMethod")) {
             b.setPaymentMethod(PaymentMethod.valueOf(obj.getString("paymentMethod")));
         }
+
         return b;
     }
 }

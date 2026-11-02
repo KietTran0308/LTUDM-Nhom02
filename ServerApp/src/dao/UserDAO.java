@@ -118,6 +118,29 @@ public class UserDAO {
         }
     }
 
+    /** Kiểm tra email đã đăng ký và tài khoản còn hoạt động. */
+    public boolean existsActiveByEmail(String email) throws SQLException {
+        String sql = "SELECT id FROM users WHERE LOWER(email) = LOWER(?) AND is_active = TRUE LIMIT 1";
+        try (Connection conn = dbConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, email);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        }
+    }
+
+    /** Chỉ cập nhật mật khẩu đã băm, không thay đổi vai trò hoặc phiên bàn. */
+    public boolean updatePasswordByEmail(String email, String encodedPassword) throws SQLException {
+        String sql = "UPDATE users SET password_hash = ? WHERE LOWER(email) = LOWER(?) AND is_active = TRUE";
+        try (Connection conn = dbConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, encodedPassword);
+            ps.setString(2, email);
+            return ps.executeUpdate() == 1;
+        }
+    }
+
     /**
      * Kiểm tra số điện thoại đã tồn tại hay chưa.
      */

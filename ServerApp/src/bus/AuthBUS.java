@@ -2,9 +2,12 @@ package bus;
 
 import dao.UserDAO;
 import dto.UserDTO;
+import utils.PasswordReset;
 
 public class AuthBUS {
     private final UserDAO userDAO = new UserDAO();
+
+    private static final PasswordReset RESET_SERVICE = new PasswordReset();
 
     public UserDTO login(String emailOrPhone, String password) throws Exception {
         if (emailOrPhone == null || emailOrPhone.trim().isEmpty() || password == null || password.isEmpty()) {
@@ -16,6 +19,14 @@ public class AuthBUS {
         }
         user.setPasswordHash(null);
         return user;
+    }
+
+    public void requestPasswordReset(String email) throws Exception {
+        RESET_SERVICE.requestCode(email);
+    }
+
+    public boolean confirmPasswordReset(String email, String otp, String newPassword) throws Exception {
+        return RESET_SERVICE.confirm(email, otp, newPassword);
     }
 
     public UserDTO register(UserDTO reqUser) throws Exception {
