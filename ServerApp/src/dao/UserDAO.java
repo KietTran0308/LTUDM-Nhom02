@@ -1,4 +1,5 @@
 package dao;
+
 import dto.UserDTO;
 import java.sql.*;
 import java.time.LocalDateTime;
@@ -8,8 +9,48 @@ import java.util.List;
 public class UserDAO {
 
     /**
-     * Chuyển dữ liệu từ ResultSet thành UserDTO.
+     * Kiểm tra đăng nhập bằng Email HOẶC Số điện thoại kèm mật khẩu
      */
+    public UserDTO authenticate(String emailOrPhone, String passwordHash) {
+        String sql = "SELECT u.*, r.nameRole FROM users u " +
+                "JOIN roles r ON u.roleID = r.roleID " +
+                "WHERE (u.email = ? OR u.phone = ?) AND u.is_active = TRUE";
+
+        Connection conn = null;
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+
+        try {
+            conn = dbConnection.getConnection();
+            ps = conn.prepareStatement(sql);
+            ps.setString(1, emailOrPhone.trim());
+            ps.setString(2, emailOrPhone.trim());
+            rs = ps.executeQuery();
+
+            if (rs.next() && bus.PasswordUtil.matches(passwordHash, rs.getString("password_hash"))) {
+                UserDTO user = new UserDTO(
+                        rs.getLong("id"),
+                        rs.getLong("roleID"),
+                        rs.getString("email"),
+                        rs.getString("password_hash"),
+                        rs.getString("full_name"),
+                        rs.getString("phone"),
+                        rs.getBoolean("is_active"),
+                        rs.getObject("created_at", LocalDateTime.class),
+                        rs.getObject("updated_at", LocalDateTime.class)
+                );
+                user.setRoleName(rs.getString("nameRole"));
+                return user;
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        } finally {
+            dbConnection.closeConnection(conn, ps, rs);
+        }
+        return null;
+    }
+
+
     private UserDTO mapUser(ResultSet rs) throws SQLException {
         UserDTO user = new UserDTO(
                 rs.getLong("id"),
@@ -37,17 +78,17 @@ public class UserDAO {
                 "WHERE (u.email = ? OR u.phone = ?) AND u.is_active = TRUE";
 
         try (
-            Connection conn = dbConnection.getConnection();
-            PreparedStatement ps = conn.prepareStatement(sql)
+                Connection conn = dbConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)
         ) {
             ps.setString(1, emailOrPhone.trim());
             ps.setString(2, emailOrPhone.trim());
 
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next() &&
-                    bus.PasswordUtil.matches(
-                        password, rs.getString("password_hash")
-                    )) {
+                        bus.PasswordUtil.matches(
+                                password, rs.getString("password_hash")
+                        )) {
                     return mapUser(rs);
                 }
             }
@@ -66,8 +107,8 @@ public class UserDAO {
         String sql = "SELECT id FROM users WHERE email = ? LIMIT 1";
 
         try (
-            Connection conn = dbConnection.getConnection();
-            PreparedStatement ps = conn.prepareStatement(sql)
+                Connection conn = dbConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)
         ) {
             ps.setString(1, email.trim());
 
@@ -84,8 +125,8 @@ public class UserDAO {
         String sql = "SELECT id FROM users WHERE phone = ? LIMIT 1";
 
         try (
-            Connection conn = dbConnection.getConnection();
-            PreparedStatement ps = conn.prepareStatement(sql)
+                Connection conn = dbConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)
         ) {
             ps.setString(1, phone.trim());
 
@@ -100,11 +141,11 @@ public class UserDAO {
      */
     public Long findRoleIdByName(String roleName) throws SQLException {
         String sql = "SELECT roleID FROM roles " +
-                     "WHERE UPPER(nameRole) = UPPER(?) LIMIT 1";
+                "WHERE UPPER(nameRole) = UPPER(?) LIMIT 1";
 
         try (
-            Connection conn = dbConnection.getConnection();
-            PreparedStatement ps = conn.prepareStatement(sql)
+                Connection conn = dbConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)
         ) {
             ps.setString(1, roleName.trim());
 
@@ -131,8 +172,8 @@ public class UserDAO {
                 "VALUES (?, ?, ?, ?, ?, TRUE)";
 
         try (
-            Connection conn = dbConnection.getConnection();
-            PreparedStatement psRole = conn.prepareStatement(sqlRole)
+                Connection conn = dbConnection.getConnection();
+                PreparedStatement psRole = conn.prepareStatement(sqlRole)
         ) {
             long roleId;
             String roleName;
@@ -147,9 +188,9 @@ public class UserDAO {
             }
 
             try (
-                PreparedStatement psInsert = conn.prepareStatement(
-                    sqlInsert, Statement.RETURN_GENERATED_KEYS
-                )
+                    PreparedStatement psInsert = conn.prepareStatement(
+                            sqlInsert, Statement.RETURN_GENERATED_KEYS
+                    )
             ) {
                 psInsert.setLong(1, roleId);
                 psInsert.setString(2, newUser.getEmail().trim());
@@ -182,12 +223,12 @@ public class UserDAO {
         List<UserDTO> userList = new ArrayList<>();
 
         String sql = "SELECT u.*, r.nameRole FROM users u " +
-                     "JOIN roles r ON u.roleID = r.roleID";
+                "JOIN roles r ON u.roleID = r.roleID";
 
         try (
-            Connection conn = dbConnection.getConnection();
-            PreparedStatement ps = conn.prepareStatement(sql);
-            ResultSet rs = ps.executeQuery()
+                Connection conn = dbConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql);
+                ResultSet rs = ps.executeQuery()
         ) {
             while (rs.next()) {
                 userList.add(mapUser(rs));
@@ -202,12 +243,12 @@ public class UserDAO {
      */
     public UserDTO findById(long userId) throws SQLException {
         String sql = "SELECT u.*, r.nameRole FROM users u " +
-                     "JOIN roles r ON u.roleID = r.roleID " +
-                     "WHERE u.id = ?";
+                "JOIN roles r ON u.roleID = r.roleID " +
+                "WHERE u.id = ?";
 
         try (
-            Connection conn = dbConnection.getConnection();
-            PreparedStatement ps = conn.prepareStatement(sql)
+                Connection conn = dbConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)
         ) {
             ps.setLong(1, userId);
 
@@ -226,12 +267,12 @@ public class UserDAO {
      */
     public UserDTO findByPhone(String phone) throws SQLException {
         String sql = "SELECT u.*, r.nameRole FROM users u " +
-                     "JOIN roles r ON u.roleID = r.roleID " +
-                     "WHERE u.phone = ?";
+                "JOIN roles r ON u.roleID = r.roleID " +
+                "WHERE u.phone = ?";
 
         try (
-            Connection conn = dbConnection.getConnection();
-            PreparedStatement ps = conn.prepareStatement(sql)
+                Connection conn = dbConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)
         ) {
             ps.setString(1, phone.trim());
 
@@ -250,12 +291,12 @@ public class UserDAO {
      */
     public boolean update(UserDTO user) throws SQLException {
         String sql = "UPDATE users SET " +
-                     "full_name = ?, phone = ?, email = ? " +
-                     "WHERE id = ?";
+                "full_name = ?, phone = ?, email = ? " +
+                "WHERE id = ?";
 
         try (
-            Connection conn = dbConnection.getConnection();
-            PreparedStatement ps = conn.prepareStatement(sql)
+                Connection conn = dbConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)
         ) {
             ps.setString(1, user.getFullName().trim());
             ps.setString(2, user.getPhone().trim());
@@ -273,8 +314,8 @@ public class UserDAO {
         String sql = "UPDATE users SET is_active = FALSE WHERE id = ?";
 
         try (
-            Connection conn = dbConnection.getConnection();
-            PreparedStatement ps = conn.prepareStatement(sql)
+                Connection conn = dbConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)
         ) {
             ps.setLong(1, userId);
 

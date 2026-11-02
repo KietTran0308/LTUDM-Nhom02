@@ -46,15 +46,6 @@ public class SocketJsonMapper {
                 }
                 break;
 
-            case REGISTER_TABLE:
-                if (data != null) root.put("data", data.toString()); // session token
-                break;
-
-            case SET_KITCHEN_ITEM_STATUS:
-                if (data != null) root.put("data", data);  // itemId
-                if (extraData instanceof OrderStatus) root.put("extraData", ((OrderStatus) extraData).name());
-                break;
-
             case CALL_STAFF:
                 if (data != null) root.put("data", data.toString()); // Nội dung gọi nhân viên
                 break;
@@ -129,18 +120,6 @@ public class SocketJsonMapper {
                     }
                     break;
 
-                case OPEN_TABLE_SESSION:
-                    data = root.optString("data", "");
-                    break;
-                case GET_KITCHEN_QUEUE:
-                    data = new ArrayList<OrderDTO>();
-                    if (root.has("data") && !root.isNull("data")) {
-                        JSONArray queue = root.getJSONArray("data");
-                        List<OrderDTO> orders = new ArrayList<>();
-                        for (int i=0;i<queue.length();i++) orders.add(jsonToOrder(queue.getJSONObject(i)));
-                        data = orders;
-                    }
-                    break;
                 case GET_ALL_TABLES:
                 case PAY_TABLE_BILL:
                     if (root.has("data") && !root.isNull("data")) {
@@ -189,7 +168,6 @@ public class SocketJsonMapper {
         JSONObject obj = new JSONObject();
         if (o.getUserId() != null) obj.put("userId", o.getUserId());
         if (o.getTableId() != null) obj.put("tableId", o.getTableId());
-        if (o.getTableSessionId() != null) obj.put("tableSessionId", o.getTableSessionId());
         if (o.getOrderType() != null) obj.put("orderType", o.getOrderType().name());
         if (o.getStatus() != null) obj.put("status", o.getStatus().name());
         if (o.getNote() != null) obj.put("note", o.getNote());
@@ -217,7 +195,6 @@ public class SocketJsonMapper {
         o.setOrderCode(obj.optString("orderCode", ""));
         if (obj.has("parentOrderId") && !obj.isNull("parentOrderId")) o.setParentOrderId(obj.getLong("parentOrderId"));
         if (obj.has("tableId") && !obj.isNull("tableId")) o.setTableId(obj.getLong("tableId"));
-        if (obj.has("tableSessionId") && !obj.isNull("tableSessionId")) o.setTableSessionId(obj.getLong("tableSessionId"));
         o.setSubtotal(obj.optBigDecimal("subtotal", BigDecimal.ZERO));
         o.setDiscountAmount(obj.optBigDecimal("discountAmount", BigDecimal.ZERO));
         o.setTotalAmount(obj.optBigDecimal("totalAmount", BigDecimal.ZERO));
@@ -297,7 +274,7 @@ public class SocketJsonMapper {
 
     private static JSONObject billToJson(BillDTO b) {
         JSONObject obj = new JSONObject();
-        if (b.getTableSessionId() != null) obj.put("tableSessionId", b.getTableSessionId());
+        if (b.getOrderId() != null) obj.put("orderId", b.getOrderId());
         obj.put("totalAmount", b.getTotalAmount());
         obj.put("discount", b.getDiscount());
         obj.put("tax", b.getTax());
