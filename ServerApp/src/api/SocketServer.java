@@ -25,7 +25,7 @@ public class SocketServer {
     private static final java.util.Set<ClientHandler> kitchenClients = ConcurrentHashMap.newKeySet();
     private static final java.util.Set<ClientHandler> staffClients = ConcurrentHashMap.newKeySet();
 
-    public SocketServer() { }
+    public SocketServer(Object o) { }
 
     public static void registerKitchen(ClientHandler client) { kitchenClients.add(client); }
     public static void registerStaff(ClientHandler client) { staffClients.add(client); }

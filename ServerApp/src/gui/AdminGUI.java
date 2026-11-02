@@ -14,6 +14,8 @@ import java.math.BigDecimal;
 import java.text.DecimalFormat;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
+import java.util.LinkedHashMap;
 
 public class AdminGUI extends JFrame {
 
@@ -34,6 +36,17 @@ public class AdminGUI extends JFrame {
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
 
     private final AdminBUS adminBUS = new AdminBUS();
+
+    // Sidebar doc + CardLayout: giu nguyen cac trang va xu ly BUS hien co.
+    private static final String PAGE_FOODS = "FOODS";
+    private static final String PAGE_INVENTORY = "INVENTORY";
+    private static final String PAGE_REVENUE = "REVENUE";
+    private final CardLayout contentCardLayout = new CardLayout();
+    private final JPanel contentCards = new JPanel(contentCardLayout);
+    private final Map<String, JButton> sidebarButtons = new LinkedHashMap<>();
+    private JLabel lblPageTitle;
+    private JLabel lblPageSubtitle;
+    private String activePage = PAGE_FOODS;
 
     // Components Tab 1: Quản lý Món ăn
     private DefaultTableModel foodTableModel;
@@ -65,22 +78,172 @@ public class AdminGUI extends JFrame {
 
         initBrandHeader();
 
-        JTabbedPane mainTabs = new JTabbedPane();
-        mainTabs.setFont(getCustomFont("Be Vietnam Pro Black", Font.BOLD, 15));
-        mainTabs.setBackground(Color.WHITE);
-        mainTabs.setForeground(TEXT_DARK);
-        mainTabs.setBorder(new EmptyBorder(10, 18, 15, 18));
+        // Bo cuc moi: menu doc ben trai, noi dung dang card ben phai.
+        // Khoi tao du ca 3 trang truoc khi truy van du lieu de tranh NullPointerException.
+        contentCards.setBackground(CREAM_BG);
+        contentCards.add(createFoodManagementTab(), PAGE_FOODS);
+        contentCards.add(createInventoryAlertTab(), PAGE_INVENTORY);
+        contentCards.add(createRevenueAnalyticsTab(), PAGE_REVENUE);
 
-        mainTabs.addTab("  🍲 Quản Lý Thực Đơn (Foods)  ", createFoodManagementTab());
-        mainTabs.addTab("  ⚠️ Kho Nguyên Liệu & Cảnh Báo Tồn  ", createInventoryAlertTab());
-        mainTabs.addTab("  📊 Thống Kê Doanh Thu (Bills)  ", createRevenueAnalyticsTab());
-        // Chức năng RestaurantKDS đã chuyển thành Java Swing + BUS + JDBC (không module mới).
-        //    mainTabs.addTab("  ⚙️ Quản lý KDS (Java thuần)  ", new KdsManagementPanel());
+        JPanel workspace = new JPanel(new BorderLayout(0, 0));
+        workspace.setBackground(CREAM_BG);
+        workspace.add(createSidebar(), BorderLayout.WEST);
+        workspace.add(createMainContentArea(), BorderLayout.CENTER);
+        add(workspace, BorderLayout.CENTER);
 
-        mainTabs.addChangeListener(e -> refreshAllData());
+        showPage(PAGE_FOODS);
+    }
 
-        add(mainTabs, BorderLayout.CENTER);
-        refreshAllData();
+    // =========================================================================
+    // NAVIGATION: SIDEBAR DOC BEN TRAI / NOI DUNG CARDLAYOUT BEN PHAI
+    // =========================================================================
+    private JPanel createSidebar() {
+        JPanel sidebar = new JPanel(new BorderLayout(0, 20)) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(FOREST_CIRCLE_1);
+                g2.fillOval(-145, getHeight() - 245, 330, 330);
+                g2.setColor(FOREST_CIRCLE_2);
+                g2.fillOval(-65, getHeight() - 170, 220, 220);
+                g2.dispose();
+            }
+        };
+        sidebar.setBackground(FOREST_BG);
+        sidebar.setPreferredSize(new Dimension(256, 0));
+        sidebar.setBorder(new EmptyBorder(26, 16, 24, 16));
+
+        JPanel sidebarTop = new JPanel();
+        sidebarTop.setLayout(new BoxLayout(sidebarTop, BoxLayout.Y_AXIS));
+        sidebarTop.setOpaque(false);
+
+        JLabel menuCaption = new JLabel("KHÔNG GIAN QUẢN TRỊ");
+        menuCaption.setFont(getCustomFont("Inter", Font.BOLD, 11));
+        menuCaption.setForeground(GOLD_ACCENT);
+        menuCaption.setBorder(new EmptyBorder(0, 11, 10, 0));
+        menuCaption.setAlignmentX(Component.LEFT_ALIGNMENT);
+        sidebarTop.add(menuCaption);
+
+        JLabel lblMenu = new JLabel("DANH MỤC CHỨC NĂNG");
+        lblMenu.setFont(getCustomFont("Inter", Font.PLAIN, 11));
+        lblMenu.setForeground(TEXT_MUTED);
+        lblMenu.setBorder(new EmptyBorder(18, 11, 12, 0));
+        lblMenu.setAlignmentX(Component.LEFT_ALIGNMENT);
+        sidebarTop.add(lblMenu);
+
+        sidebarTop.add(createSidebarButton("🍲  Quản lý thực đơn", PAGE_FOODS));
+        sidebarTop.add(Box.createVerticalStrut(10));
+        sidebarTop.add(createSidebarButton("📦  Kho nguyên liệu", PAGE_INVENTORY));
+        sidebarTop.add(Box.createVerticalStrut(10));
+        sidebarTop.add(createSidebarButton("📊  Thống kê doanh thu", PAGE_REVENUE));
+
+        sidebar.add(sidebarTop, BorderLayout.NORTH);
+
+        JPanel sidebarFooter = new JPanel();
+        sidebarFooter.setLayout(new BoxLayout(sidebarFooter, BoxLayout.Y_AXIS));
+        sidebarFooter.setOpaque(false);
+        JLabel lblFooter = new JLabel("AN NHIÊN  •  ADMIN");
+        lblFooter.setForeground(GOLD_ACCENT);
+        lblFooter.setFont(getCustomFont("Inter", Font.BOLD, 12));
+        lblFooter.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JLabel lblFooterDesc = new JLabel("Quản trị nhà hàng");
+        lblFooterDesc.setForeground(new Color(168, 182, 172));
+        lblFooterDesc.setFont(getCustomFont("Inter", Font.PLAIN, 11));
+        lblFooterDesc.setAlignmentX(Component.LEFT_ALIGNMENT);
+        sidebarFooter.add(lblFooter);
+        sidebarFooter.add(Box.createVerticalStrut(5));
+        sidebarFooter.add(lblFooterDesc);
+        sidebar.add(sidebarFooter, BorderLayout.SOUTH);
+        return sidebar;
+    }
+
+    private JButton createSidebarButton(String text, String pageId) {
+        JButton button = new JButton(text) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                boolean selected = pageId.equals(activePage);
+                if (selected) {
+                    g2.setColor(TERRACOTTA);
+                } else if (getModel().isRollover()) {
+                    g2.setColor(new Color(54, 71, 60));
+                } else {
+                    g2.setColor(new Color(40, 56, 46));
+                }
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 14, 14);
+                if (selected) {
+                    g2.setColor(GOLD_ACCENT);
+                    g2.fillRoundRect(0, 8, 4, Math.max(0, getHeight() - 16), 4, 4);
+                }
+                g2.dispose();
+                super.paintComponent(g);
+            }
+        };
+        button.setFont(getCustomFont("Be Vietnam Pro Black", Font.BOLD, 13));
+        button.setForeground(Color.WHITE);
+        button.setHorizontalAlignment(SwingConstants.LEFT);
+        button.setContentAreaFilled(false);
+        button.setFocusPainted(false);
+        button.setBorderPainted(false);
+        button.setBorder(new EmptyBorder(0, 13, 0, 8));
+        button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        button.setPreferredSize(new Dimension(224, 50));
+        button.setMaximumSize(new Dimension(Integer.MAX_VALUE, 50));
+        button.setAlignmentX(Component.LEFT_ALIGNMENT);
+        button.addActionListener(e -> showPage(pageId));
+        sidebarButtons.put(pageId, button);
+        return button;
+    }
+
+    private JPanel createMainContentArea() {
+        JPanel content = new JPanel(new BorderLayout(0, 15));
+        content.setBackground(CREAM_BG);
+        content.setBorder(new EmptyBorder(19, 22, 18, 22));
+
+        JPanel pageHeader = new JPanel(new BorderLayout(0, 4));
+        pageHeader.setOpaque(false);
+        pageHeader.setBorder(new EmptyBorder(0, 4, 4, 0));
+
+        lblPageTitle = new JLabel();
+        lblPageTitle.setFont(getCustomFont("Be Vietnam Pro Black", Font.BOLD, 23));
+        lblPageTitle.setForeground(TEXT_DARK);
+
+        lblPageSubtitle = new JLabel();
+        lblPageSubtitle.setFont(getCustomFont("Inter", Font.PLAIN, 12));
+        lblPageSubtitle.setForeground(new Color(105, 116, 108));
+
+        pageHeader.add(lblPageTitle, BorderLayout.NORTH);
+        pageHeader.add(lblPageSubtitle, BorderLayout.SOUTH);
+        content.add(pageHeader, BorderLayout.NORTH);
+        content.add(contentCards, BorderLayout.CENTER);
+        return content;
+    }
+
+    private void showPage(String pageId) {
+        activePage = pageId;
+        contentCardLayout.show(contentCards, pageId);
+        for (JButton button : sidebarButtons.values()) button.repaint();
+        switch (pageId) {
+            case PAGE_INVENTORY:
+                lblPageTitle.setText("Kho Nguyên Liệu & Cảnh Báo Tồn");
+                lblPageSubtitle.setText("Theo dõi định mức, tồn kho và bổ sung nguyên liệu.");
+                loadInventoryAndAlerts();
+                break;
+            case PAGE_REVENUE:
+                lblPageTitle.setText("Thống Kê Doanh Thu");
+                lblPageSubtitle.setText("Tổng hợp doanh thu, ưu đãi, thuế và lịch sử hóa đơn.");
+                loadRevenueStatistics();
+                break;
+            case PAGE_FOODS:
+            default:
+                lblPageTitle.setText("Quản Lý Thực Đơn");
+                lblPageSubtitle.setText("Thêm, chỉnh sửa và quản lý trạng thái bán các món ăn.");
+                loadCategoriesAndFoods();
+                break;
+        }
     }
 
     // =========================================================================
@@ -167,9 +330,15 @@ public class AdminGUI extends JFrame {
             public boolean isCellEditable(int r, int c) { return false; }
         };
         foodTable = createStyledTable(foodTableModel);
+        // Sidebar thu hep chieu ngang: cho phep cuon bang thay vi ep cot qua nho.
+        foodTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         foodTable.getColumnModel().getColumn(0).setPreferredWidth(45);
         foodTable.getColumnModel().getColumn(1).setPreferredWidth(90);
-        foodTable.getColumnModel().getColumn(2).setPreferredWidth(200);
+        foodTable.getColumnModel().getColumn(2).setPreferredWidth(210);
+        foodTable.getColumnModel().getColumn(3).setPreferredWidth(135);
+        foodTable.getColumnModel().getColumn(4).setPreferredWidth(120);
+        foodTable.getColumnModel().getColumn(5).setPreferredWidth(145);
+        foodTable.getColumnModel().getColumn(6).setPreferredWidth(200);
 
         foodTable.getSelectionModel().addListSelectionListener(e -> {
             int row = foodTable.getSelectedRow();
@@ -191,7 +360,7 @@ public class AdminGUI extends JFrame {
 
         // Form thêm/sửa bên phải
         JPanel formCard = createWhiteCardPanel();
-        formCard.setPreferredSize(new Dimension(400, getHeight()));
+        formCard.setPreferredSize(new Dimension(350, 0));
         formCard.setLayout(new BorderLayout(0, 15));
 
         JLabel lblFormTitle = new JLabel("Thông Tin Chi Tiết Món");
@@ -263,7 +432,15 @@ public class AdminGUI extends JFrame {
         btnGroup.add(btnDelete);
 
         formCard.add(lblFormTitle, BorderLayout.NORTH);
-        formCard.add(fields, BorderLayout.CENTER);
+        // Cuon form khi khung noi dung bi thu hep theo chieu doc.
+        JScrollPane formScroll = new JScrollPane(fields,
+                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
+                JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        formScroll.setBorder(BorderFactory.createEmptyBorder());
+        formScroll.setOpaque(false);
+        formScroll.getViewport().setOpaque(false);
+        formScroll.getVerticalScrollBar().setUnitIncrement(15);
+        formCard.add(formScroll, BorderLayout.CENTER);
         formCard.add(btnGroup, BorderLayout.SOUTH);
 
         panel.add(tableCard, BorderLayout.CENTER);
@@ -346,7 +523,7 @@ public class AdminGUI extends JFrame {
 
         JPanel kpiGrid = new JPanel(new GridLayout(1, 4, 18, 0));
         kpiGrid.setOpaque(false);
-        kpiGrid.setPreferredSize(new Dimension(getWidth(), 115));
+        kpiGrid.setPreferredSize(new Dimension(0, 115));
 
         lblCardTotalRevenue = new JLabel("0 VNĐ", SwingConstants.LEFT);
         lblCardTotalBills = new JLabel("0 Hóa đơn", SwingConstants.LEFT);
@@ -365,12 +542,17 @@ public class AdminGUI extends JFrame {
         lblHistoryTitle.setFont(getCustomFont("Be Vietnam Pro Black", Font.BOLD, 18));
         lblHistoryTitle.setForeground(TEXT_DARK);
 
-        String[] cols = {"Mã Hóa Đơn (Bill ID)", "Mã Đơn Gốc (Order ID)", "Giảm Giá", "Thuế VAT", "Tổng Thanh Toán", "Phương Thức", "Thời Gian Thanh Toán"};
+        String[] cols = {"Mã hóa đơn", "Mã phiên bàn", "Giảm giá", "Thuế VAT", "Tổng thanh toán", "Phương thức", "Thời gian thanh toán"};
         billTableModel = new DefaultTableModel(cols, 0) {
             @Override
             public boolean isCellEditable(int r, int c) { return false; }
         };
         JTable billTable = createStyledTable(billTableModel);
+        billTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        int[] revenueWidths = {125, 120, 120, 110, 160, 140, 205};
+        for (int i = 0; i < revenueWidths.length; i++) {
+            billTable.getColumnModel().getColumn(i).setPreferredWidth(revenueWidths[i]);
+        }
 
         tableCard.add(lblHistoryTitle, BorderLayout.NORTH);
         tableCard.add(new JScrollPane(billTable), BorderLayout.CENTER);
@@ -552,7 +734,7 @@ public class AdminGUI extends JFrame {
         for (BillDTO b : bills) {
             billTableModel.addRow(new Object[]{
                     "#" + b.getId(),
-                    "Đơn #" + b.getTableSessionId(),
+                    "Phiên #" + b.getTableSessionId(),
                     MONEY_FMT.format(b.getDiscount()),
                     MONEY_FMT.format(b.getTax()),
                     MONEY_FMT.format(b.getTotalAmount()),
