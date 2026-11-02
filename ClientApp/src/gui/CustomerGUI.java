@@ -126,6 +126,15 @@ public class CustomerGUI extends JFrame {
 
     private void onServerPacketCallback(SocketPacket packet) {
         if (!packet.isSuccess()) {
+            if (packet.getAction() == SocketAction.REGISTER_TABLE) {
+                if (responseTimer != null) responseTimer.stop();
+                tabletBUS.logout();
+                AuthGUI login = new AuthGUI();
+                login.setVisible(true);
+                CToast.warning(login, "Liên kết bàn thất bại. Nhờ nhân viên nhập mã ghép mới.");
+                dispose();
+                return;
+            }
             if (packet.getAction() == SocketAction.PLACE_ORDER) {
                 resetSendOrderButtonState();
             }
@@ -177,15 +186,14 @@ public class CustomerGUI extends JFrame {
                 break;
 
             case TABLE_CLEARED_RESET:
-                resetSendOrderButtonState();
-                completedNotified.clear();
-                lblKitchenNotice.setVisible(false);
-                itemNotesMap.clear();
-                refreshAllCartViews();
-                refreshTrackTable();
-                switchCenterView(VIEW_MENU);
-                CToast.show(this, packet.getMessage(), "Cảm ơn quý khách", CToast.SUCCESS);
-                break;
+                // Checkout closes the session, not merely the ordering screen.
+                if (responseTimer != null) responseTimer.stop();
+                tabletBUS.logout();
+                AuthGUI afterCheckout = new AuthGUI();
+                afterCheckout.setVisible(true);
+                CToast.success(afterCheckout, "Đã thanh toán. Nhân viên có thể ghép thiết bị cho bàn tiếp theo.");
+                dispose();
+                return;
 
             default:
                 break;
@@ -301,7 +309,7 @@ public class CustomerGUI extends JFrame {
         btnRequestBill.addActionListener(e -> requestService("Tính tiền",
                 "Bàn #" + currentTableId + " yêu cầu nhân viên kiểm tra hóa đơn và hỗ trợ thanh toán."));
 
-        JButton btnLogout = new JButton("Thoát phiên / Đăng xuất");
+        JButton btnLogout = new JButton("Trả thiết bị / Đăng xuất");
         btnLogout.setFont(Utils.getCustomFont("Inter", Font.BOLD, 12));
         btnLogout.setForeground(new Color(218, 226, 219));
         btnLogout.setContentAreaFilled(false);
@@ -344,11 +352,11 @@ public class CustomerGUI extends JFrame {
 
     private void logout() {
         String alert = tabletBUS != null && !tabletBUS.getCurrentCart().isEmpty()
-                ? "Giỏ món chưa gửi sẽ không được lưu khi thoát phiên.\n"
+                ? "Giỏ món chưa gửi sẽ không được lưu khi trả thiết bị.\n"
                 : "";
         int answer = JOptionPane.showConfirmDialog(this,
-                alert + "Các món đã gửi vẫn ở bếp và không tự hủy khi đăng xuất.\nThoát phiên này?",
-                "Thoát phiên tại bàn", JOptionPane.YES_NO_OPTION);
+                alert + "Các món đã gửi vẫn ở bếp. Trả thiết bị KHÔNG đóng phiên bàn.\nBạn muốn đăng xuất để bàn khác dùng thiết bị?",
+                "Trả thiết bị dùng chung", JOptionPane.YES_NO_OPTION);
         if (answer != JOptionPane.YES_OPTION) return;
         if (responseTimer != null) responseTimer.stop();
         tabletBUS.logout();

@@ -75,6 +75,10 @@ public class StaffGUI extends JFrame {
             switch (packet.getAction()) {
                 case OPEN_TABLE_SESSION:
                     showTableToken(packet);
+                    posBUS.requestAllTables();
+                    break;
+                case CALL_STAFF:
+                    CToast.warning(this, packet.getMessage());
                     break;
                 case GET_ALL_TABLES:
                     renderTableMap(posBUS.getTableList());
@@ -156,7 +160,7 @@ public class StaffGUI extends JFrame {
         btnLogout.setCursor(new Cursor(Cursor.HAND_CURSOR));
         btnLogout.addActionListener(e -> logout());
 
-        CButton btnOpenSession = new CButton("Mở phiên bàn", 155, 42);
+        CButton btnOpenSession = new CButton("Mở / cấp mã bàn", 170, 42);
         btnOpenSession.addActionListener(e -> {
             if (selectedTableId == null) {
                 CToast.warning(this, "Hãy chọn bàn trên sơ đồ trước.");
@@ -433,10 +437,10 @@ public class StaffGUI extends JFrame {
             CToast.success(this, "Đã sao chép mã phiên bàn.");
         });
         JPanel content = new JPanel(new BorderLayout(8, 8));
-        content.add(new JLabel("Bàn #" + packet.getTableId() + " — cung cấp mã cho khách tại bàn:"), BorderLayout.NORTH);
+        content.add(new JLabel("Bàn #" + packet.getTableId() + " — NHÂN VIÊN nhập mã trên thiết bị dùng chung:"), BorderLayout.NORTH);
         content.add(field, BorderLayout.CENTER);
         content.add(copy, BorderLayout.SOUTH);
-        JDialog dlg = new JDialog(this, "Phiên phục vụ", false);
+        JDialog dlg = new JDialog(this, "Mã ghép thiết bị dành cho nhân viên", false);
         dlg.setContentPane(content);
         content.setBorder(new EmptyBorder(20, 20, 20, 20));
         dlg.pack(); dlg.setLocationRelativeTo(this); dlg.setVisible(true);

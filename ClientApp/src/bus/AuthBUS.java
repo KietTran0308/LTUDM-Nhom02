@@ -11,18 +11,19 @@ import java.util.Map;
  */
 public class AuthBUS {
     private final SocketClient socketClient = new SocketClient();
+    private final String serverHost = System.getenv().getOrDefault("SERVER_HOST", "localhost");
 
     public AuthBUS() {
-        socketClient.connect("localhost", 8888, null);
+        socketClient.connect(serverHost, 8888, null);
     }
 
     public boolean login(String account, String password) {
-        if (!socketClient.isConnected() && !socketClient.connect("localhost", 8888, null)) return false;
+        if (!socketClient.isConnected() && !socketClient.connect(serverHost, 8888, null)) return false;
         return socketClient.sendRequest(new SocketPacket(SocketAction.LOGIN, null, account, password));
     }
 
     public boolean register(String fullName, String email, String phone, String password) {
-        if (!socketClient.isConnected() && !socketClient.connect("localhost", 8888, null)) return false;
+        if (!socketClient.isConnected() && !socketClient.connect(serverHost, 8888, null)) return false;
         UserDTO user = new UserDTO();
         user.setFullName(fullName);
         user.setEmail(email);
@@ -35,7 +36,7 @@ public class AuthBUS {
      * Yêu cầu gửi mã xác minh tới email đã đăng ký.
      */
     public boolean requestPasswordReset(String email) {
-        if (!socketClient.isConnected() && !socketClient.connect("localhost", 8888, null)) return false;
+        if (!socketClient.isConnected() && !socketClient.connect(serverHost, 8888, null)) return false;
         return socketClient.sendRequest(new SocketPacket(
                 SocketAction.REQUEST_PASSWORD_RESET, null, email.trim(), null));
     }
@@ -44,7 +45,7 @@ public class AuthBUS {
      * Chỉ gửi mật khẩu mới tới máy chủ cùng OTP. Không trực tiếp sửa database.
      */
     public boolean confirmPasswordReset(String email, String otp, String newPassword) {
-        if (!socketClient.isConnected() && !socketClient.connect("localhost", 8888, null)) return false;
+        if (!socketClient.isConnected() && !socketClient.connect(serverHost, 8888, null)) return false;
         Map<String, String> payload = new HashMap<>();
         payload.put("email", email.trim());
         payload.put("otp", otp.trim());

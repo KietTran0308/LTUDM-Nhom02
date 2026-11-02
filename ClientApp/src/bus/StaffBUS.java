@@ -86,8 +86,6 @@ public class StaffBUS {
                 tableId == null || !socketClient.isConnected() || paymentMethod == null) return false;
 
         BillDTO bill = new BillDTO();
-        // SQL hien tai: bill.table_session_id; KHONG con bill.order_id.
-        // Server se doi chieu phien ACTIVE theo tableId va tinh lai tong tien.
         bill.setTableSessionId(currentPreviewOrder.getTableSessionId());
         bill.setDiscount(currentPreviewOrder.getDiscountAmount());
         bill.setTax(calculateVAT());

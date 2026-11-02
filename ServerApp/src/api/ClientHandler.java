@@ -8,7 +8,6 @@ import java.io.*;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.function.Consumer;
 
 public class ClientHandler implements Runnable {
     private final Socket socket;
@@ -20,11 +19,34 @@ public class ClientHandler implements Runnable {
     private final CategoryDAO categoryDAO = new CategoryDAO();
     private final ServerOrderBUS serverOrderBUS = new ServerOrderBUS();
     private final AuthBUS authBUS = new AuthBUS();
-    private final Consumer<SocketPacket> onKitchenNotification;
+    private UserDTO authenticatedUser;
+    private Long pairedSessionId;
+    private int failedPairAttempts;
+    private final OrderDAO orderDAO = new OrderDAO();
 
-    public ClientHandler(Socket socket, Consumer<SocketPacket> onKitchenNotification) {
+    public ClientHandler(Socket socket) {
         this.socket = socket;
-        this.onKitchenNotification = onKitchenNotification;
+    }
+
+    private boolean hasRole(String... roles) {
+        if (authenticatedUser == null || authenticatedUser.getRoleName() == null) return false;
+        for (String role : roles) {
+            if (role.equalsIgnoreCase(authenticatedUser.getRoleName())) return true;
+        }
+        return false;
+    }
+
+    private void requireRole(String... roles) {
+        if (!hasRole(roles)) throw new SecurityException("Không có quyền thực hiện thao tác này");
+    }
+
+    private void requireCurrentTable(Long requestedTableId) throws Exception {
+        requireRole("CUSTOMER");
+        if (pairedSessionId == null || currentTableId == null ||
+                !currentTableId.equals(requestedTableId) ||
+                !TableDAO.isActiveSession(currentTableId, pairedSessionId)) {
+            throw new SecurityException("Thiết bị chưa xác minh bàn hoặc phiên bàn đã kết thúc");
+        }
     }
 
     @Override
@@ -43,7 +65,7 @@ public class ClientHandler implements Runnable {
         } catch (Exception e) {
             System.out.println("[ClientHandler - JSON] Kết nối bàn " + currentTableId + " đã đóng: " + e.getMessage());
         } finally {
-            SocketServer.removeTableSession(currentTableId);
+            SocketServer.removeConnection(this);
             closeResources();
         }
     }
@@ -51,17 +73,42 @@ public class ClientHandler implements Runnable {
     private void handleClientRequest(SocketPacket req) {
         try {
             switch (req.getAction()) {
+                case OPEN_TABLE_SESSION: {
+                    requireRole("STAFF", "ADMIN");
+                    if (req.getTableId() == null || req.getTableId() <= 0) {
+                        throw new IllegalArgumentException("Hãy chọn bàn hợp lệ");
+                    }
+                    String code = TableDAO.openOrIssuePairingCode(req.getTableId(), authenticatedUser.getId());
+                    SocketPacket opened = new SocketPacket(SocketAction.OPEN_TABLE_SESSION, true,
+                            "Mã thiết lập thiết bị dành cho nhân viên", code, null);
+                    opened.setTableId(req.getTableId());
+                    sendPacket(opened);
+                    break;
+                }
+
                 case REGISTER_TABLE: {
-                    this.currentTableId = req.getTableId();
-                    SocketServer.registerTableSession(this.currentTableId, this);
-                    sendPacket(new SocketPacket(
-                            SocketAction.REGISTER_TABLE, true,
-                            "Kết nối máy chủ thành công cho Bàn số " + currentTableId, null, null
-                    ));
+                    requireRole("CUSTOMER");
+                    if (failedPairAttempts >= 5) throw new SecurityException("Đã vượt số lần ghép bàn; vui lòng đăng nhập lại");
+                    Long id = req.getTableId();
+                    Long session = (id == null) ? null : TableDAO.verifyActiveSession(id, (String) req.getData());
+                    if (session == null) {
+                        failedPairAttempts++;
+                        sendPacket(new SocketPacket(SocketAction.REGISTER_TABLE, false,
+                                "Mã ghép không hợp lệ hoặc bàn chưa được mở; báo nhân viên để kiểm tra", null, null));
+                        break;
+                    }
+                    SocketServer.removeConnection(this); // Prevent stale bindings on a reused connection.
+                    currentTableId = id;
+                    pairedSessionId = session;
+                    failedPairAttempts = 0;
+                    SocketServer.registerTableSession(id, this);
+                    sendPacket(new SocketPacket(SocketAction.REGISTER_TABLE, true,
+                            "Đã xác minh thiết bị cho bàn #" + id, null, null));
                     break;
                 }
 
                 case GET_MENU_AND_CATEGORIES: {
+                    requireCurrentTable(req.getTableId());
                     List<FoodDTO> foods = foodDAO.getPublishedFoodsForTablet();
                     List<CategoryDTO> categories = categoryDAO.getAllCategories();
                     // data = List<FoodDTO>, extraData = List<CategoryDTO>
@@ -73,8 +120,13 @@ public class ClientHandler implements Runnable {
                 }
 
                 case PLACE_ORDER: {
+                    requireCurrentTable(req.getTableId());
                     OrderDTO incomingOrder = (OrderDTO) req.getData();
                     String voucherCode = (String) req.getExtraData();
+                    if (incomingOrder == null) throw new IllegalArgumentException("Đơn không hợp lệ");
+                    incomingOrder.setTableId(currentTableId);
+                    incomingOrder.setTableSessionId(pairedSessionId);
+                    incomingOrder.setUserId(authenticatedUser.getId());
 
                     // Đồng bộ tableId giữa gói tin SocketPacket, phiên kết nối hiện tại và OrderDTO
                     Long targetTableId = req.getTableId() != null ? req.getTableId() : this.currentTableId;
@@ -97,16 +149,12 @@ public class ClientHandler implements Runnable {
                             savedOrder, updatedTrackingList
                     ));
 
-                    // Báo lên màn hình Bếp / Admin ở Server có đơn hàng mới
-                    if (onKitchenNotification != null) {
-                        onKitchenNotification.accept(new SocketPacket(
-                                SocketAction.PLACE_ORDER, targetTableId, savedOrder, null
-                        ));
-                    }
+                    SocketServer.broadcastKitchenQueue(orderDAO.getKitchenQueue());
                     break;
                 }
 
                 case GET_TABLE_TRACKING: {
+                    requireCurrentTable(req.getTableId());
                     List<OrderItemDTO> trackedItems = serverOrderBUS.getTableTrackingItems(req.getTableId());
                     sendPacket(new SocketPacket(
                             SocketAction.GET_TABLE_TRACKING, true,
@@ -116,9 +164,8 @@ public class ClientHandler implements Runnable {
                 }
 
                 case CALL_STAFF: {
-                    if (onKitchenNotification != null) {
-                        onKitchenNotification.accept(req);
-                    }
+                    requireCurrentTable(req.getTableId());
+                    SocketServer.notifyStaff(currentTableId, String.valueOf(req.getData()));
                     sendPacket(new SocketPacket(
                             SocketAction.CALL_STAFF, true,
                             "Nhân viên đã nhận được yêu cầu hỗ trợ của Bàn số " + req.getTableId(), null, null
@@ -127,6 +174,7 @@ public class ClientHandler implements Runnable {
                 }
 
                 case GET_ALL_TABLES: {
+                    requireRole("STAFF", "ADMIN");
                     List<TableDTO> tables = serverOrderBUS.getAllRestaurantTables();
                     sendPacket(new SocketPacket(
                             SocketAction.GET_ALL_TABLES, true, "Tải sơ đồ bàn thành công", tables, null
@@ -135,6 +183,7 @@ public class ClientHandler implements Runnable {
                 }
 
                 case GET_TABLE_BILL_PREVIEW: {
+                    requireRole("STAFF", "ADMIN");
                     OrderDTO mergedOrder = serverOrderBUS.getTableBillPreview(req.getTableId());
                     if (mergedOrder == null) {
                         sendPacket(new SocketPacket(
@@ -151,6 +200,7 @@ public class ClientHandler implements Runnable {
                 }
 
                 case PAY_TABLE_BILL: {
+                    requireRole("STAFF", "ADMIN");
                     BillDTO bill = (BillDTO) req.getData();
                     Long targetTableId = req.getTableId();
 
@@ -172,6 +222,43 @@ public class ClientHandler implements Runnable {
                                 "Thanh toán thất bại (Đơn hàng đã được thanh toán hoặc lỗi CSDL)!", null, null
                         ));
                     }
+                    break;
+                }
+
+                case GET_KITCHEN_QUEUE: {
+                    requireRole("KITCHEN", "ADMIN");
+                    sendPacket(new SocketPacket(SocketAction.GET_KITCHEN_QUEUE, true,
+                            "Đã tải danh sách bếp", orderDAO.getKitchenQueue(), null));
+                    break;
+                }
+
+                case SET_KITCHEN_ITEM_STATUS: {
+                    requireRole("KITCHEN", "ADMIN");
+                    Long itemId = (Long) req.getData();
+                    OrderStatus newStatus = (OrderStatus) req.getExtraData();
+                    if (itemId == null || newStatus == null ||
+                            (newStatus != OrderStatus.RECEIVED && newStatus != OrderStatus.COOKING &&
+                                    newStatus != OrderStatus.COMPLETED)) {
+                        throw new IllegalArgumentException("Món hoặc trạng thái không hợp lệ");
+                    }
+                    Long table = orderDAO.getTableIdByOrderItem(itemId);
+                    if (table == null || !orderDAO.updateOrderItemStatus(itemId, newStatus)) {
+                        throw new IllegalStateException("Không thể cập nhật trạng thái món");
+                    }
+                    sendPacket(new SocketPacket(SocketAction.SET_KITCHEN_ITEM_STATUS, true,
+                            "Đã cập nhật trạng thái món", itemId, newStatus));
+                    SocketServer.pushStatusToTable(table, itemId, newStatus);
+                    SocketServer.broadcastKitchenQueue(orderDAO.getKitchenQueue());
+                    break;
+                }
+
+                case LOGOUT: {
+                    SocketServer.removeConnection(this);
+                    authenticatedUser = null;
+                    currentTableId = null;
+                    pairedSessionId = null;
+                    failedPairAttempts = 0;
+                    sendPacket(new SocketPacket(SocketAction.LOGOUT, true, "Đã đăng xuất", null, null));
                     break;
                 }
 
@@ -235,6 +322,13 @@ public class ClientHandler implements Runnable {
                     String emailOrPhone = (String) req.getData();
                     String password = (String) req.getExtraData();
                     UserDTO loggedUser = authBUS.login(emailOrPhone, password);
+                    SocketServer.removeConnection(this);
+                    authenticatedUser = loggedUser;
+                    currentTableId = null;
+                    pairedSessionId = null;
+                    failedPairAttempts = 0;
+                    if (hasRole("KITCHEN", "ADMIN")) SocketServer.registerKitchen(this);
+                    if (hasRole("STAFF", "ADMIN")) SocketServer.registerStaff(this);
                     sendPacket(new SocketPacket(
                             SocketAction.LOGIN, true,
                             "Xin chào " + loggedUser.getFullName() + " (" + loggedUser.getRoleName() + ")",
@@ -260,7 +354,7 @@ public class ClientHandler implements Runnable {
         } catch (Exception e) {
             e.printStackTrace();
             sendPacket(new SocketPacket(
-                    req.getAction(), false, "Lỗi xử lý tại Server: " + e.getMessage(), null, null
+                    req.getAction(), false, "Yêu cầu không hợp lệ hoặc không đủ quyền: " + e.getMessage(), null, null
             ));
         }
     }
@@ -271,7 +365,7 @@ public class ClientHandler implements Runnable {
     public synchronized void sendPacket(SocketPacket packet) {
         if (out != null && !socket.isClosed()) {
             String jsonResponse = SocketJsonMapper.toJsonString(packet);
-            System.out.println("[Server -> Client JSON]: " + jsonResponse);
+            System.out.println("[Server -> Client] action=" + packet.getAction());
             out.println(jsonResponse); // Gửi 1 dòng JSON kết thúc bằng \n
         }
     }

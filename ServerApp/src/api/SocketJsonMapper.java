@@ -62,6 +62,16 @@ public class SocketJsonMapper {
                 }
                 break;
 
+            case REGISTER_TABLE:
+                data = root.optString("data", ""); // staff pairing code
+                break;
+
+            case SET_KITCHEN_ITEM_STATUS:
+                if (root.has("data") && !root.isNull("data")) data = root.getLong("data");
+                if (root.has("extraData") && !root.isNull("extraData"))
+                    extraData = OrderStatus.valueOf(root.getString("extraData"));
+                break;
+
             case CALL_STAFF:
                 data = root.optString("data", "");
                 break;
@@ -131,6 +141,19 @@ public class SocketJsonMapper {
                     if (extraData instanceof OrderStatus) {
                         root.put("extraData", ((OrderStatus) extraData).name());
                     }
+                    break;
+
+                case OPEN_TABLE_SESSION:
+                    if (data instanceof String) root.put("data", data);
+                    break;
+
+                case GET_KITCHEN_QUEUE:
+                    if (data instanceof List<?>) root.put("data", orderListToJson((List<OrderDTO>) data));
+                    break;
+
+                case SET_KITCHEN_ITEM_STATUS:
+                    if (data != null) root.put("data", data);
+                    if (extraData instanceof OrderStatus) root.put("extraData", ((OrderStatus) extraData).name());
                     break;
 
                 case GET_ALL_TABLES:
@@ -208,6 +231,7 @@ public class SocketJsonMapper {
         if (o.getOrderCode() != null) obj.put("orderCode", o.getOrderCode());
         if (o.getParentOrderId() != null) obj.put("parentOrderId", o.getParentOrderId());
         if (o.getTableId() != null) obj.put("tableId", o.getTableId());
+        if (o.getTableSessionId() != null) obj.put("tableSessionId", o.getTableSessionId());
         if (o.getSubtotal() != null) obj.put("subtotal", o.getSubtotal());
         if (o.getDiscountAmount() != null) obj.put("discountAmount", o.getDiscountAmount());
         if (o.getTotalAmount() != null) obj.put("totalAmount", o.getTotalAmount());
@@ -216,6 +240,12 @@ public class SocketJsonMapper {
             obj.put("items", orderItemListToJsonArray(o.getItems()));
         }
         return obj;
+    }
+
+    private static JSONArray orderListToJson(List<OrderDTO> list) {
+        JSONArray arr = new JSONArray();
+        for (OrderDTO order : list) arr.put(orderToJson(order));
+        return arr;
     }
 
     private static JSONArray orderItemListToJsonArray(List<OrderItemDTO> list) {

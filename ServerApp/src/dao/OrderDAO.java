@@ -59,7 +59,10 @@ public class OrderDAO {
                     }
                 }
 
-                Long sessionId = findOrCreateActiveSession(conn, order.getTableId());
+                Long sessionId = findActiveSession(conn, order.getTableId());
+                if (sessionId == null || order.getTableSessionId() == null) {
+                    throw new SQLException("Nhân viên chưa mở bàn hoặc thiết bị chưa được xác minh");
+                }
                 if (order.getTableSessionId() != null && !order.getTableSessionId().equals(sessionId)) {
                     throw new SQLException("Phiên bàn đã thay đổi; hãy tải lại thông tin bàn");
                 }
@@ -177,25 +180,12 @@ public class OrderDAO {
         }
     }
 
-    private Long findOrCreateActiveSession(Connection conn, Long tableId) throws SQLException {
+    private Long findActiveSession(Connection conn, Long tableId) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT id FROM table_sessions WHERE table_id = ? AND status = 'ACTIVE' FOR UPDATE")) {
             ps.setLong(1, tableId);
             try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) return rs.getLong(1);
-            }
-        }
-        String tokenHash = UUID.randomUUID().toString().replace("-", "") +
-                UUID.randomUUID().toString().replace("-", "");
-        try (PreparedStatement ps = conn.prepareStatement(
-                "INSERT INTO table_sessions (table_id, status, access_token_hash, opened_at) " +
-                        "VALUES (?, 'ACTIVE', ?, NOW(3))", Statement.RETURN_GENERATED_KEYS)) {
-            ps.setLong(1, tableId);
-            ps.setString(2, tokenHash);
-            if (ps.executeUpdate() != 1) throw new SQLException("Không tạo được phiên bàn");
-            try (ResultSet rs = ps.getGeneratedKeys()) {
-                if (!rs.next()) throw new SQLException("Không lấy được ID phiên bàn");
-                return rs.getLong(1);
+                return rs.next() ? rs.getLong(1) : null;
             }
         }
     }
@@ -314,6 +304,37 @@ public class OrderDAO {
             }
         }
         return list;
+    }
+
+    /** Kitchen queue only includes orders from ACTIVE table sessions. */
+    public List<OrderDTO> getKitchenQueue() {
+        List<OrderDTO> orders = new ArrayList<>();
+        String sql = "SELECT o.* FROM orders o " +
+                "JOIN table_sessions ts ON ts.id = o.table_session_id " +
+                "WHERE ts.status = 'ACTIVE' AND o.status <> 'CANCELLED' " +
+                "AND EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id " +
+                "AND oi.status NOT IN ('SERVED','CANCELLED')) ORDER BY o.created_at ASC";
+        try (Connection conn = dbConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                OrderDTO o = mapOrder(rs);
+                o.setItems(readOrderItems(conn, o.getId()));
+                orders.add(o);
+            }
+        } catch (SQLException e) { throw new IllegalStateException("Lỗi truy vấn hàng đợi bếp", e); }
+        return orders;
+    }
+
+    public Long getTableIdByOrderItem(long itemId) {
+        String sql = "SELECT o.table_id FROM order_items oi JOIN orders o ON o.id = oi.order_id " +
+                "JOIN table_sessions ts ON ts.id = o.table_session_id " +
+                "WHERE oi.id = ? AND ts.status = 'ACTIVE'";
+        try (Connection conn = dbConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, itemId);
+            try (ResultSet rs = ps.executeQuery()) { return rs.next() ? rs.getLong(1) : null; }
+        } catch (SQLException e) { throw new IllegalStateException("Lỗi tìm bàn theo món", e); }
     }
 
     public boolean updateOrderItemStatus(Long orderItemId, OrderStatus newStatus) {
