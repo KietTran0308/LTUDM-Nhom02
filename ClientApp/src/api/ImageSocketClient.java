@@ -7,7 +7,8 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 
 public class ImageSocketClient {
-    private static final String HOST = "localhost";
+    private static final String HOST = System.getenv("SERVER_HOST") == null
+            ? "localhost" : System.getenv("SERVER_HOST");
     private static final int PORT = 8889;
     private static final long MAX_IMAGE_BYTES = 10_000_000L;
 

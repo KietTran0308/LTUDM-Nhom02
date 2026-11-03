@@ -19,7 +19,7 @@ public class AuthBUS {
 
     public boolean login(String account, String password) {
         if (!socketClient.isConnected() && !socketClient.connect(serverHost, 8888, null)) return false;
-        return socketClient.sendRequest(new SocketPacket(SocketAction.LOGIN, null, account, password));
+        return socketClient.sendRequest(new SocketPacket(SocketAction.LOGIN_STAFF, null, account, password));
     }
 
     public boolean register(String fullName, String email, String phone, String password) {

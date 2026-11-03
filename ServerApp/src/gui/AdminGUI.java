@@ -67,11 +67,14 @@ public class AdminGUI extends JFrame {
     private JLabel lblCardTotalDiscount;
     private JLabel lblCardTotalTax;
 
-    public AdminGUI() {
+    public AdminGUI(UserDTO admin) {
+        if (admin == null || !"ADMIN".equalsIgnoreCase(admin.getRoleName()))
+            throw new SecurityException("Chi tai khoan ADMIN moi duoc mo giao dien quan tri");
         setExtendedState(JFrame.MAXIMIZED_BOTH);
         setTitle("Bếp Nhà Restaurant - Hệ Thống Quản Trị Trung Tâm (Admin Dashboard)");
         setSize(1360, 820);
-        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        // Dong AdminGUI KHONG duoc tat SocketServer va POS trung tam.
+        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         setLocationRelativeTo(null);
         setLayout(new BorderLayout());
         getContentPane().setBackground(CREAM_BG);
@@ -883,7 +886,32 @@ public class AdminGUI extends JFrame {
         return new Font(fontName, style, size);
     }
 
+    /** Man hinh quan tri chi chay noi bo tren may Server/POS. */
+    public static void showAdminLogin() {
+        JTextField account = new JTextField(24);
+        JPasswordField password = new JPasswordField(24);
+        JPanel form = new JPanel(new GridLayout(2, 2, 8, 8));
+        form.add(new JLabel("Email / SDT ADMIN:")); form.add(account);
+        form.add(new JLabel("Mat khau:")); form.add(password);
+        int result = JOptionPane.showConfirmDialog(null, form,
+                "Dang nhap ADMIN - May chu trung tam", JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.PLAIN_MESSAGE);
+        if (result != JOptionPane.OK_OPTION) return;
+        char[] typed = password.getPassword();
+        try {
+            UserDTO user = new bus.AuthBUS().login(account.getText().trim(), new String(typed));
+            if (!"ADMIN".equalsIgnoreCase(user.getRoleName()))
+                throw new SecurityException("Tai khoan nay khong co quyen ADMIN");
+            new AdminGUI(user).setVisible(true);
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(null, "Dang nhap khong thanh cong hoac khong du quyen ADMIN.",
+                    "Tu choi truy cap", JOptionPane.ERROR_MESSAGE);
+        } finally {
+            java.util.Arrays.fill(typed, '\0');
+        }
+    }
+
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> new AdminGUI().setVisible(true));
+        SwingUtilities.invokeLater(AdminGUI::showAdminLogin);
     }
 }

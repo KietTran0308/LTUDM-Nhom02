@@ -1,465 +1,182 @@
 package gui;
 
-import bus.StaffBUS;
 import api.SocketClient;
+import bus.StaffBUS;
+import components.CScrollBar;
+import components.CToast;
 import dto.*;
-import components.*;
 import utils.Utils;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import javax.swing.border.LineBorder;
-import javax.swing.table.DefaultTableModel;
-import javax.swing.table.JTableHeader;
 import java.awt.*;
-import java.text.DecimalFormat;
 import java.util.List;
+import java.util.Objects;
 
+/** Nhan vien tren tablet Windows/PC: xem phien ACTIVE va ban giao cho khach, KHONG POS. */
 public class StaffGUI extends JFrame {
-
-    private static final Color TABLE_FREE_COLOR = new Color(38, 77, 56);
-    private static final Color TABLE_BUSY_COLOR = Utils.TERRACOTTA;
-
-    private static final DecimalFormat MONEY_FMT = new DecimalFormat("#,### VNĐ");
-
-    private final StaffBUS posBUS;
-    private final UserDTO currentStaff;
-    private final Timer responseTimer;
+    private final StaffBUS bus;
     private final SocketClient sessionSocket;
-    private Long selectedTableId = null;
-    private String selectedTableName = "";
+    private final UserDTO staff;
+    private final Timer responseTimer;
+    private final JPanel tableGrid = new JPanel(new GridLayout(0, 3, 14, 14));
+    private final JLabel selectedLabel = new JLabel("Chua chon ban");
+    private final JButton handoffButton = new JButton("Ban giao thiet bi cho khach");
+    private Long selectedTableId;
+    private Long selectedSessionId;
+    private String selectedTableName;
+    private boolean handoffPending;
 
-    private JPanel tableGridPanel;
-    private DefaultTableModel billItemsModel;
-    private JLabel lblSelectedTableInfo;
-    private JLabel lblRootOrderCode;
-    private JLabel lblSubtotal;
-    private JLabel lblDiscount;
-    private JLabel lblTaxVAT;
-    private JLabel lblFinalTotal;
-    private JComboBox<PaymentMethod> cboPaymentMethod;
-    private CButton btnCheckout;
-
-    /** Truy cap POS phai di qua AuthGUI de giu phien dang nhap. */
-    public StaffGUI(UserDTO loggedInStaff, SocketClient sessionSocket) {
-        this.currentStaff = loggedInStaff;
-        this.sessionSocket = java.util.Objects.requireNonNull(sessionSocket);
-
+    public StaffGUI(UserDTO staff, SocketClient socket) {
+        this.staff = Objects.requireNonNull(staff);
+        sessionSocket = Objects.requireNonNull(socket);
+        bus = new StaffBUS(socket);
+        setTitle("An Nhien | Nhan vien phuc vu");
         setExtendedState(JFrame.MAXIMIZED_BOTH);
-        setUndecorated(true);
-        setSize(1360, 820);
-        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setSize(1200, 800);
         setLocationRelativeTo(null);
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLayout(new BorderLayout());
-
-        initBrandHeader();
-        initMainWorkspace();
-
-        posBUS = new StaffBUS(sessionSocket);
-        responseTimer = new Timer(100, e -> {
-            SocketPacket packet;
-            while ((packet = posBUS.pollPacket()) != null) onServerPacketReceived(packet);
+        buildUI();
+        responseTimer = new Timer(120, e -> {
+            SocketPacket p;
+            while ((p = bus.pollPacket()) != null) handlePacket(p);
         });
         responseTimer.start();
-        posBUS.requestAllTables();
+        bus.requestListTables();
     }
 
-    private void onServerPacketReceived(SocketPacket packet) {
-        SwingUtilities.invokeLater(() -> {
-            if (!packet.isSuccess()) {
-                clearInvoicePanel();
-                CToast.show(this, packet.getMessage(), "Thông báo Bếp Nhà", CToast.WARNING);
-                return;
-            }
+    private void buildUI() {
+        JPanel top = new JPanel(new BorderLayout(16, 8));
+        top.setBackground(Utils.FOREST_BG);
+        top.setBorder(new EmptyBorder(18, 24, 18, 24));
+        JLabel heading = new JLabel("AN NHIÊN  |  CHỌN BÀN PHỤC VỤ");
+        heading.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 22));
+        heading.setForeground(Color.WHITE);
+        top.add(heading, BorderLayout.WEST);
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 0));
+        actions.setOpaque(false);
+        JButton refresh = new JButton("Làm mới bàn");
+        refresh.addActionListener(e -> bus.requestListTables());
+        JButton logout = new JButton("Đăng xuất");
+        logout.addActionListener(e -> logout());
+        actions.add(refresh);
+        actions.add(logout);
+        top.add(actions, BorderLayout.EAST);
+        add(top, BorderLayout.NORTH);
 
-            switch (packet.getAction()) {
-                case OPEN_TABLE_SESSION:
-                    showTableToken(packet);
-                    posBUS.requestAllTables();
-                    break;
-                case CALL_STAFF:
-                    CToast.warning(this, packet.getMessage());
-                    break;
-                case GET_ALL_TABLES:
-                    renderTableMap(posBUS.getTableList());
-                    break;
-
-                case GET_TABLE_BILL_PREVIEW:
-                    renderMergedBillPreview(posBUS.getCurrentPreviewOrder());
-                    break;
-
-                case PAY_TABLE_BILL:
-                    renderTableMap(posBUS.getTableList());
-                    clearInvoicePanel();
-                    CToast.show(this, packet.getMessage(), "Thanh Toán Thành Công", CToast.SUCCESS);
-                    break;
-
-                default:
-                    break;
-            }
-        });
+        JPanel center = new JPanel(new BorderLayout(0, 16));
+        center.setBackground(Utils.CREAM_BG);
+        center.setBorder(new EmptyBorder(22, 28, 22, 28));
+        JLabel subtitle = new JLabel("Nhân viên: " + staff.getFullName()
+                + "   |   Bàn chưa mở phiên: yêu cầu thu ngân tại POS mở trước khi bàn giao");
+        subtitle.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 15));
+        center.add(subtitle, BorderLayout.NORTH);
+        tableGrid.setBackground(Color.WHITE);
+        tableGrid.setBorder(new EmptyBorder(16, 16, 16, 16));
+        JScrollPane scroll = new JScrollPane(tableGrid);
+        scroll.setVerticalScrollBar(new CScrollBar());
+        center.add(scroll, BorderLayout.CENTER);
+        JPanel bottom = new JPanel(new BorderLayout(18, 0));
+        bottom.setOpaque(false);
+        selectedLabel.setFont(Utils.getCustomFont("Inter", Font.BOLD, 15));
+        bottom.add(selectedLabel, BorderLayout.CENTER);
+        handoffButton.setEnabled(false);
+        handoffButton.addActionListener(e -> handoff());
+        bottom.add(handoffButton, BorderLayout.EAST);
+        center.add(bottom, BorderLayout.SOUTH);
+        add(center, BorderLayout.CENTER);
     }
 
-    private void initBrandHeader() {
-        JPanel header = new JPanel(new BorderLayout()) {
-            @Override
-            protected void paintComponent(Graphics g) {
-                super.paintComponent(g);
-                Graphics2D g2 = (Graphics2D) g;
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(Utils.FOREST_CIRCLE_1);
-                g2.fillOval(getWidth() / 2 - 150, -180, 380, 380);
-            }
-        };
-        header.setBackground(Utils.FOREST_BG);
-        header.setPreferredSize(new Dimension(getWidth(), 78));
-        header.setBorder(new EmptyBorder(14, 28, 14, 28));
-
-        JPanel leftBrand = new JPanel();
-        leftBrand.setLayout(new BoxLayout(leftBrand, BoxLayout.X_AXIS));
-        leftBrand.setOpaque(false);
-
-        JLabel lblIcon = new JLabel(Utils.getScaledIcon("img/logo.png", 40, 40));
-        lblIcon.setBorder(new EmptyBorder(0, 0, 0, 10));
-
-        JPanel titleCol = new JPanel();
-        titleCol.setLayout(new BoxLayout(titleCol, BoxLayout.Y_AXIS));
-        titleCol.setOpaque(false);
-
-        JLabel lblBrand = new JLabel("Nhà hàng An Nhiên  |  QUẦY THU NGÂN & QUẢN LÝ BÀN");
-        lblBrand.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 20));
-        lblBrand.setForeground(Color.WHITE);
-
-        String staffInfo = (currentStaff != null)
-                ? "Nhân viên trực ca: " + currentStaff.getFullName() + " (" + currentStaff.getEmail() + ")"
-                : "Hệ thống POS kết nối thời gian thực (TCP Socket)";
-        JLabel lblSub = new JLabel(staffInfo);
-        lblSub.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 12));
-        lblSub.setForeground(Utils.GOLD_ACCENT);
-
-        titleCol.add(lblBrand);
-        titleCol.add(Box.createVerticalStrut(2));
-        titleCol.add(lblSub);
-
-        leftBrand.add(lblIcon);
-        leftBrand.add(titleCol);
-
-        JPanel rightActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 4));
-        rightActions.setOpaque(false);
-
-        CButton btnRefresh = new CButton("Làm Mới Sơ Đồ Bàn", 190, 42);
-        btnRefresh.addActionListener(e -> posBUS.requestAllTables());
-
-        JButton btnLogout = new JButton("Đăng xuất");
-        btnLogout.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 13));
-        btnLogout.setForeground(Color.WHITE);
-        btnLogout.setBackground(new Color(52, 66, 58));
-        btnLogout.setFocusPainted(false);
-        btnLogout.setPreferredSize(new Dimension(115, 42));
-        btnLogout.setBorder(new LineBorder(new Color(80, 95, 86), 1, true));
-        btnLogout.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        btnLogout.addActionListener(e -> logout());
-
-        CButton btnOpenSession = new CButton("Mở / cấp mã bàn", 170, 42);
-        btnOpenSession.addActionListener(e -> {
-            if (selectedTableId == null) {
-                CToast.warning(this, "Hãy chọn bàn trên sơ đồ trước.");
-                return;
-            }
-            sessionSocket.sendRequest(new SocketPacket(
-                    SocketAction.OPEN_TABLE_SESSION, selectedTableId, null, null));
-        });
-        rightActions.add(btnOpenSession);
-        rightActions.add(btnRefresh);
-        rightActions.add(btnLogout);
-
-        header.add(leftBrand, BorderLayout.WEST);
-        header.add(rightActions, BorderLayout.EAST);
-        add(header, BorderLayout.NORTH);
-    }
-
-    private void initMainWorkspace() {
-        JPanel workspace = new JPanel(new GridLayout(1, 2, 22, 0));
-        workspace.setBackground(Utils.CREAM_BG);
-        workspace.setBorder(new EmptyBorder(22, 25, 25, 25));
-
-        JPanel leftCard = new JPanel(new BorderLayout(0, 15));
-        leftCard.setBackground(Color.WHITE);
-        leftCard.setBorder(BorderFactory.createCompoundBorder(
-                new LineBorder(new Color(228, 232, 228), 1, true),
-                new EmptyBorder(20, 20, 20, 20)
-        ));
-
-        JPanel leftHeader = new JPanel(new BorderLayout());
-        leftHeader.setOpaque(false);
-
-        JLabel lblMapTitle = new JLabel("Sơ Đồ Bàn Phục Vụ");
-        lblMapTitle.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 22));
-        lblMapTitle.setForeground(Utils.TEXT_DARK);
-
-        JLabel lblLegend = new JLabel("● Xanh rừng: Bàn trống   |   ● Cam đất: Đang dùng bữa");
-        lblLegend.setFont(Utils.getCustomFont("Inter", Font.BOLD, 12));
-        lblLegend.setForeground(Utils.GOLD_ACCENT);
-
-        leftHeader.add(lblMapTitle, BorderLayout.NORTH);
-        leftHeader.add(lblLegend, BorderLayout.SOUTH);
-
-        tableGridPanel = new JPanel(new GridLayout(0, 3, 16, 16));
-        tableGridPanel.setBackground(Color.WHITE);
-        tableGridPanel.setBorder(new EmptyBorder(10, 5, 10, 5));
-
-        JScrollPane tableScroll = new JScrollPane(tableGridPanel);
-        tableScroll.setVerticalScrollBar(new CScrollBar());
-        tableScroll.setBorder(null);
-
-        leftCard.add(leftHeader, BorderLayout.NORTH);
-        leftCard.add(tableScroll, BorderLayout.CENTER);
-
-        JPanel rightCard = new JPanel(new BorderLayout(0, 15));
-        rightCard.setBackground(Color.WHITE);
-        rightCard.setBorder(BorderFactory.createCompoundBorder(
-                new LineBorder(new Color(228, 232, 228), 1, true),
-                new EmptyBorder(20, 24, 20, 24)
-        ));
-
-        JPanel billHeader = new JPanel();
-        billHeader.setLayout(new BoxLayout(billHeader, BoxLayout.Y_AXIS));
-        billHeader.setOpaque(false);
-
-        lblSelectedTableInfo = new JLabel("Chưa chọn bàn cần thanh toán");
-        lblSelectedTableInfo.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 22));
-        lblSelectedTableInfo.setForeground(Utils.TEXT_DARK);
-
-        lblRootOrderCode = new JLabel("Mã đơn gốc (Root Order): ---");
-        lblRootOrderCode.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 13));
-        lblRootOrderCode.setForeground(Color.GRAY);
-
-        billHeader.add(lblSelectedTableInfo);
-        billHeader.add(Box.createVerticalStrut(4));
-        billHeader.add(lblRootOrderCode);
-
-        String[] cols = {"Lượt Gọi", "Tên Món Ăn", "Đơn Giá", "SL", "Thành Tiền", "Trạng Thái"};
-        billItemsModel = new DefaultTableModel(cols, 0) {
-            @Override
-            public boolean isCellEditable(int r, int c) {
-                return false;
-            }
-        };
-
-        JTable billTable = new JTable(billItemsModel);
-        billTable.setRowHeight(34);
-        billTable.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 13));
-        billTable.setShowVerticalLines(false);
-        billTable.setGridColor(new Color(240, 240, 240));
-
-        JTableHeader th = billTable.getTableHeader();
-        th.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 13));
-        th.setBackground(Utils.FOREST_BG);
-        th.setForeground(Color.WHITE);
-        th.setPreferredSize(new Dimension(th.getWidth(), 38));
-
-        JPanel summaryBox = new JPanel(new GridLayout(5, 2, 10, 10));
-        summaryBox.setBackground(Utils.CREAM_BG);
-        summaryBox.setBorder(new EmptyBorder(16, 18, 16, 18));
-
-        lblSubtotal = createValueLabel("0 VNĐ", Font.BOLD, 14, Utils.TEXT_DARK);
-        lblDiscount = createValueLabel("0 VNĐ", Font.BOLD, 14, new Color(46, 125, 50));
-        lblTaxVAT = createValueLabel("0 VNĐ", Font.BOLD, 14, Utils.TEXT_DARK);
-        lblFinalTotal = createValueLabel("0 VNĐ", Font.BOLD, 22, Utils.TERRACOTTA);
-
-        cboPaymentMethod = new JComboBox<>(PaymentMethod.values());
-        cboPaymentMethod.setFont(Utils.getCustomFont("Inter", Font.BOLD, 14));
-        cboPaymentMethod.setBackground(Color.WHITE);
-
-        summaryBox.add(createTitleLabel("Tổng tiền món (Đã gộp các lượt):"));
-        summaryBox.add(lblSubtotal);
-        summaryBox.add(createTitleLabel("Giảm giá (Voucher):"));
-        summaryBox.add(lblDiscount);
-        summaryBox.add(createTitleLabel("Thuế GTGT (VAT 8%):"));
-        summaryBox.add(lblTaxVAT);
-        summaryBox.add(createTitleLabel("Phương thức thanh toán:"));
-        summaryBox.add(cboPaymentMethod);
-        summaryBox.add(createTitleLabel("TỔNG THANH TOÁN (BILL):"));
-        summaryBox.add(lblFinalTotal);
-
-        btnCheckout = new CButton("Xuất Hóa Đơn & Giải Phóng Bàn", 500, 52);
-        btnCheckout.setEnabled(false);
-        btnCheckout.addActionListener(e -> handleConfirmPayment());
-
-        JPanel southPanel = new JPanel(new BorderLayout(0, 14));
-        southPanel.setOpaque(false);
-        southPanel.add(summaryBox, BorderLayout.CENTER);
-        southPanel.add(btnCheckout, BorderLayout.SOUTH);
-
-        rightCard.add(billHeader, BorderLayout.NORTH);
-        JScrollPane billScroll = new JScrollPane(billTable);
-        billScroll.setVerticalScrollBar(new CScrollBar());
-        billScroll.setBorder(BorderFactory.createEmptyBorder());
-        rightCard.add(billScroll, BorderLayout.CENTER);
-        rightCard.add(southPanel, BorderLayout.SOUTH);
-
-        workspace.add(leftCard);
-        workspace.add(rightCard);
-        add(workspace, BorderLayout.CENTER);
-    }
-
-    private JLabel createTitleLabel(String text) {
-        JLabel lbl = new JLabel(text);
-        lbl.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.PLAIN, 14));
-        lbl.setForeground(Utils.TEXT_DARK);
-        return lbl;
-    }
-
-    private JLabel createValueLabel(String text, int style, int size, Color color) {
-        JLabel lbl = new JLabel(text, SwingConstants.RIGHT);
-        lbl.setFont(Utils.getCustomFont("Be Vietnam Pro Black", style, size));
-        lbl.setForeground(color);
-        return lbl;
-    }
-
-    private void renderTableMap(List<TableDTO> tables) {
-        tableGridPanel.removeAll();
+    private void renderTables(List<TableDTO> tables) {
+        tableGrid.removeAll();
+        selectedTableId = null;
+        selectedSessionId = null;
+        handoffButton.setEnabled(false);
+        selectedLabel.setText("Chọn bàn đang có phiên ACTIVE");
         for (TableDTO t : tables) {
-            boolean isFree = Boolean.TRUE.equals(t.getStatus());
-
-            JButton btnTable = new JButton() {
-                @Override
-                protected void paintComponent(Graphics g) {
-                    Graphics2D g2 = (Graphics2D) g;
-                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    g2.setColor(isFree ? TABLE_FREE_COLOR : TABLE_BUSY_COLOR);
-                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), 20, 20);
-                    super.paintComponent(g);
-                }
-            };
-            btnTable.setText("<html><center><b>" + t.getTableName() + "</b><br/>"
-                    + "<span style='font-size:10px;color:#E0E0E0;'>Sức chứa: " + t.getCapacity() + " khách</span><br/><br/>"
-                    + (isFree ? "● BÀN TRỐNG" : "● ĐANG DÙNG BỮA") + "</center></html>");
-
-            btnTable.setPreferredSize(new Dimension(150, 125));
-            btnTable.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.PLAIN, 14));
-            btnTable.setForeground(Color.WHITE);
-            btnTable.setContentAreaFilled(false);
-            btnTable.setFocusPainted(false);
-            btnTable.setCursor(new Cursor(Cursor.HAND_CURSOR));
-
-            btnTable.addActionListener(e -> {
+            boolean active = t.getActiveSessionId() != null;
+            JButton button = new JButton("<html><center><b>" + t.getTableName() + "</b><br/>"
+                    + "Sức chứa: " + t.getCapacity() + "<br/>"
+                    + (active ? "● PHIÊN ĐANG MỞ" : "○ CHƯA MỞ PHIÊN") + "</center></html>");
+            button.setFont(Utils.getCustomFont("Inter", Font.BOLD, 14));
+            button.setPreferredSize(new Dimension(210, 125));
+            button.setBackground(active ? new Color(202, 227, 207) : new Color(244, 231, 224));
+            button.setFocusPainted(false);
+            button.addActionListener(e -> {
                 selectedTableId = t.getId();
+                selectedSessionId = t.getActiveSessionId();
                 selectedTableName = t.getTableName();
-                lblSelectedTableInfo.setText("Bàn đang chọn: " + selectedTableName + " (#" + selectedTableId + ")");
-                if (isFree) {
-                    clearInvoicePanel();
-                    CToast.show(this, selectedTableName + " hiện đang trống!");
-                } else {
-                    posBUS.requestTableBillPreview(selectedTableId);
-                }
+                selectedLabel.setText(t.getTableName() + (active
+                        ? " — phiên #" + selectedSessionId + " đang phục vụ"
+                        : " — chưa mở phiên: liên hệ POS"));
+                handoffButton.setEnabled(active && !handoffPending);
+                if (!active) CToast.info(this, "Yêu cầu thu ngân mở phiên tại máy POS trung tâm.");
             });
-
-            tableGridPanel.add(btnTable);
+            tableGrid.add(button);
         }
-        tableGridPanel.revalidate();
-        tableGridPanel.repaint();
+        tableGrid.revalidate();
+        tableGrid.repaint();
     }
 
-    private void renderMergedBillPreview(OrderDTO mergedOrder) {
-        billItemsModel.setRowCount(0);
-        if (mergedOrder == null) {
-            clearInvoicePanel();
+    private void handoff() {
+        if (handoffPending || selectedTableId == null || selectedSessionId == null) return;
+        int confirmed = JOptionPane.showConfirmDialog(this,
+                "Bàn giao thiết bị cho " + selectedTableName + "?\n"
+                        + "Quyền STAFF sẽ được thu hồi trên kết nối này.",
+                "Xác nhận bàn giao", JOptionPane.YES_NO_OPTION);
+        if (confirmed != JOptionPane.YES_OPTION) return;
+        handoffPending = true;
+        handoffButton.setEnabled(false);
+        if (!bus.enterCustomerMode(selectedTableId, selectedSessionId)) {
+            handoffPending = false;
+            handoffButton.setEnabled(true);
+            CToast.error(this, "Không gửi được yêu cầu bàn giao tới Server.");
+        }
+    }
+
+    private void handlePacket(SocketPacket p) {
+        if (!p.isSuccess()) {
+            if (p.getAction() == SocketAction.ENTER_CUSTOMER_MODE) {
+                handoffPending = false;
+                handoffButton.setEnabled(selectedSessionId != null);
+            }
+            CToast.warning(this, p.getMessage());
             return;
         }
-
-        lblRootOrderCode.setText("Mã đơn gốc: " + mergedOrder.getOrderCode()
-                + " (ID gốc: #" + mergedOrder.getId() + " — Đã gộp toàn bộ các lượt gọi thêm)");
-
-        for (OrderItemDTO item : mergedOrder.getItems()) {
-            String turnLabel = java.util.Objects.equals(item.getOrderId(), mergedOrder.getId())
-                    ? "Đơn gốc (#" + item.getOrderId() + ")"
-                    : "Gọi thêm (#" + item.getOrderId() + ")";
-
-            billItemsModel.addRow(new Object[]{
-                    turnLabel,
-                    item.getFoodsName(),
-                    MONEY_FMT.format(item.getUnitPrice()),
-                    item.getQuantity(),
-                    MONEY_FMT.format(item.getLineTotal()),
-                    item.getStatus().name()
-            });
+        switch (p.getAction()) {
+            case LIST_TABLES:
+                renderTables(bus.getTables());
+                break;
+            case ENTER_CUSTOMER_MODE:
+                if (!handoffPending || !(p.getData() instanceof Long)
+                        || !Objects.equals(p.getData(), selectedSessionId)
+                        || !Objects.equals(p.getTableId(), selectedTableId)) {
+                    CToast.error(this, "Phản hồi bàn giao không khớp phiên đã chọn.");
+                    return;
+                }
+                responseTimer.stop();
+                // Ket noi da ha quyen tu STAFF thanh CUSTOMER. KHONG logout tai day.
+                new CustomerGUI(selectedTableId, selectedSessionId, sessionSocket).setVisible(true);
+                dispose();
+                break;
+            case SESSION_CLOSED:
+            case ORDER_CREATED:
+                bus.requestListTables();
+                break;
+            case CALL_STAFF:
+            case ORDER_COMPLETED:
+                CToast.info(this, p.getMessage());
+                break;
+            default:
+                break;
         }
-
-        lblSubtotal.setText(MONEY_FMT.format(mergedOrder.getSubtotal()));
-        lblDiscount.setText("-" + MONEY_FMT.format(mergedOrder.getDiscountAmount()));
-        lblTaxVAT.setText("+" + MONEY_FMT.format(posBUS.calculateVAT()));
-        lblFinalTotal.setText(MONEY_FMT.format(posBUS.calculateFinalBillTotal()));
-        btnCheckout.setEnabled(mergedOrder.getTableSessionId() != null);
-        if (mergedOrder.getTableSessionId() == null) {
-            CToast.warning(this, "Server chưa trả tableSessionId. Chưa thể xác nhận thanh toán an toàn.");
-        }
-    }
-
-    private void clearInvoicePanel() {
-        billItemsModel.setRowCount(0);
-        lblRootOrderCode.setText("Mã đơn gốc (Root Order): ---");
-        lblSubtotal.setText("0 VNĐ");
-        lblDiscount.setText("0 VNĐ");
-        lblTaxVAT.setText("0 VNĐ");
-        lblFinalTotal.setText("0 VNĐ");
-        btnCheckout.setEnabled(false);
-    }
-
-    private void handleConfirmPayment() {
-        if (selectedTableId == null || posBUS.getCurrentPreviewOrder() == null) return;
-
-        PaymentMethod method = (PaymentMethod) cboPaymentMethod.getSelectedItem();
-        int confirm = JOptionPane.showConfirmDialog(
-                this,
-                "Xác nhận xuất hóa đơn thanh toán cho " + selectedTableName + "?\n"
-                        + "- Tổng thanh toán: " + lblFinalTotal.getText() + "\n"
-                        + "- Phương thức: " + method.name() + "\n\n"
-                        + "Sau khi xác nhận, tất cả các lượt gọi món sẽ chuyển sang COMPLETED và bàn sẽ mở trống.",
-                "Xác Nhận Thanh Toán - Bếp Nhà Restaurant",
-                JOptionPane.YES_NO_OPTION
-        );
-
-        if (confirm == JOptionPane.YES_OPTION) {
-            posBUS.confirmCheckout(selectedTableId, method);
-        }
-    }
-
-    private void showTableToken(SocketPacket packet) {
-        String token = String.valueOf(packet.getData());
-        JTextField field = new JTextField(token, 40);
-        field.setEditable(false);
-        field.selectAll();
-        JButton copy = new JButton("Sao chép mã phiên");
-        copy.addActionListener(e -> {
-            field.selectAll();
-            field.copy();
-            CToast.success(this, "Đã sao chép mã phiên bàn.");
-        });
-        JPanel content = new JPanel(new BorderLayout(8, 8));
-        content.add(new JLabel("Bàn #" + packet.getTableId() + " — NHÂN VIÊN nhập mã trên thiết bị dùng chung:"), BorderLayout.NORTH);
-        content.add(field, BorderLayout.CENTER);
-        content.add(copy, BorderLayout.SOUTH);
-        JDialog dlg = new JDialog(this, "Mã ghép thiết bị dành cho nhân viên", false);
-        dlg.setContentPane(content);
-        content.setBorder(new EmptyBorder(20, 20, 20, 20));
-        dlg.pack(); dlg.setLocationRelativeTo(this); dlg.setVisible(true);
     }
 
     private void logout() {
         responseTimer.stop();
-        posBUS.logout();
+        bus.logout();
         new AuthGUI().setVisible(true);
         dispose();
-    }
-
-    public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> {
-            try {
-                new AuthGUI().setVisible(true);
-            } catch (Throwable t) {
-                t.printStackTrace();
-            }
-        });
     }
 }

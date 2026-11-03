@@ -1,6 +1,6 @@
 package dto;
 
-/** Trạng thái hóa đơn, tương ứng bill.payment_status. */
+/** Map chính xác ENUM bill.payment_status trong MariaDB. */
 public enum PaymentStatus {
     UNPAID, PAID, CANCELLED
 }

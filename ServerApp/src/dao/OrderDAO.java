@@ -370,12 +370,13 @@ public class OrderDAO {
                     }
                 }
                 if (oldStatus == newStatus) { conn.commit(); return true; }
-                if (oldStatus == OrderStatus.CANCELLED || oldStatus == OrderStatus.SERVED ||
-                        (newStatus != OrderStatus.CANCELLED && newStatus.ordinal() <= oldStatus.ordinal()) ||
-                        (newStatus == OrderStatus.CANCELLED &&
-                                oldStatus != OrderStatus.PENDING && oldStatus != OrderStatus.RECEIVED)) {
-                    conn.rollback(); return false;
-                }
+                boolean permitted = (oldStatus == OrderStatus.PENDING && newStatus == OrderStatus.RECEIVED)
+                        || (oldStatus == OrderStatus.RECEIVED && newStatus == OrderStatus.COOKING)
+                        || (oldStatus == OrderStatus.COOKING && newStatus == OrderStatus.COMPLETED)
+                        || (oldStatus == OrderStatus.COMPLETED && newStatus == OrderStatus.SERVED)
+                        || ((oldStatus == OrderStatus.PENDING || oldStatus == OrderStatus.RECEIVED)
+                        && newStatus == OrderStatus.CANCELLED);
+                if (!permitted) { conn.rollback(); return false; }
 
                 if (newStatus == OrderStatus.CANCELLED) {
                     Map<Long, BigDecimal> ingredients = new HashMap<>();
@@ -401,6 +402,33 @@ public class OrderDAO {
         } catch (SQLException e) {
             throw new IllegalStateException("Lỗi cập nhật trạng thái món", e);
         }
+    }
+
+    public Long getOrderIdByItem(long itemId) {
+        try (Connection c = dbConnection.getConnection();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT order_id FROM order_items WHERE id = ?")) {
+            ps.setLong(1, itemId);
+            try (ResultSet rs = ps.executeQuery()) { return rs.next() ? rs.getLong(1) : null; }
+        } catch (SQLException e) { throw new IllegalStateException("Loi tim don cua mon", e); }
+    }
+
+    /** Goi sau khi cap nhat mon; chi dung khi tat ca mon da che bien xong. */
+    public OrderDTO completedOrderIfReady(long itemId) {
+        Long orderId = getOrderIdByItem(itemId);
+        if (orderId == null) return null;
+        String q = "SELECT o.id FROM orders o JOIN table_sessions s ON s.id = o.table_session_id " +
+                "WHERE o.id = ? AND s.status = 'ACTIVE' AND " +
+                "EXISTS (SELECT 1 FROM order_items i WHERE i.order_id = o.id AND i.status <> 'CANCELLED') " +
+                "AND NOT EXISTS (SELECT 1 FROM order_items i WHERE i.order_id = o.id " +
+                "AND i.status NOT IN ('COMPLETED','SERVED','CANCELLED'))";
+        try (Connection c = dbConnection.getConnection(); PreparedStatement ps = c.prepareStatement(q)) {
+            ps.setLong(1, orderId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return null;
+            }
+        } catch (SQLException e) { throw new IllegalStateException("Khong kiem tra duoc don hoan tat", e); }
+        return getOrderById(orderId);
     }
 
     private void recalculateOrderAmounts(Connection conn, Long orderId) throws SQLException {

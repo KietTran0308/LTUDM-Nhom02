@@ -9,6 +9,7 @@ public class TableDTO implements Serializable {
     private String tableName;
     private Integer capacity;
     private Boolean status; // TRUE: Bàn trống/Sẵn sàng, FALSE: Đang có khách
+    private Long activeSessionId; // Null neu POS chua mo phien ACTIVE
 
     public TableDTO() {}
 
@@ -30,6 +31,9 @@ public class TableDTO implements Serializable {
 
     public Boolean getStatus() { return status; }
     public void setStatus(Boolean status) { this.status = status; }
+
+    public Long getActiveSessionId() { return activeSessionId; }
+    public void setActiveSessionId(Long id) { this.activeSessionId = id; }
 
     @Override
     public String toString() {
