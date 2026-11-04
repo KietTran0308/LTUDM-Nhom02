@@ -191,6 +191,7 @@ public class ClientTabletBUS {
             String slug = food.getSlug().trim();
             BufferedImage socketImg = ImageSocketClient.fetchImage(slug + ".png");
             if (socketImg == null) socketImg = ImageSocketClient.fetchImage(slug + ".jpg");
+            if (socketImg == null) socketImg = ImageSocketClient.fetchImage(slug + ".jpeg");
             if (socketImg != null) return socketImg;
         }
         // 2. Fallback qua ImageLoader
