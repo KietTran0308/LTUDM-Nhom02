@@ -361,6 +361,7 @@ public class SocketJsonMapper {
                 obj.put("id", t.getId());
                 obj.put("tableName", t.getTableName());
                 obj.put("capacity", t.getCapacity());
+                obj.put("floorNumber", t.getFloorNumber());
                 obj.put("status", t.getStatus());
                 if (t.getActiveSessionId() != null) obj.put("activeSessionId", t.getActiveSessionId());
                 arr.put(obj);

@@ -106,8 +106,11 @@ public class ClientHandler implements Runnable {
             switch (req.getAction()) {
                 case LIST_TABLES: {
                     requireRole("STAFF");
+                    List<TableDTO> tables = TableDAO.getAllTables();
+                    System.out.println("[Server] LIST_TABLES: trả " + tables.size()
+                            + " bàn cho nhân viên #" + authenticatedUser.getId());
                     sendPacket(ok(SocketAction.LIST_TABLES, "Danh sach ban va phien dang hoat dong",
-                            TableDAO.getAllTables(), null));
+                            tables, null));
                     break;
                 }
                 case ENTER_CUSTOMER_MODE: {

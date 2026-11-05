@@ -194,7 +194,7 @@ public class SocketJsonMapper {
                     if (root.has("data") && !root.isNull("data")) {
                         JSONArray queue = root.getJSONArray("data");
                         List<OrderDTO> orders = new ArrayList<>();
-                        for (int i=0;i<queue.length();i++) orders.add(jsonToOrder(queue.getJSONObject(i)));
+                        for (int i = 0; i < queue.length(); i++) orders.add(jsonToOrder(queue.getJSONObject(i)));
                         data = orders;
                     }
                     break;
@@ -293,7 +293,8 @@ public class SocketJsonMapper {
         o.setOrderCode(obj.optString("orderCode", ""));
         if (obj.has("parentOrderId") && !obj.isNull("parentOrderId")) o.setParentOrderId(obj.getLong("parentOrderId"));
         if (obj.has("tableId") && !obj.isNull("tableId")) o.setTableId(obj.getLong("tableId"));
-        if (obj.has("tableSessionId") && !obj.isNull("tableSessionId")) o.setTableSessionId(obj.getLong("tableSessionId"));
+        if (obj.has("tableSessionId") && !obj.isNull("tableSessionId"))
+            o.setTableSessionId(obj.getLong("tableSessionId"));
         o.setSubtotal(obj.optBigDecimal("subtotal", BigDecimal.ZERO));
         o.setDiscountAmount(obj.optBigDecimal("discountAmount", BigDecimal.ZERO));
         o.setTotalAmount(obj.optBigDecimal("totalAmount", BigDecimal.ZERO));
@@ -363,6 +364,7 @@ public class SocketJsonMapper {
             JSONObject obj = arr.getJSONObject(i);
             TableDTO t = new TableDTO(obj.getLong("id"), obj.optString("tableName", ""),
                     obj.optInt("capacity", 4), obj.optBoolean("status", true));
+            t.setFloorNumber(obj.optInt("floorNumber", 1));
             if (obj.has("activeSessionId") && !obj.isNull("activeSessionId"))
                 t.setActiveSessionId(obj.getLong("activeSessionId"));
             list.add(t);
@@ -379,6 +381,7 @@ public class SocketJsonMapper {
         if (b.getPaymentMethod() != null) obj.put("paymentMethod", b.getPaymentMethod().name());
         return obj;
     }
+
     private static JSONObject foodToJson(FoodDTO f) {
         JSONObject obj = new JSONObject();
         if (f.getId() != null) obj.put("id", f.getId());
