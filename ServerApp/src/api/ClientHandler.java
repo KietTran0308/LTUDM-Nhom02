@@ -21,6 +21,9 @@ public class ClientHandler implements Runnable {
     private final AuthBUS authBUS = new AuthBUS();
     private UserDTO authenticatedUser;
     private boolean customerMode;
+    // LOGIN trên máy POS/Admin; khác với LOGIN_STAFF trên iPad phục vụ.
+    // Đây là ranh giới giao thức, không thay thế việc cấp phép thiết bị ở mạng thật.
+    private boolean workstationLogin;
     private Long pairedSessionId;
     private int failedPairAttempts;
     private final OrderDAO orderDAO = new OrderDAO();
@@ -41,8 +44,29 @@ public class ClientHandler implements Runnable {
         if (!hasRole(roles)) throw new SecurityException("Không có quyền thực hiện thao tác này");
     }
 
-    // Khong co quyen POS nao duoc cap qua Socket. POSGUI goi PosBUS cuc bo
-    // tai ServerApp sau khi nhan vien dang nhap; khong can packet mo ban/thu ngan.
+    /** POS socket chỉ dành cho STAFF/ADMIN đã xác thực trên chính kết nối này. */
+    private void checkFood(FoodDTO f, boolean update) {
+        if (f == null || (update && (f.getId() == null || f.getId() <= 0))
+                || (!update && (f.getSku() == null || f.getSku().isBlank()))
+                || f.getName() == null || f.getName().isBlank()
+                || f.getPrice() == null || f.getPrice().signum() < 0
+                || f.getCategoryId() == null || f.getCategoryId() <= 0)
+            throw new IllegalArgumentException("Thông tin món ăn không hợp lệ");
+    }
+
+    private void requireWorkstationRole(String... roles) {
+        requireRole(roles);
+        if (!workstationLogin || customerMode)
+            throw new SecurityException("Hãy đăng nhập từ ứng dụng POS/Admin, không phải iPad phục vụ");
+        // Tùy chọn tăng cường: ví dụ WORKSTATION_ALLOWED_IPS=192.168.1.10,192.168.1.11
+        String ips = System.getenv("WORKSTATION_ALLOWED_IPS");
+        if (ips != null && !ips.isBlank()) {
+            String remote = socket.getInetAddress().getHostAddress();
+            boolean allowed = java.util.Arrays.stream(ips.split(","))
+                    .map(String::trim).anyMatch(remote::equals);
+            if (!allowed) throw new SecurityException("Thiết bị này chưa được cấp phép POS/Admin");
+        }
+    }
 
     private void requireCurrentTable(Long requestedTableId) throws Exception {
         if (!customerMode || pairedSessionId == null || currentTableId == null ||
@@ -100,6 +124,7 @@ public class ClientHandler implements Runnable {
                     SocketServer.removeConnection(this);
                     authenticatedUser = null;
                     customerMode = true;
+                    workstationLogin = false;
                     currentTableId = tid;
                     pairedSessionId = sid;
                     SocketServer.registerSession(sid, this);
@@ -204,13 +229,106 @@ public class ClientHandler implements Runnable {
                     break;
                 }
 
-                // Khong chap nhan nghiep vu thu ngan tu bat ky Client Socket nao.
-                case OPEN_TABLE_SESSION:
-                case GET_ALL_TABLES:
-                case GET_TABLE_BILL_PREVIEW:
-                case PAY_TABLE_BILL:
-                case MARK_ITEM_SERVED:
-                    throw new SecurityException("Nghiep vu thu ngan chi duoc thuc hien trong ServerApp/POSGUI");
+                case GET_ALL_TABLES: {
+                    requireWorkstationRole("STAFF", "ADMIN");
+
+                    PosBUS pos = new PosBUS(authenticatedUser);
+
+                    sendPacket(ok(
+                            SocketAction.GET_ALL_TABLES,
+                            "Đã tải danh sách bàn",
+                            pos.listTables(),
+                            null));
+                    break;
+                }
+
+                case OPEN_TABLE_SESSION: {
+                    requireWorkstationRole("STAFF", "ADMIN");
+
+                    Long tableId = req.getTableId();
+                    if (tableId == null || tableId <= 0) {
+                        throw new IllegalArgumentException(
+                                "Mã bàn không hợp lệ");
+                    }
+
+                    PosBUS pos = new PosBUS(authenticatedUser);
+                    long sessionId = pos.openTable(tableId);
+
+                    sendPacket(ok(
+                            SocketAction.OPEN_TABLE_SESSION,
+                            "Đã mở phiên bàn",
+                            sessionId,
+                            null));
+                    break;
+                }
+
+                case GET_TABLE_BILL_PREVIEW: {
+                    requireWorkstationRole("STAFF", "ADMIN");
+
+                    Long tableId = req.getTableId();
+                    if (tableId == null || tableId <= 0) {
+                        throw new IllegalArgumentException(
+                                "Mã bàn không hợp lệ");
+                    }
+
+                    PosBUS pos = new PosBUS(authenticatedUser);
+
+                    sendPacket(ok(
+                            SocketAction.GET_TABLE_BILL_PREVIEW,
+                            "Đã tải hóa đơn tạm tính",
+                            pos.preview(tableId),
+                            null));
+                    break;
+                }
+
+                case MARK_ITEM_SERVED: {
+                    requireWorkstationRole("STAFF", "ADMIN");
+
+                    Long itemId = (Long) req.getData();
+                    if (itemId == null || itemId <= 0) {
+                        throw new IllegalArgumentException(
+                                "Mã chi tiết món không hợp lệ");
+                    }
+
+                    PosBUS pos = new PosBUS(authenticatedUser);
+                    pos.markServed(itemId);
+
+                    sendPacket(ok(
+                            SocketAction.MARK_ITEM_SERVED,
+                            "Đã xác nhận phục vụ món",
+                            itemId,
+                            OrderStatus.SERVED));
+                    break;
+                }
+
+                case PAY_TABLE_BILL: {
+                    requireWorkstationRole("STAFF", "ADMIN");
+
+                    Long tableId = req.getTableId();
+                    BillDTO bill = (BillDTO) req.getData();
+
+                    if (tableId == null || tableId <= 0 ||
+                            bill == null ||
+                            bill.getTableSessionId() == null ||
+                            bill.getPaymentMethod() == null) {
+                        throw new IllegalArgumentException(
+                                "Thông tin thanh toán không hợp lệ");
+                    }
+
+                    PosBUS pos = new PosBUS(authenticatedUser);
+
+                    pos.pay(
+                            tableId,
+                            bill.getTableSessionId(),
+                            bill.getPaymentMethod());
+
+                    sendPacket(ok(
+                            SocketAction.PAY_TABLE_BILL,
+                            "Thanh toán và đóng phiên thành công",
+                            null,
+                            null));
+                    break;
+                }
 
                 case GET_KITCHEN_QUEUE: {
                     requireRole("KITCHEN");
@@ -245,12 +363,88 @@ public class ClientHandler implements Runnable {
                     break;
                 }
 
+                case ADMIN_GET_FOODS: {
+                    requireWorkstationRole("ADMIN");
+                    sendPacket(ok(req.getAction(), "Danh sách món", new AdminBUS().getAllFoods(), null));
+                    break;
+                }
+                case ADMIN_GET_CATEGORIES: {
+                    requireWorkstationRole("ADMIN");
+                    sendPacket(ok(req.getAction(), "Danh mục", new AdminBUS().getAllCategories(), null));
+                    break;
+                }
+                case ADMIN_ADD_FOOD: {
+                    requireWorkstationRole("ADMIN");
+                    FoodDTO f = (FoodDTO) req.getData();
+                    checkFood(f, false);
+                    if (!new AdminBUS().addNewFood(f.getSku(), f.getCategoryId(), f.getName(),
+                            f.getPrice(), f.getCoverImageUrl(), Boolean.TRUE.equals(f.getIsPublished())))
+                        throw new IllegalStateException("Không thêm được món (SKU có thể đã tồn tại)");
+                    sendPacket(ok(req.getAction(), "Đã thêm món", null, null));
+                    break;
+                }
+                case ADMIN_UPDATE_FOOD: {
+                    requireWorkstationRole("ADMIN");
+                    FoodDTO f = (FoodDTO) req.getData();
+                    checkFood(f, true);
+                    if (!new AdminBUS().updateFood(f.getId(), f.getName(), f.getPrice(),
+                            f.getCategoryId(), Boolean.TRUE.equals(f.getIsPublished())))
+                        throw new IllegalStateException("Không cập nhật được món");
+                    sendPacket(ok(req.getAction(), "Đã cập nhật món", null, null));
+                    break;
+                }
+                case ADMIN_DELETE_FOOD: {
+                    requireWorkstationRole("ADMIN");
+                    Long id = (Long) req.getData();
+                    if (id == null || id <= 0) throw new IllegalArgumentException("ID món không hợp lệ");
+                    if (!new AdminBUS().deleteFood(id)) throw new IllegalStateException("Không ẩn được món");
+                    sendPacket(ok(req.getAction(), "Đã ẩn món", null, null));
+                    break;
+                }
+                case ADMIN_GET_INGREDIENTS: {
+                    requireWorkstationRole("ADMIN");
+                    sendPacket(ok(req.getAction(), "Danh sách nguyên liệu",
+                            new AdminBUS().getAllIngredients(), null));
+                    break;
+                }
+                case ADMIN_ADD_INGREDIENT: {
+                    requireWorkstationRole("ADMIN");
+                    IngredientDTO i = (IngredientDTO) req.getData();
+                    if (i == null || i.getName() == null || i.getName().isBlank()
+                            || i.getUnit() == null || i.getUnit().isBlank()
+                            || i.getStockQuantity() == null || i.getMinStockLevel() == null
+                            || i.getStockQuantity().signum() < 0 || i.getMinStockLevel().signum() < 0)
+                        throw new IllegalArgumentException("Thông tin nguyên liệu không hợp lệ");
+                    if (!new AdminBUS().addIngredient(i.getName(), i.getUnit(),
+                            i.getStockQuantity(), i.getMinStockLevel()))
+                        throw new IllegalStateException("Không thêm được nguyên liệu");
+                    sendPacket(ok(req.getAction(), "Đã thêm nguyên liệu", null, null));
+                    break;
+                }
+                case ADMIN_RESTOCK_INGREDIENT: {
+                    requireWorkstationRole("ADMIN");
+                    IngredientDTO i = (IngredientDTO) req.getData();
+                    if (i == null || i.getId() == null || i.getId() <= 0 || i.getStockQuantity() == null
+                            || i.getStockQuantity().signum() <= 0)
+                        throw new IllegalArgumentException("Số lượng nhập kho không hợp lệ");
+                    if (!new AdminBUS().restockIngredient(i.getId(), i.getStockQuantity()))
+                        throw new IllegalStateException("Không thể nhập kho");
+                    sendPacket(ok(req.getAction(), "Đã nhập kho", null, null));
+                    break;
+                }
+                case ADMIN_GET_BILLS: {
+                    requireWorkstationRole("ADMIN");
+                    sendPacket(ok(req.getAction(), "Danh sách hóa đơn", new AdminBUS().getAllBills(), null));
+                    break;
+                }
+
                 case LOGOUT: {
                     SocketServer.removeConnection(this);
                     authenticatedUser = null;
                     currentTableId = null;
                     pairedSessionId = null;
                     customerMode = false;
+                    workstationLogin = false;
                     failedPairAttempts = 0;
                     sendPacket(new SocketPacket(SocketAction.LOGOUT, true, "Đã đăng xuất", null, null));
                     break;
@@ -325,6 +519,7 @@ public class ClientHandler implements Runnable {
                     }
                     SocketServer.removeConnection(this);
                     authenticatedUser = loggedUser;
+                    workstationLogin = req.getAction() == SocketAction.LOGIN;
                     customerMode = false;
                     currentTableId = null;
                     pairedSessionId = null;
@@ -377,6 +572,7 @@ public class ClientHandler implements Runnable {
             if (in != null) in.close();
             if (out != null) out.close();
             if (socket != null && !socket.isClosed()) socket.close();
-        } catch (IOException ignored) {}
+        } catch (IOException ignored) {
+        }
     }
 }

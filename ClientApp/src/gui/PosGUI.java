@@ -1,7 +1,8 @@
 package gui;
 
-import bus.AuthBUS;
 import bus.PosBUS;
+import bus.AuthBUS;
+import api.SocketClient;
 import components.CButton;
 import components.CScrollBar;
 import components.CToast;
@@ -25,10 +26,10 @@ import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 
 /**
- * POS cua may trung tam ServerApp.
+ * POS trên ClientApp: mọi nghiệp vụ chạy qua TCP Socket tới ServerApp.
  * Giao dien ke thua bo cuc StaffGUI cu: header xanh rung, luoi ban 3 cot,
  * hoa don chi tiet, bang tong tien/ VAT/ thanh toan. Nghiep vu do PosBUS xu ly.
- * Khong co SocketClient va khong cho ClientApp tu nhan quyen POS.
+ * Không truy cập DB hoặc BUS của server trực tiếp.
  */
 public final class PosGUI extends JFrame {
     private static final Color FREE_COLOR = new Color(38, 77, 56);
@@ -39,7 +40,10 @@ public final class PosGUI extends JFrame {
     private final JPanel tableGridPanel = new JPanel(new GridLayout(0, 3, 16, 16));
     private final DefaultTableModel billItemsModel = new DefaultTableModel(
             new String[]{"Lượt gọi", "Tên món ăn", "Đơn giá", "SL", "Thành tiền", "Trạng thái"}, 0) {
-        @Override public boolean isCellEditable(int row, int column) { return false; }
+        @Override
+        public boolean isCellEditable(int row, int column) {
+            return false;
+        }
     };
     private final JTable billTable = new JTable(billItemsModel);
     private final JLabel lblSelectedTableInfo = new JLabel("Chưa chọn bàn cần thanh toán");
@@ -62,7 +66,9 @@ public final class PosGUI extends JFrame {
     private boolean refreshing;
     private final Timer refreshTimer;
 
-    /** POS phai dang nhap tai ServerApp; khong dung tai khoan CASHIER chung. */
+    /**
+     * Mỗi máy POS đăng nhập bằng tài khoản STAFF/ADMIN cá nhân qua TCP.
+     */
     public static void showPosLogin() {
         JDialog dialog = new JDialog((Frame) null, "Đăng nhập POS — An Nhiên", true);
         JPanel content = new JPanel(new BorderLayout(12, 12));
@@ -74,7 +80,7 @@ public final class PosGUI extends JFrame {
         form.add(username);
         form.add(new JLabel("Mật khẩu:"));
         form.add(password);
-        JLabel feedback = new JLabel("Sử dụng tài khoản STAFF cá nhân tại máy Server.");
+        JLabel feedback = new JLabel("Dùng tài khoản STAFF/ADMIN cá nhân, kết nối TCP tới Server.");
         feedback.setForeground(new Color(135, 72, 42));
         JButton submit = new JButton("Đăng nhập POS");
         JButton cancel = new JButton("Hủy");
@@ -95,25 +101,38 @@ public final class PosGUI extends JFrame {
             password.setText("");
             submit.setEnabled(false);
             feedback.setText("Đang xác thực trên Server...");
-            new SwingWorker<UserDTO, Void>() {
-                @Override protected UserDTO doInBackground() throws Exception {
-                    UserDTO user = new AuthBUS().login(account, secret);
-                    if (user == null || user.getRoleName() == null ||
-                            !("STAFF".equalsIgnoreCase(user.getRoleName())
-                                    || "ADMIN".equalsIgnoreCase(user.getRoleName()))) {
-                        throw new SecurityException("Tài khoản không có quyền truy cập POS.");
-                    }
-                    return user;
-                }
-                @Override protected void done() {
-                    submit.setEnabled(true);
-                    if (!dialog.isDisplayable()) return;
+            new SwingWorker<PosBUS, Void>() {
+                @Override
+                protected PosBUS doInBackground() {
+                    SocketClient connection = new SocketClient();
                     try {
-                        UserDTO user = get();
+                        UserDTO user = AuthBUS.loginWorkstation(connection, account, secret);
+                        if (user.getRoleName() == null ||
+                                !("STAFF".equalsIgnoreCase(user.getRoleName())
+                                        || "ADMIN".equalsIgnoreCase(user.getRoleName())))
+                            throw new SecurityException("Tài khoản không có quyền thu ngân");
+                        return new PosBUS(user, connection);
+                    } catch (RuntimeException ex) {
+                        connection.close();
+                        throw ex;
+                    }
+                }
+
+                @Override
+                protected void done() {
+                    submit.setEnabled(true);
+                    try {
+                        PosBUS pos = get();
+                        if (!dialog.isDisplayable()) {
+                            pos.close();
+                            return;
+                        }
                         dialog.dispose();
-                        new PosGUI(new PosBUS(user)).setVisible(true);
+                        new PosGUI(pos).setVisible(true);
                     } catch (Exception ex) {
-                        feedback.setText("Sai tài khoản/mật khẩu hoặc không được phép vào POS.");
+                        Throwable cause = ex instanceof ExecutionException ? ex.getCause() : ex;
+                        feedback.setText(cause == null ? "Không đăng nhập được POS"
+                                : "Lỗi: " + cause.getMessage());
                     }
                 }
             }.execute();
@@ -137,7 +156,7 @@ public final class PosGUI extends JFrame {
         setSize(1360, 820);
         setMinimumSize(new Dimension(1040, 680));
         setLocationRelativeTo(null);
-        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE); // Khong tat ServerApp
+        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE); // Không tắt ServerApp
         setLayout(new BorderLayout());
 
         initBrandHeader();
@@ -148,15 +167,26 @@ public final class PosGUI extends JFrame {
         refreshTimer = new Timer(6000, e -> refreshTables(false));
         refreshTimer.start();
         addWindowListener(new WindowAdapter() {
-            @Override public void windowOpened(WindowEvent e) { refreshTables(true); }
-            @Override public void windowClosed(WindowEvent e) { refreshTimer.stop(); }
+            @Override
+            public void windowOpened(WindowEvent e) {
+                refreshTables(true);
+            }
+
+            @Override
+            public void windowClosed(WindowEvent e) {
+                refreshTimer.stop();
+                pos.close();
+            }
         });
     }
 
-    /** Phan header lay tu StaffGUI cu, duoc doi ten cho POS. */
+    /**
+     * Phan header lay tu StaffGUI cu, duoc doi ten cho POS.
+     */
     private void initBrandHeader() {
         JPanel header = new JPanel(new BorderLayout()) {
-            @Override protected void paintComponent(Graphics g) {
+            @Override
+            protected void paintComponent(Graphics g) {
                 super.paintComponent(g);
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -212,7 +242,9 @@ public final class PosGUI extends JFrame {
         add(header, BorderLayout.NORTH);
     }
 
-    /** Phan trung tam (so do ban, hoa don, tong tien) lay tu StaffGUI cu. */
+    /**
+     * Phan trung tam (so do ban, hoa don, tong tien) lay tu StaffGUI cu.
+     */
     private void initMainWorkspace() {
         JPanel workspace = new JPanel(new GridLayout(1, 2, 22, 0));
         workspace.setBackground(Utils.CREAM_BG);
@@ -361,7 +393,8 @@ public final class PosGUI extends JFrame {
             boolean active = table.getActiveSessionId() != null;
             boolean isSelected = selectedTable != null && Objects.equals(selectedTable.getId(), table.getId());
             JButton tile = new JButton() {
-                @Override protected void paintComponent(Graphics g) {
+                @Override
+                protected void paintComponent(Graphics g) {
                     Graphics2D g2 = (Graphics2D) g.create();
                     g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                     g2.setColor(active ? BUSY_COLOR : FREE_COLOR);
@@ -451,9 +484,13 @@ public final class PosGUI extends JFrame {
     }
 
     @FunctionalInterface
-    private interface ResultHandler<T> { void accept(T value); }
+    private interface ResultHandler<T> {
+        void accept(T value);
+    }
 
-    /** Truy van CSDL tren SwingWorker, khong khoa Swing EDT. */
+    /**
+     * Truy van CSDL tren SwingWorker, khong khoa Swing EDT.
+     */
     private <T> void execute(String description, java.util.concurrent.Callable<T> task,
                              ResultHandler<T> onSuccess) {
         if (busy || !isDisplayable()) return;
@@ -461,8 +498,13 @@ public final class PosGUI extends JFrame {
         lblStatus.setText(description + "...");
         updateButtons();
         new SwingWorker<T, Void>() {
-            @Override protected T doInBackground() throws Exception { return task.call(); }
-            @Override protected void done() {
+            @Override
+            protected T doInBackground() throws Exception {
+                return task.call();
+            }
+
+            @Override
+            protected void done() {
                 busy = false;
                 if (!isDisplayable()) return;
                 try {
@@ -491,8 +533,13 @@ public final class PosGUI extends JFrame {
         Long selectedId = selectedTable == null ? null : selectedTable.getId();
         Long previousSession = selectedTable == null ? null : selectedTable.getActiveSessionId();
         new SwingWorker<List<TableDTO>, Void>() {
-            @Override protected List<TableDTO> doInBackground() { return pos.listTables(); }
-            @Override protected void done() {
+            @Override
+            protected List<TableDTO> doInBackground() {
+                return pos.listTables();
+            }
+
+            @Override
+            protected void done() {
                 refreshing = false;
                 if (!isDisplayable()) return;
                 try {
@@ -563,7 +610,10 @@ public final class PosGUI extends JFrame {
         OrderItemDTO item = shownItems.get(index);
         if (item.getId() == null || item.getStatus() != OrderStatus.COMPLETED) return;
         TableDTO snapshot = selectedTable;
-        execute("Xác nhận đã phục vụ món", () -> { pos.markServed(item.getId()); return true; }, ignored -> {
+        execute("Xác nhận đã phục vụ món", () -> {
+            pos.markServed(item.getId());
+            return true;
+        }, ignored -> {
             CToast.success(this, "Đã chuyển món sang SERVED.");
             if (snapshot != null && selectedTable != null &&
                     Objects.equals(snapshot.getId(), selectedTable.getId())) loadPreview();
@@ -596,4 +646,8 @@ public final class PosGUI extends JFrame {
             refreshTables(false);
         });
     }
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(PosGUI::showPosLogin);
+    }
+
 }

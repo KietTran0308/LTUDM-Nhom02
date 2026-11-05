@@ -11,10 +11,6 @@ import java.math.RoundingMode;
 import java.sql.SQLException;
 import java.util.List;
 
-/**
- * Nghiep vu POS chi ton tai ben ServerApp. Khong co SocketAction nao cap
- * quyen POS cho Client. Moi thao tac can mot nhan vien da dang nhap cuc bo.
- */
 public final class PosBUS {
     private final UserDTO operator;
     private final OrderDAO orderDAO = new OrderDAO();
@@ -24,7 +20,7 @@ public final class PosBUS {
         if (operator == null || operator.getId() == null || operator.getRoleName() == null
                 || !("STAFF".equalsIgnoreCase(operator.getRoleName())
                 || "ADMIN".equalsIgnoreCase(operator.getRoleName()))) {
-            throw new SecurityException("POS chi cho tai khoan STAFF/ADMIN da xac thuc tai may Server.");
+            throw new SecurityException("POS chỉ dành cho STAFF/ADMIN đã xác thực qua Server.");
         }
         this.operator = operator;
     }
