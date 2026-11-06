@@ -13,7 +13,7 @@ public class TableDAO {
     public static List<TableDTO> getAllTables() {
         List<TableDTO> list = new ArrayList<>();
         String sql = "SELECT t.id, t.table_name, t.capacity, t.status, t.floor_number, " +
-                "s.id AS active_session_id FROM restaurant_tables t " +
+                "s.id AS active_session_id FROM tables t " +
                 "LEFT JOIN table_sessions s ON s.table_id = t.id AND s.status = 'ACTIVE' " +
                 "ORDER BY t.floor_number ASC, t.id ASC";
 
@@ -50,7 +50,7 @@ public class TableDAO {
             try {
                 // Khoa ban de hai POS khong cung tao hai phien ACTIVE.
                 try (PreparedStatement ps = conn.prepareStatement(
-                        "SELECT id FROM restaurant_tables WHERE id = ? FOR UPDATE")) {
+                        "SELECT id FROM tables WHERE id = ? FOR UPDATE")) {
                     ps.setLong(1, tableId);
                     try (ResultSet rs = ps.executeQuery()) {
                         if (!rs.next()) throw new SQLException("Ban khong ton tai");
@@ -81,7 +81,7 @@ public class TableDAO {
                     }
                 }
                 try (PreparedStatement ps = conn.prepareStatement(
-                        "UPDATE restaurant_tables SET status = 0 WHERE id = ?")) {
+                        "UPDATE tables SET status = 0 WHERE id = ?")) {
                     ps.setLong(1, tableId);
                     ps.executeUpdate();
                 }
