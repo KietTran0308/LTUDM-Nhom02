@@ -94,10 +94,10 @@ public class AuthGUI extends JFrame {
         logoPanel.setLayout(new BoxLayout(logoPanel, BoxLayout.X_AXIS));
         logoPanel.setOpaque(false);
 
-        JLabel lblIcon = new JLabel(Utils.getScaledIcon("img/logo.png", 50, 50));
+        JLabel lblIcon = new JLabel(Utils.getScaledIcon("img/things/logo.png", 50, 50));
         lblIcon.setBorder(new EmptyBorder(0, 0, 0, 10));
 
-        JLabel lblIcon2 = new JLabel(Utils.getScaledIcon("img/logo2.png", 50, 50));
+        JLabel lblIcon2 = new JLabel(Utils.getScaledIcon("img/things/logo2.png", 50, 50));
         lblIcon2.setBorder(new EmptyBorder(0, 0, 0, 10));
 
         JPanel logoTextPanel = new JPanel();

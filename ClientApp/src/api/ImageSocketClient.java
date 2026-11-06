@@ -7,6 +7,7 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 
 public class ImageSocketClient {
+
     private static final String HOST = System.getenv("SERVER_HOST") == null
             ? "localhost" : System.getenv("SERVER_HOST");
     private static final int PORT = 8889;

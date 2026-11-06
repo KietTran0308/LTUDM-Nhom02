@@ -23,8 +23,8 @@ public class CPasswordField extends JPasswordField {
         }
     }
 
-    private ImageIcon iconShow = loadAndResizeIcon("/img/eye.png", 20, 20);
-    private ImageIcon iconHide = loadAndResizeIcon("/img/eye_off.png", 20, 20);
+    private ImageIcon iconShow = loadAndResizeIcon("/img/things/eye.png", 20, 20);
+    private ImageIcon iconHide = loadAndResizeIcon("/img/things/eye_off.png", 20, 20);
 
     private static final Dimension DEFAULT_SIZE = new Dimension(420, 45);
     private static final Font DEFAULT_FONT = new Font("Inter", Font.PLAIN, 20);

@@ -40,6 +40,6 @@ public enum SocketAction implements Serializable {
     ADMIN_ADD_INGREDIENT,
     ADMIN_RESTOCK_INGREDIENT,
 
-// Thong ke hoa don
-    ADMIN_GET_BILLS
+    MEMBER_LOGIN, // Thong ke hoa don
+    MEMBER_PROFILE, MEMBER_HISTORY, MEMBER_LOGOUT, ADMIN_GET_BILLS
 }

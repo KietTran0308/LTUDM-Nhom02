@@ -202,7 +202,7 @@ public final class PosGUI extends JFrame {
         JPanel leftBrand = new JPanel();
         leftBrand.setLayout(new BoxLayout(leftBrand, BoxLayout.X_AXIS));
         leftBrand.setOpaque(false);
-        JLabel lblIcon = new JLabel(Utils.getScaledIcon("img/logo.png", 40, 40));
+        JLabel lblIcon = new JLabel(Utils.getScaledIcon("img/things/logo.png", 40, 40));
         lblIcon.setBorder(new EmptyBorder(0, 0, 0, 10));
         JPanel titleCol = new JPanel();
         titleCol.setLayout(new BoxLayout(titleCol, BoxLayout.Y_AXIS));
@@ -646,6 +646,7 @@ public final class PosGUI extends JFrame {
             refreshTables(false);
         });
     }
+
     public static void main(String[] args) {
         SwingUtilities.invokeLater(PosGUI::showPosLogin);
     }

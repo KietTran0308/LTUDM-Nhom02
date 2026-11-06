@@ -21,7 +21,6 @@ public class SocketClient {
     private final BlockingQueue<SocketPacket> responseQueue = new LinkedBlockingQueue<>();
     private volatile SocketAction pendingAction;
 
-
     public synchronized boolean connect(String host, int port, Long tableId) {
         if (connected && socket != null && !socket.isClosed()) return true;
         if (socket != null) close(); // Dọn kết nối cũ trước khi kết nối lại.
@@ -35,11 +34,11 @@ public class SocketClient {
             in = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.UTF_8));
             connected = true;
             BufferedReader activeInput = in;
+
             Thread reader = new Thread(
                     () -> listenFromServer(s, activeInput), "client-socket-reader");
             reader.setDaemon(true);
             reader.start();
-            // KHONG tu dong REGISTER_TABLE: phai LOGIN va co token phien ban truoc.
             return true;
         } catch (IOException e) {
             System.err.println("Khong ket noi TCP " + host + ":" + port + " - " + e.getMessage());

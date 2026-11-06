@@ -23,24 +23,23 @@ public class StaffGUI extends JFrame {
     private static final Color SELECT_COLOR = new Color(35, 101, 66);
 
     private final StaffBUS bus;
-    private final SocketClient sessionSocket;
     private final UserDTO staff;
+
+    private final SocketClient sessionSocket;
+
     private final Timer responseTimer;
-    private final JPanel tableGrid = new JPanel(new GridLayout(0, 3, 14, 14));
+    private final JPanel tableGrid = new JPanel(new GridLayout(0, 4, 14, 14));
     private final JPanel floorList = new JPanel();
     private final JLabel floorHeading = new JLabel("Đang tải các tầng...");
-    private final JLabel floorSummary = new JLabel("Danh sách bàn cập nhật thời gian thực");
+
     private Integer selectedFloor;
     private final JLabel selectedLabel = new JLabel("Đang tải danh sách bàn...");
     private final JButton handoffButton = new CButton("Bàn giao thiết bị cho khách", 300, 50);
 
-    private Long selectedTableId;
-    private Long selectedSessionId;
+    private Long selectedTableId, selectedSessionId;
     private String selectedTableName;
-    private Long pendingTableId;
-    private Long pendingSessionId;
-    private boolean handoffPending;
-    private boolean tablesLoaded;
+    private Long pendingTableId, pendingSessionId;
+    private boolean handoffPending, tablesLoaded;
 
     public StaffGUI(UserDTO staff, SocketClient socket) {
         this.staff = Objects.requireNonNull(staff);
@@ -62,8 +61,7 @@ public class StaffGUI extends JFrame {
         });
         responseTimer.start();
 
-        // Hoan den sau khi AuthGUI ket thuc event dang nhap va da dung Timer cu.
-        // KHONG phai Timer polling: request nay CHI gui mot lan khi mo StaffGUI.
+
         SwingUtilities.invokeLater(() -> {
             if (!bus.requestListTables()) {
                 selectedLabel.setText("Không gửi được yêu cầu danh sách bàn. Vui lòng đăng nhập lại.");
@@ -109,10 +107,7 @@ public class StaffGUI extends JFrame {
         tableHeader.setOpaque(false);
         floorHeading.setFont(Utils.getCustomFont("Inter", Font.BOLD, 20));
         floorHeading.setForeground(Utils.FOREST_BG);
-        floorSummary.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 13));
-        floorSummary.setForeground(new Color(106, 115, 109));
         tableHeader.add(floorHeading);
-        tableHeader.add(floorSummary);
         tableArea.add(tableHeader, BorderLayout.NORTH);
 
         tableGrid.setBackground(Color.WHITE);
@@ -121,6 +116,7 @@ public class StaffGUI extends JFrame {
         JPanel tableAnchor = new JPanel(new BorderLayout());
         tableAnchor.setBackground(Color.WHITE);
         tableAnchor.add(tableGrid, BorderLayout.NORTH);
+
         JScrollPane scroll = new JScrollPane(tableAnchor);
         scroll.setBorder(BorderFactory.createEmptyBorder());
         scroll.getViewport().setBackground(Color.WHITE);
@@ -326,9 +322,9 @@ public class StaffGUI extends JFrame {
                     ? "Đang tải danh sách bàn..."
                     : bus.getTables().isEmpty()
                     ? "Server trả về 0 bàn — kiểm tra dữ liệu bảng restaurant_tables"
-                    : "Chọn bàn đang có phiên ACTIVE");
+                    : "");
         } else if (selectedSessionId == null) {
-            selectedLabel.setText(selectedTableName + " — chưa mở phiên: liên hệ POS");
+            selectedLabel.setText(selectedTableName + " — chưa mở: liên hệ quầy thu ngân");
         } else {
             selectedLabel.setText(selectedTableName + " — phiên #" + selectedSessionId + " đang phục vụ");
         }
