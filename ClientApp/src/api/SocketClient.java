@@ -8,16 +8,18 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
-/**
- * Mot ket noi TCP xuyen suot phien dang nhap, GUI lay packet qua pollPacket().
- */
 public class SocketClient {
+
     private Socket socket;
     private PrintWriter out;
     private BufferedReader in;
     private volatile boolean connected;
     private Long tableId;
     private final BlockingQueue<SocketPacket> packetQueue = new LinkedBlockingQueue<>();
+
+    private final Object requestLock = new Object();
+    private final BlockingQueue<SocketPacket> responseQueue = new LinkedBlockingQueue<>();
+    private volatile SocketAction pendingAction;
 
     public synchronized boolean connect(String host, int port, Long tableId) {
         if (connected && socket != null && !socket.isClosed()) return true;
@@ -32,11 +34,11 @@ public class SocketClient {
             in = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.UTF_8));
             connected = true;
             BufferedReader activeInput = in;
+
             Thread reader = new Thread(
                     () -> listenFromServer(s, activeInput), "client-socket-reader");
             reader.setDaemon(true);
             reader.start();
-            // KHONG tu dong REGISTER_TABLE: phai LOGIN va co token phien ban truoc.
             return true;
         } catch (IOException e) {
             System.err.println("Khong ket noi TCP " + host + ":" + port + " - " + e.getMessage());
@@ -51,7 +53,10 @@ public class SocketClient {
             while (connected && socket == activeSocket
                     && (line = activeInput.readLine()) != null) {
                 try {
-                    packetQueue.offer(SocketJsonMapper.fromJsonString(line));
+                    SocketPacket packet = SocketJsonMapper.fromJsonString(line);
+                    SocketAction pending = pendingAction;
+                    if (pending != null && packet.getAction() == pending) responseQueue.offer(packet);
+                    else packetQueue.offer(packet);
                 } catch (RuntimeException badPacket) {
                     System.err.println("Goi tin JSON khong hop le: " + badPacket.getMessage());
                 }
@@ -95,10 +100,16 @@ public class SocketClient {
         return connected;
     }
 
-    /** Goi SAU khi Server phan hoi ENTER_CUSTOMER_MODE thanh cong. */
-    public void bindCustomerTable(Long tableId) { this.tableId = tableId; }
+    /**
+     * Goi SAU khi Server phan hoi ENTER_CUSTOMER_MODE thanh cong.
+     */
+    public void bindCustomerTable(Long tableId) {
+        this.tableId = tableId;
+    }
 
-    /** Tra ve false neu request khong duoc gui (ket noi da dong / loi Socket). */
+    /**
+     * Tra ve false neu request khong duoc gui (ket noi da dong / loi Socket).
+     */
     public boolean requestMenuAndCategories() {
         return sendRequest(new SocketPacket(SocketAction.GET_MENU_AND_CATEGORIES, tableId, null, null));
     }
@@ -121,6 +132,39 @@ public class SocketClient {
         return sendRequest(new SocketPacket(SocketAction.REGISTER_TABLE, tableId, token, null));
     }
 
+    /** Chỉ dành cho các kết nối POS/Admin có một request đồng bộ tại một thời điểm. */
+    public SocketPacket requestAndWait(SocketPacket request, long timeoutMs) {
+        if (request == null || request.getAction() == null || timeoutMs <= 0)
+            throw new IllegalArgumentException("Yêu cầu hoặc timeout không hợp lệ");
+        synchronized (requestLock) {
+            // Response cũ không được ghép nhầm vào yêu cầu tiếp theo.
+            responseQueue.clear();
+            pendingAction = request.getAction();
+            try {
+                if (!sendRequest(request))
+                    throw new IllegalStateException("Không gửi được yêu cầu đến server");
+                SocketPacket response = responseQueue.poll(timeoutMs,
+                        java.util.concurrent.TimeUnit.MILLISECONDS);
+                if (response == null) {
+                    // Không có request-id trong giao thức cũ: đóng kết nối để chống nhầm phản hồi trễ.
+                    close();
+                    throw new IllegalStateException("Server không phản hồi đúng hạn; hãy đăng nhập lại");
+                }
+                if (!response.isSuccess())
+                    throw new IllegalStateException(response.getMessage() == null
+                            ? "Server từ chối thao tác" : response.getMessage());
+                return response;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                close();
+                throw new IllegalStateException("Yêu cầu đã bị gián đoạn", e);
+            } finally {
+                pendingAction = null;
+                responseQueue.clear();
+            }
+        }
+    }
+
     public void logout() {
         sendRequest(new SocketPacket(SocketAction.LOGOUT, null, null, null));
     }
@@ -141,5 +185,7 @@ public class SocketClient {
         out = null;
         tableId = null;
         packetQueue.clear();
+        responseQueue.clear();
+        pendingAction = null;
     }
 }

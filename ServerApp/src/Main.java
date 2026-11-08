@@ -1,7 +1,5 @@
 import api.ImageSocketServer;
 import api.SocketServer;
-import gui.AdminGUI;
-import gui.PosGUI;
 
 import javax.swing.*;
 import java.awt.*;
@@ -16,7 +14,7 @@ public class Main {
 
         SwingUtilities.invokeLater(() -> {
             JFrame frame = new JFrame("AN NHIEN | May chu trung tam");
-            frame.setSize(650, 270);
+            frame.setSize(650, 220);
             frame.setLocationRelativeTo(null);
             frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
             frame.setLayout(new BorderLayout(12, 12));
@@ -24,12 +22,6 @@ public class Main {
             status.setFont(new Font("SansSerif", Font.BOLD, 16));
             frame.add(status, BorderLayout.CENTER);
             JPanel buttons = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 12));
-            JButton pos = new JButton("Mở POS thu ngân (STAFF)");
-            pos.addActionListener(e -> PosGUI.showPosLogin());
-            buttons.add(pos);
-            JButton admin = new JButton("Dang nhap quan tri ADMIN");
-            admin.addActionListener(e -> AdminGUI.showAdminLogin());
-            buttons.add(admin);
             JButton exit = new JButton("Tat may chu");
             exit.addActionListener(e -> {
                 if (JOptionPane.showConfirmDialog(frame,

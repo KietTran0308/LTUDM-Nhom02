@@ -38,8 +38,6 @@ public class CustomerGUI extends JFrame {
     private static final int IMAGE_HEIGHT = 140;
     private static final int CARD_GAP = 16;
 
-    // Chi nhan ket noi da duoc Server xac nhan ENTER_CUSTOMER_MODE.
-    // StaffGUI quan ly chon ban; CustomerGUI chi goi mon va theo doi don.
     private final SocketClient sessionSocket;
     private Long currentTableId;
     private Long activeSessionId;
@@ -55,8 +53,18 @@ public class CustomerGUI extends JFrame {
     private JScrollPane menuScrollPane;
     private int lastMenuViewportWidth = -1;
 
-    private JLabel lblConnectionStatus;
     private JLabel lblKitchenNotice;
+
+    private JLabel lblSentItems;
+    private JButton btnMemberAccount;
+
+    private UserDTO loggedInMember;
+    private JDialog memberProfileDialog;
+    private JTextArea memberProfileArea;
+
+    private String memberProfileText = "Đang tải thông tin...";
+    private String memberHistoryText = "Đang tải lịch sử...";
+
     private JButton btnTrackOrderTop;
     private CTable trackTable;
     private JButton btnRequestCancelSupport;
@@ -79,10 +87,12 @@ public class CustomerGUI extends JFrame {
     private JLabel lblCartDetailTotal;
     private CTextField txtVoucher;
 
-
-    /** Chỉ gọi SAU KHI StaffGUI nhận ACK ENTER_CUSTOMER_MODE từ Server. */
+    /**
+     * Chỉ gọi SAU KHI StaffGUI nhận ACK ENTER_CUSTOMER_MODE từ Server.
+     */
     public CustomerGUI(Long tableId, Long sessionId, SocketClient customerSocket) {
         this.sessionSocket = Objects.requireNonNull(customerSocket, "Can Socket da xac nhan CUSTOMER MODE");
+
         if (tableId == null || tableId <= 0 || sessionId == null || sessionId <= 0
                 || !customerSocket.isConnected())
             throw new IllegalArgumentException("Thieu phien ban da xac minh");
@@ -100,34 +110,53 @@ public class CustomerGUI extends JFrame {
         setLayout(new BorderLayout());
         initLeftSidebar();
         initCenterContentArea();
-        lblConnectionStatus.setText("● CUSTOMER MODE — Bàn #" + tableId);
-        lblConnectionStatus.setForeground(new Color(110, 231, 183));
+
         rebuildCategoryButtons(tabletBUS.getCategories());
         refreshAllCartViews();
         refreshTrackTable();
         startResponseTimer();
+        loadInitialData();
+
         addWindowListener(new java.awt.event.WindowAdapter() {
-            @Override public void windowClosing(java.awt.event.WindowEvent e) { logout(); }
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent e) {
+                logout();
+            }
+        });
+    }
+
+    private void loadInitialData() {
+        SwingUtilities.invokeLater(() -> {
+            if (!sessionSocket.isConnected()) {
+                renderMenuCards(activeCategoryId);
+                CToast.error(this,
+                        "Mất kết nối máy chủ. Không thể tải thực đơn.");
+                return;
+            }
+
+            // Yêu cầu thực đơn nếu chưa nhận dữ liệu.
+            if (!tabletBUS.hasReceivedMenuResponse()) {
+                tabletBUS.reloadMenu();
+            }
+
+            // Lấy các món đã gọi của phiên bàn hiện tại.
+            tabletBUS.requestTableTracking();
         });
     }
 
     private void startResponseTimer() {
         responseTimer = new javax.swing.Timer(100, e -> {
-            if (!sessionSocket.isConnected() && awaitingOrderConfirmation) {
+            if (!sessionSocket.isConnected()
+                    && awaitingOrderConfirmation) {
                 resetSendOrderButtonState();
-                CToast.error(this, "Mất kết nối Server. Kiểm tra đơn trước khi gửi lại.");
+                CToast.error(this,
+                        "Mất kết nối máy chủ. Kiểm tra đơn trước khi gửi lại.");
             }
-            SocketPacket packet;
-            while ((packet = tabletBUS.pollPacket()) != null) onServerPacketCallback(packet);
-            Long loadedFoodId;
-            while ((loadedFoodId = tabletBUS.pollLoadedImageFoodId()) != null) {
-                JLabel lbl = foodImageLabels.get(loadedFoodId);
-                if (lbl != null) {
-                    lbl.putClientProperty("foodImage", tabletBUS.getCachedFoodImage(loadedFoodId));
-                    lbl.repaint();
-                }
-            }
+
+            processServerPackets();
+            updateLoadedImages();
         });
+
         responseTimer.start();
     }
 
@@ -163,8 +192,6 @@ public class CustomerGUI extends JFrame {
 
         switch (packet.getAction()) {
             case REGISTER_TABLE:
-                lblConnectionStatus.setText("● Đã kết nối hệ thống Bếp");
-                lblConnectionStatus.setForeground(new Color(110, 231, 183));
                 tabletBUS.requestTableTracking();
                 break;
 
@@ -215,6 +242,51 @@ public class CustomerGUI extends JFrame {
             case VIEW_SESSION_BILL:
                 showSessionBill((OrderDTO) packet.getData());
                 break;
+
+            case MEMBER_LOGIN:
+                if (packet.getData() instanceof UserDTO) {
+                    loggedInMember = (UserDTO) packet.getData();
+
+                    btnMemberAccount.setText(
+                            "Tài khoản: " + loggedInMember.getFullName()
+                    );
+
+                    CToast.success(this,
+                            "Đăng nhập thành viên thành công.");
+                }
+                break;
+
+            case MEMBER_PROFILE:
+                memberProfileText = String.valueOf(
+                        packet.getData() == null
+                                ? "Chưa có thông tin."
+                                : packet.getData()
+                );
+                updateMemberProfileText();
+                break;
+
+            case MEMBER_HISTORY:
+                memberHistoryText = String.valueOf(
+                        packet.getData() == null
+                                ? "Chưa có lịch sử đặt món."
+                                : packet.getData()
+                );
+                updateMemberProfileText();
+                break;
+
+            case MEMBER_LOGOUT:
+                loggedInMember = null;
+                btnMemberAccount.setText("Đăng nhập thành viên");
+
+                if (memberProfileDialog != null) {
+                    memberProfileDialog.dispose();
+                    memberProfileDialog = null;
+                    memberProfileArea = null;
+                }
+
+                CToast.success(this,
+                        "Đã đăng xuất tài khoản thành viên.");
+                break;
             case SESSION_CLOSED:
             case TABLE_CLEARED_RESET:
                 returnToLogin("Đã đóng phiên bàn. Thiết bị sẵn sàng cho lượt khách tiếp theo.");
@@ -257,7 +329,7 @@ public class CustomerGUI extends JFrame {
         logoRow.setOpaque(false);
         logoRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JLabel lblIcon = new JLabel(Utils.getScaledIcon("/img/logo.png", 45, 45));
+        JLabel lblIcon = new JLabel(Utils.getScaledIcon("/img/things/logo.png", 45, 45));
         lblIcon.setBorder(new EmptyBorder(0, 0, 0, 12));
 
         JPanel logoTextPanel = new JPanel();
@@ -290,17 +362,6 @@ public class CustomerGUI extends JFrame {
         tableBadge.setBorder(new EmptyBorder(10, 14, 10, 14));
         tableBadge.setMaximumSize(new Dimension(220, 58));
         tableBadge.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        JLabel lblTableNo = new JLabel("BÀN ĐANG PHỤC VỤ: #" + currentTableId);
-        lblTableNo.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 13));
-        lblTableNo.setForeground(Utils.GOLD_ACCENT);
-
-        lblConnectionStatus = new JLabel("● Đang chờ kết nối bếp");
-        lblConnectionStatus.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 12));
-        lblConnectionStatus.setForeground(new Color(253, 224, 71));
-
-        tableBadge.add(lblTableNo, BorderLayout.NORTH);
-        tableBadge.add(lblConnectionStatus, BorderLayout.SOUTH);
 
         topBrandBox.add(logoRow);
         topBrandBox.add(Box.createVerticalStrut(22));
@@ -399,7 +460,9 @@ public class CustomerGUI extends JFrame {
         details.setEditable(false);
         JDialog dlg = new JDialog(this, "Hoa don tam tinh", false);
         dlg.add(new JScrollPane(details));
-        dlg.pack(); dlg.setLocationRelativeTo(this); dlg.setVisible(true);
+        dlg.pack();
+        dlg.setLocationRelativeTo(this);
+        dlg.setVisible(true);
     }
 
     private void logout() {
@@ -514,24 +577,50 @@ public class CustomerGUI extends JFrame {
         JPanel introduction = new JPanel();
         introduction.setLayout(new BoxLayout(introduction, BoxLayout.Y_AXIS));
         introduction.setOpaque(false);
+        introduction.setPreferredSize(new Dimension(425, 90));
 
-        JLabel lblGreeting = new JLabel("GỌI MÓN TẠI BÀN #" + currentTableId);
-        lblGreeting.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 18));
-        lblGreeting.setForeground(Utils.FOREST_BG);
+// Dòng đầu: Thông tin bàn và đăng nhập thành viên
+        JPanel headerInfo = new JPanel(
+                new FlowLayout(FlowLayout.LEFT, 10, 0));
+        headerInfo.setOpaque(false);
+        headerInfo.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JLabel lblSteps = new JLabel("Chọn món  →  Xem giỏ  →  Gửi bếp  →  Theo dõi tiến độ");
-        lblSteps.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 12));
-        lblSteps.setForeground(Utils.TEXT_MUTED);
+        JLabel lblTable = new JLabel("Bàn #" + currentTableId);
+        lblTable.setFont(Utils.getCustomFont(
+                "Inter", Font.BOLD, 17));
+        lblTable.setForeground(Utils.FOREST_BG);
 
-        introduction.add(lblGreeting);
-        introduction.add(Box.createVerticalStrut(4));
-        introduction.add(lblSteps);
+        btnMemberAccount = createOutlineButton("Đăng nhập thành viên");
+        btnMemberAccount.addActionListener(e -> {
+            if (loggedInMember == null) {
+                openMemberLoginDialog();
+            } else {
+                openMemberProfile();
+            }
+        });
 
-        lblKitchenNotice = new JLabel();
-        lblKitchenNotice.setFont(Utils.getCustomFont("Inter", Font.BOLD, 13));
+        headerInfo.add(lblTable);
+        headerInfo.add(btnMemberAccount);
+
+// Số món đã gửi
+        lblSentItems = new JLabel("Đã gửi bếp: 0 món");
+        lblSentItems.setFont(Utils.getCustomFont(
+                "Inter", Font.PLAIN, 13));
+        lblSentItems.setForeground(Utils.TEXT_MUTED);
+        lblSentItems.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+// Thông báo từ màn hình bếp
+        lblKitchenNotice = new JLabel("Chưa có thông báo mới từ bếp.");
+        lblKitchenNotice.setFont(Utils.getCustomFont(
+                "Inter", Font.PLAIN, 12));
         lblKitchenNotice.setForeground(Utils.TERRACOTTA);
-        lblKitchenNotice.setBorder(new EmptyBorder(9, 0, 0, 0));
-        lblKitchenNotice.setVisible(false);
+        lblKitchenNotice.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        introduction.add(headerInfo);
+        introduction.add(Box.createVerticalStrut(8));
+        introduction.add(lblSentItems);
+        introduction.add(Box.createVerticalStrut(6));
+        introduction.add(lblKitchenNotice);
 
         topBanner.add(introduction, BorderLayout.WEST);
         topBanner.add(rightBannerActions, BorderLayout.EAST);
@@ -853,47 +942,29 @@ public class CustomerGUI extends JFrame {
         int cardWidth = Math.min(MAX_CARD_WIDTH, Math.max(MIN_CARD_WIDTH, (viewportWidth - (columns - 1) * CARD_GAP - 2) / columns));
 
         if (filtered.isEmpty()) {
-            String status;
-            if (!tabletBUS.isConnected()) {
-                status = "Đã mất kết nối Server. Vui lòng gọi nhân viên để thiết lập lại thiết bị.";
-            } else if (tabletBUS.getMenuLoadError() != null) {
-                status = "Không tải được thực đơn: " + tabletBUS.getMenuLoadError();
-            } else if (!tabletBUS.hasReceivedMenuResponse()) {
-                status = "Đang tải thực đơn từ máy chủ...";
-            } else if (tabletBUS.getMenuFoods().isEmpty()) {
-                status = "Thực đơn hiện chưa có món được mở bán (is_published = 1).";
-            } else {
-                status = "Danh mục này chưa có món ăn.";
-            }
-            JPanel emptyPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 14));
-            emptyPanel.setOpaque(false);
-            JLabel message = new JLabel(status);
-            message.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 14));
-            message.setForeground(Utils.TEXT_MUTED);
-            emptyPanel.add(message);
-            if (tabletBUS.isConnected()) {
-                JButton retry = new JButton("Tải lại thực đơn");
-                retry.setFont(Utils.getCustomFont("Inter", Font.BOLD, 13));
-                retry.addActionListener(e -> {
-                    tabletBUS.reloadMenu();
-                    renderMenuCards(activeCategoryId);
-                });
-                emptyPanel.add(Box.createHorizontalStrut(18));
-                emptyPanel.add(retry);
-            }
-            GridBagConstraints emptyConstraints = new GridBagConstraints();
-            emptyConstraints.gridx = 0;
-            emptyConstraints.gridy = 0;
-            emptyConstraints.anchor = GridBagConstraints.NORTHWEST;
-            menuGridPanel.add(emptyPanel, emptyConstraints);
+            GridBagConstraints gbc = new GridBagConstraints();
+            gbc.gridx = 0;
+            gbc.gridy = 0;
+            gbc.anchor = GridBagConstraints.NORTHWEST;
+
+            menuGridPanel.add(createEmptyMenuPanel(), gbc);
         } else {
+            // Giữ nguyên vòng for tạo thẻ món ăn hiện tại.
             for (int i = 0; i < filtered.size(); i++) {
                 GridBagConstraints gbc = new GridBagConstraints();
+
                 gbc.gridx = i % columns;
                 gbc.gridy = i / columns;
-                gbc.insets = new Insets(0, 0, CARD_GAP, gbc.gridx == columns - 1 ? 0 : CARD_GAP);
+                gbc.insets = new Insets(
+                        0, 0, CARD_GAP,
+                        gbc.gridx == columns - 1 ? 0 : CARD_GAP
+                );
                 gbc.anchor = GridBagConstraints.NORTHWEST;
-                menuGridPanel.add(createStyledFoodCard(filtered.get(i), cardWidth), gbc);
+
+                menuGridPanel.add(
+                        createStyledFoodCard(filtered.get(i), cardWidth),
+                        gbc
+                );
             }
         }
 
@@ -914,6 +985,46 @@ public class CustomerGUI extends JFrame {
         menuGridPanel.revalidate();
         menuGridPanel.repaint();
         SwingUtilities.invokeLater(() -> menuScrollPane.getVerticalScrollBar().setValue(scrollY));
+    }
+
+    private JPanel createEmptyMenuPanel() {
+        JPanel panel = new JPanel(
+                new FlowLayout(FlowLayout.LEFT, 0, 14)
+        );
+        panel.setOpaque(false);
+
+        JLabel message = new JLabel(getMenuStatusMessage());
+        message.setFont(
+                Utils.getCustomFont("Inter", Font.PLAIN, 14)
+        );
+        message.setForeground(Utils.TEXT_MUTED);
+
+        panel.add(message);
+        return panel;
+    }
+
+    /**
+     * Xác định thông báo dựa trên trạng thái dữ liệu.
+     */
+    private String getMenuStatusMessage() {
+        if (!tabletBUS.isConnected()) {
+            return "Đã mất kết nối máy chủ.";
+        }
+
+        if (tabletBUS.getMenuLoadError() != null) {
+            return "Không tải được thực đơn: "
+                    + tabletBUS.getMenuLoadError();
+        }
+
+        if (!tabletBUS.hasReceivedMenuResponse()) {
+            return "Đang tải thực đơn từ máy chủ...";
+        }
+
+        if (tabletBUS.getMenuFoods().isEmpty()) {
+            return "Hiện chưa có món ăn được mở bán.";
+        }
+
+        return "Danh mục này chưa có món ăn.";
     }
 
     private JPanel createStyledFoodCard(FoodDTO food, int cardWidth) {
@@ -1079,9 +1190,21 @@ public class CustomerGUI extends JFrame {
                 if (val.isEmpty()) itemNotesMap.remove(foodId);
                 else itemNotesMap.put(foodId, val);
             }
-            @Override public void insertUpdate(DocumentEvent e) { syncNote(); }
-            @Override public void removeUpdate(DocumentEvent e) { syncNote(); }
-            @Override public void changedUpdate(DocumentEvent e) { syncNote(); }
+
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                syncNote();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                syncNote();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                syncNote();
+            }
         });
         return txtField;
     }
@@ -1238,13 +1361,27 @@ public class CustomerGUI extends JFrame {
     }
 
     private void refreshTrackTable() {
-        if (trackTable == null || tabletBUS == null) return;
+        if (trackTable == null || tabletBUS == null) {
+            return;
+        }
+
         List<OrderItemDTO> tracked = tabletBUS.getTrackedItems();
+
         trackTable.updateTrackedItems(tracked);
         trackTable.getTable().clearSelection();
-        if (btnRequestCancelSupport != null) btnRequestCancelSupport.setEnabled(false);
+
+        if (btnRequestCancelSupport != null) {
+            btnRequestCancelSupport.setEnabled(false);
+        }
+
+        if (lblSentItems != null) {
+            lblSentItems.setText(
+                    "Đã gửi bếp: " + tracked.size() + " món");
+        }
+
         if (btnTrackOrderTop != null) {
-            btnTrackOrderTop.setText("📋 Đơn đã gửi (" + tracked.size() + ")");
+            btnTrackOrderTop.setText(
+                    "📋 Đơn đã gửi (" + tracked.size() + " món)");
         }
     }
 
@@ -1297,6 +1434,195 @@ public class CustomerGUI extends JFrame {
                     "Chưa kết nối được với ServerApp (Port 8888)!\nHãy khởi động ServerApp.Main trước.",
                     "Lỗi Kết Nối Mạng", CToast.ERROR);
         }
+    }
+
+    private void processServerPackets() {
+        SocketPacket packet;
+
+        while ((packet = tabletBUS.pollPacket()) != null) {
+            onServerPacketCallback(packet);
+
+            // GUI có thể đã đóng khi server kết thúc phiên.
+            if (!responseTimer.isRunning()) {
+                break;
+            }
+        }
+    }
+
+    /**
+     * Cập nhật ảnh món khi việc tải ảnh hoàn tất.
+     */
+    private void updateLoadedImages() {
+        Long foodId;
+
+        while ((foodId = tabletBUS.pollLoadedImageFoodId()) != null) {
+            JLabel label = foodImageLabels.get(foodId);
+
+            if (label == null) {
+                continue;
+            }
+
+            label.putClientProperty(
+                    "foodImage",
+                    tabletBUS.getCachedFoodImage(foodId)
+            );
+
+            label.repaint();
+        }
+    }
+
+    private void openMemberLoginDialog() {
+        JDialog dialog = new JDialog(
+                this, "Đăng nhập thành viên", true);
+        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+        dialog.setSize(410, 295);
+        dialog.setResizable(false);
+        dialog.setLocationRelativeTo(this);
+
+        JPanel form = new JPanel(new GridLayout(0, 1, 0, 8));
+        form.setBackground(Color.WHITE);
+        form.setBorder(new EmptyBorder(20, 25, 20, 25));
+
+        JTextField txtEmail = new JTextField();
+        JPasswordField txtPassword = new JPasswordField();
+
+        JButton btnLogin = new JButton("Đăng nhập");
+        JButton btnCancel = new JButton("Hủy");
+
+        form.add(new JLabel("Email tài khoản:"));
+        form.add(txtEmail);
+        form.add(new JLabel("Mật khẩu:"));
+        form.add(txtPassword);
+
+        JPanel actions = new JPanel(
+                new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        actions.setOpaque(false);
+        actions.add(btnCancel);
+        actions.add(btnLogin);
+        form.add(actions);
+
+        btnCancel.addActionListener(e -> dialog.dispose());
+
+        btnLogin.addActionListener(e -> {
+            String email = txtEmail.getText().trim();
+            char[] passwordChars = txtPassword.getPassword();
+
+            try {
+                if (email.isEmpty() || passwordChars.length == 0) {
+                    CToast.warning(this,
+                            "Vui lòng nhập email và mật khẩu.");
+                    return;
+                }
+
+                Map<String, String> credentials = new HashMap<>();
+                credentials.put("email", email);
+                credentials.put(
+                        "password", new String(passwordChars));
+
+                SocketPacket request = new SocketPacket(
+                        SocketAction.MEMBER_LOGIN,
+                        currentTableId,
+                        credentials,
+                        null
+                );
+
+                if (sessionSocket.sendRequest(request)) {
+                    dialog.dispose();
+                    CToast.info(this,
+                            "Đang xác thực tài khoản thành viên...");
+                } else {
+                    CToast.error(this,
+                            "Không gửi được yêu cầu đăng nhập.");
+                }
+            } finally {
+                Arrays.fill(passwordChars, '\0');
+                txtPassword.setText("");
+            }
+        });
+
+        dialog.setContentPane(form);
+        dialog.getRootPane().setDefaultButton(btnLogin);
+        dialog.setVisible(true);
+    }
+
+    private void openMemberProfile() {
+        if (loggedInMember == null) {
+            openMemberLoginDialog();
+            return;
+        }
+
+        memberProfileDialog = new JDialog(
+                this, "Tài khoản thành viên", false);
+        memberProfileDialog.setSize(580, 470);
+        memberProfileDialog.setLocationRelativeTo(this);
+
+        memberProfileText = "Đang tải thông tin thành viên...";
+        memberHistoryText = "Đang tải lịch sử đặt món...";
+
+        memberProfileArea = new JTextArea();
+        memberProfileArea.setEditable(false);
+        memberProfileArea.setFont(
+                Utils.getCustomFont("Inter", Font.PLAIN, 14));
+        memberProfileArea.setBorder(
+                new EmptyBorder(18, 18, 18, 18));
+
+        JButton btnLogoutMember =
+                new JButton("Đăng xuất thành viên");
+
+        btnLogoutMember.addActionListener(e -> {
+            boolean sent = sessionSocket.sendRequest(
+                    new SocketPacket(
+                            SocketAction.MEMBER_LOGOUT,
+                            currentTableId,
+                            null,
+                            null
+                    )
+            );
+
+            if (!sent) {
+                CToast.error(this,
+                        "Không gửi được yêu cầu đăng xuất.");
+            }
+        });
+
+        memberProfileDialog.setLayout(new BorderLayout());
+        memberProfileDialog.add(
+                new JScrollPane(memberProfileArea),
+                BorderLayout.CENTER
+        );
+        memberProfileDialog.add(
+                btnLogoutMember,
+                BorderLayout.SOUTH
+        );
+
+        updateMemberProfileText();
+        memberProfileDialog.setVisible(true);
+
+        sessionSocket.sendRequest(new SocketPacket(
+                SocketAction.MEMBER_PROFILE,
+                currentTableId,
+                null,
+                null
+        ));
+
+        sessionSocket.sendRequest(new SocketPacket(
+                SocketAction.MEMBER_HISTORY,
+                currentTableId,
+                null,
+                null
+        ));
+    }
+
+    private void updateMemberProfileText() {
+        if (memberProfileArea == null) return;
+
+        memberProfileArea.setText(
+                "THÔNG TIN THÀNH VIÊN\n\n"
+                        + memberProfileText
+                        + "\n\n-----------------------------\n"
+                        + "LỊCH SỬ ĐẶT MÓN\n\n"
+                        + memberHistoryText
+        );
     }
 
     private OrderItemDTO getSelectedTrackedItem() {

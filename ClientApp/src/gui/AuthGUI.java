@@ -94,10 +94,10 @@ public class AuthGUI extends JFrame {
         logoPanel.setLayout(new BoxLayout(logoPanel, BoxLayout.X_AXIS));
         logoPanel.setOpaque(false);
 
-        JLabel lblIcon = new JLabel(Utils.getScaledIcon("img/logo.png", 50, 50));
+        JLabel lblIcon = new JLabel(Utils.getScaledIcon("img/things/logo.png", 50, 50));
         lblIcon.setBorder(new EmptyBorder(0, 0, 0, 10));
 
-        JLabel lblIcon2 = new JLabel(Utils.getScaledIcon("img/logo2.png", 50, 50));
+        JLabel lblIcon2 = new JLabel(Utils.getScaledIcon("img/things/logo2.png", 50, 50));
         lblIcon2.setBorder(new EmptyBorder(0, 0, 0, 10));
 
         JPanel logoTextPanel = new JPanel();
@@ -505,6 +505,9 @@ public class AuthGUI extends JFrame {
             return;
         }
         SocketClient session = authBUS.getSocketClient();
+        // DUNG TIMER DANG NHAP TRUOC KHI TAO GUI MOI.
+        // Neu khong, AuthGUI co the lay mat goi LIST_TABLES tu packetQueue chung.
+        if (responseTimer != null) responseTimer.stop();
         JFrame next;
         switch (role.toUpperCase(Locale.ROOT)) {
             case "STAFF":
@@ -527,7 +530,6 @@ public class AuthGUI extends JFrame {
                 resetAuthenticatedLogin();
                 return;
         }
-        responseTimer.stop();
         next.setVisible(true);
         dispose();
     }
@@ -589,11 +591,10 @@ public class AuthGUI extends JFrame {
 
     private void startResponseTimer() {
         responseTimer = new Timer(100, e -> {
-            SocketPacket packet;
-
-            while ((packet = authBUS.pollPacket()) != null) {
-                handleServerResponse(packet);
-            }
+            // Chi doc MOT packet moi tick. Sau khi chuyen sang GUI khac,
+            // AuthGUI khong duoc tiep tuc rut queue cua StaffGUI/KitchenGUI.
+            SocketPacket packet = authBUS.pollPacket();
+            if (packet != null) handleServerResponse(packet);
         });
 
         responseTimer.start();

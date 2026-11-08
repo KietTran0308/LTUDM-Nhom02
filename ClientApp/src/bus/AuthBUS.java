@@ -17,6 +17,18 @@ public class AuthBUS {
         socketClient.connect(serverHost, 8888, null);
     }
 
+    /** Đăng nhập đồng bộ cho POS/Admin trên kết nối độc lập; gọi ở SwingWorker. */
+    public static UserDTO loginWorkstation(SocketClient socket, String account, String password) {
+        String host = System.getenv().getOrDefault("SERVER_HOST", "localhost");
+        if (socket == null || (!socket.isConnected() && !socket.connect(host, 8888, null)))
+            throw new IllegalStateException("Không kết nối được tới Server " + host + ":8888");
+        SocketPacket response = socket.requestAndWait(
+                new SocketPacket(SocketAction.LOGIN, null, account, password), 7000);
+        if (!(response.getData() instanceof UserDTO))
+            throw new IllegalStateException("Phản hồi đăng nhập không có thông tin tài khoản");
+        return (UserDTO) response.getData();
+    }
+
     public boolean login(String account, String password) {
         if (!socketClient.isConnected() && !socketClient.connect(serverHost, 8888, null)) return false;
         return socketClient.sendRequest(new SocketPacket(SocketAction.LOGIN_STAFF, null, account, password));

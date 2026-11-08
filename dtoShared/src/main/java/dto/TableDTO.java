@@ -10,8 +10,10 @@ public class TableDTO implements Serializable {
     private Integer capacity;
     private Boolean status; // TRUE: Bàn trống/Sẵn sàng, FALSE: Đang có khách
     private Long activeSessionId; // Null neu POS chua mo phien ACTIVE
+    private Integer floorNumber = 1; // Tang cua ban, mac dinh tang 1 cho du lieu cu
 
-    public TableDTO() {}
+    public TableDTO() {
+    }
 
     public TableDTO(Long id, String tableName, Integer capacity, Boolean status) {
         this.id = id;
@@ -20,20 +22,53 @@ public class TableDTO implements Serializable {
         this.status = status;
     }
 
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
+    public Long getId() {
+        return id;
+    }
 
-    public String getTableName() { return tableName; }
-    public void setTableName(String tableName) { this.tableName = tableName; }
+    public void setId(Long id) {
+        this.id = id;
+    }
 
-    public Integer getCapacity() { return capacity; }
-    public void setCapacity(Integer capacity) { this.capacity = capacity; }
+    public String getTableName() {
+        return tableName;
+    }
 
-    public Boolean getStatus() { return status; }
-    public void setStatus(Boolean status) { this.status = status; }
+    public void setTableName(String tableName) {
+        this.tableName = tableName;
+    }
 
-    public Long getActiveSessionId() { return activeSessionId; }
-    public void setActiveSessionId(Long id) { this.activeSessionId = id; }
+    public Integer getCapacity() {
+        return capacity;
+    }
+
+    public void setCapacity(Integer capacity) {
+        this.capacity = capacity;
+    }
+
+    public Boolean getStatus() {
+        return status;
+    }
+
+    public void setStatus(Boolean status) {
+        this.status = status;
+    }
+
+    public int getFloorNumber() {
+        return floorNumber != null && floorNumber > 0 ? floorNumber : 1;
+    }
+
+    public void setFloorNumber(Integer floorNumber) {
+        this.floorNumber = floorNumber;
+    }
+
+    public Long getActiveSessionId() {
+        return activeSessionId;
+    }
+
+    public void setActiveSessionId(Long id) {
+        this.activeSessionId = id;
+    }
 
     @Override
     public String toString() {

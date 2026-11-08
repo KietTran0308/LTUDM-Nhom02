@@ -186,21 +186,13 @@ public class ClientTabletBUS {
     }
 
     private BufferedImage fetchFoodImageFromSources(FoodDTO food) {
-        // 1. Ưu tiên tải nhị phân theo khối qua ImageSocketClient
         if (food.getSlug() != null && !food.getSlug().isBlank()) {
             String slug = food.getSlug().trim();
-            BufferedImage socketImg = ImageSocketClient.fetchImage(slug + ".png");
-            if (socketImg == null) socketImg = ImageSocketClient.fetchImage(slug + ".jpg");
-            if (socketImg == null) socketImg = ImageSocketClient.fetchImage(slug + ".jpeg");
-            if (socketImg != null) return socketImg;
-        }
-        // 2. Fallback qua ImageLoader
-        if (food.getCoverImageUrl() != null && !food.getCoverImageUrl().isBlank()) {
-            BufferedImage img = ImageLoader.readImage(food.getCoverImageUrl().trim());
-            if (img != null) return img;
-        }
-        if (food.getSlug() != null && !food.getSlug().isBlank()) {
-            return ImageLoader.readImage("/img/foods/" + food.getSlug().trim());
+
+            for (String ext : new String[]{".png", ".jpg", ".jpeg"}) {
+                BufferedImage img = ImageSocketClient.fetchImage(slug + ext);
+                if (img != null) return img;
+            }
         }
         return null;
     }

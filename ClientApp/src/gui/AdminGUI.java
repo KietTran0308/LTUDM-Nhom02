@@ -2,6 +2,12 @@ package gui;
 
 import bus.AdminBUS;
 import dto.*;
+import api.SocketClient;
+import bus.AuthBUS;
+import components.CToast;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
+import java.util.concurrent.ExecutionException;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -35,7 +41,8 @@ public class AdminGUI extends JFrame {
     private static final DecimalFormat QTY_FMT = new DecimalFormat("#,##0.00");
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
 
-    private final AdminBUS adminBUS = new AdminBUS();
+    private final AdminBUS adminBUS;
+    private final SocketClient socket;
 
     // Sidebar doc + CardLayout: giu nguyen cac trang va xu ly BUS hien co.
     private static final String PAGE_FOODS = "FOODS";
@@ -67,9 +74,19 @@ public class AdminGUI extends JFrame {
     private JLabel lblCardTotalDiscount;
     private JLabel lblCardTotalTax;
 
-    public AdminGUI(UserDTO admin) {
+    public AdminGUI(UserDTO admin, SocketClient SC) {
         if (admin == null || !"ADMIN".equalsIgnoreCase(admin.getRoleName()))
             throw new SecurityException("Chi tai khoan ADMIN moi duoc mo giao dien quan tri");
+
+        this.socket = SC;
+        this.adminBUS = new AdminBUS(SC);
+        addWindowListener(new WindowAdapter() {
+            @Override public void windowClosed(WindowEvent e) {
+                socket.logout();
+                socket.close();
+            }
+        });
+
         setExtendedState(JFrame.MAXIMIZED_BOTH);
         setTitle("Bếp Nhà Restaurant - Hệ Thống Quản Trị Trung Tâm (Admin Dashboard)");
         setSize(1360, 820);
@@ -304,6 +321,10 @@ public class AdminGUI extends JFrame {
         btnRefreshAll.addActionListener(e -> refreshAllData());
 
         rightActions.add(btnRefreshAll);
+        JButton btnLogout = createRoundedButton("Đăng xuất", new Color(52, 66, 58),
+                Color.WHITE, 120, 42);
+        btnLogout.addActionListener(e -> dispose());
+        rightActions.add(btnLogout);
 
         header.add(leftBox, BorderLayout.WEST);
         header.add(rightActions, BorderLayout.EAST);
@@ -330,7 +351,9 @@ public class AdminGUI extends JFrame {
         String[] cols = {"ID", "Mã SKU", "Tên Món Ăn", "Danh Mục", "Đơn Giá", "Trạng Thái Bán", "Ảnh Bìa (URL)"};
         foodTableModel = new DefaultTableModel(cols, 0) {
             @Override
-            public boolean isCellEditable(int r, int c) { return false; }
+            public boolean isCellEditable(int r, int c) {
+                return false;
+            }
         };
         foodTable = createStyledTable(foodTableModel);
         // Sidebar thu hep chieu ngang: cho phep cuon bang thay vi ep cot qua nho.
@@ -470,7 +493,9 @@ public class AdminGUI extends JFrame {
         String[] cols = {"ID", "Tên Nguyên Liệu", "Đơn Vị Tính", "Tồn Kho Hiện Tại", "Định Mức Tối Thiểu", "Trạng Thái Cảnh Báo"};
         stockTableModel = new DefaultTableModel(cols, 0) {
             @Override
-            public boolean isCellEditable(int r, int c) { return false; }
+            public boolean isCellEditable(int r, int c) {
+                return false;
+            }
         };
         stockTable = createStyledTable(stockTableModel);
 
@@ -548,7 +573,9 @@ public class AdminGUI extends JFrame {
         String[] cols = {"Mã hóa đơn", "Mã phiên bàn", "Giảm giá", "Thuế VAT", "Tổng thanh toán", "Phương thức", "Thời gian thanh toán"};
         billTableModel = new DefaultTableModel(cols, 0) {
             @Override
-            public boolean isCellEditable(int r, int c) { return false; }
+            public boolean isCellEditable(int r, int c) {
+                return false;
+            }
         };
         JTable billTable = createStyledTable(billTableModel);
         billTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
@@ -679,190 +706,202 @@ public class AdminGUI extends JFrame {
         loadRevenueStatistics();
     }
 
+    // Các thao tác mạng thực hiện ở worker, chỉ sửa Swing component trong done() (EDT).
     private void loadCategoriesAndFoods() {
-        cboCategory.removeAllItems();
-        List<CategoryDTO> cats = adminBUS.getAllCategories();
-        for (CategoryDTO c : cats) {
-            cboCategory.addItem(c);
-        }
-
-        foodTableModel.setRowCount(0);
-        for (FoodDTO f : adminBUS.getAllFoods()) {
-            foodTableModel.addRow(new Object[]{
-                    f.getId(),
-                    f.getSku(),
-                    f.getName(),
-                    f.getCategoryName() != null ? f.getCategoryName() : "Chưa phân loại",
-                    MONEY_FMT.format(f.getPrice()),
-                    Boolean.TRUE.equals(f.getIsPublished()) ? "🟢 Đang mở bán" : "⚪ Tạm ngưng",
-                    f.getCoverImageUrl()
-            });
-        }
+        new SwingWorker<Object[], Void>() {
+            @Override protected Object[] doInBackground() {
+                return new Object[]{adminBUS.getAllCategories(), adminBUS.getAllFoods()};
+            }
+            @Override protected void done() {
+                if (!isDisplayable()) return;
+                try {
+                    Object[] data = get();
+                    @SuppressWarnings("unchecked")
+                    List<CategoryDTO> cats = (List<CategoryDTO>) data[0];
+                    @SuppressWarnings("unchecked")
+                    List<FoodDTO> foods = (List<FoodDTO>) data[1];
+                    cboCategory.removeAllItems();
+                    for (CategoryDTO c : cats) cboCategory.addItem(c);
+                    foodTableModel.setRowCount(0);
+                    for (FoodDTO f : foods) {
+                        foodTableModel.addRow(new Object[]{
+                                f.getId(), f.getSku(), f.getName(),
+                                f.getCategoryName() == null ? "Chưa phân loại" : f.getCategoryName(),
+                                MONEY_FMT.format(f.getPrice()),
+                                Boolean.TRUE.equals(f.getIsPublished()) ? "🟢 Đang mở bán" : "⚪ Tạm ngưng",
+                                f.getCoverImageUrl()
+                        });
+                    }
+                } catch (Exception ex) { showNetworkError(ex); }
+            }
+        }.execute();
     }
 
     private void loadInventoryAndAlerts() {
-        stockTableModel.setRowCount(0);
-        List<IngredientDTO> allIng = adminBUS.getAllIngredients();
-        int lowCount = 0;
-
-        for (IngredientDTO ing : allIng) {
-            boolean isLow = ing.getStockQuantity().compareTo(ing.getMinStockLevel()) <= 0;
-            if (isLow) lowCount++;
-
-            stockTableModel.addRow(new Object[]{
-                    ing.getId(),
-                    ing.getName(),
-                    ing.getUnit(),
-                    QTY_FMT.format(ing.getStockQuantity()),
-                    QTY_FMT.format(ing.getMinStockLevel()),
-                    isLow ? "🚨 CẢNH BÁO: SẮP HẾT HÀNG (Cần nhập gấp)" : "✅ Đủ dùng"
-            });
-        }
-
-        if (lowCount > 0) {
-            lblLowStockBanner.setText("🚨 CẢNH BÁO TỒN KHO: Hiện có " + lowCount + " nguyên liệu chạm hoặc thấp hơn định mức tối thiểu (min_stock_level)!");
-            lblLowStockBanner.setBackground(DANGER_RED);
-            lblLowStockBanner.setForeground(Color.WHITE);
-        } else {
-            lblLowStockBanner.setText("✅ Tồn kho Bếp Nhà an toàn: Tất cả nguyên liệu đều cao hơn định mức tối thiểu.");
-            lblLowStockBanner.setBackground(SAFE_GREEN);
-            lblLowStockBanner.setForeground(Color.WHITE);
-        }
+        new SwingWorker<List<IngredientDTO>, Void>() {
+            @Override protected List<IngredientDTO> doInBackground() {
+                return adminBUS.getAllIngredients();
+            }
+            @Override protected void done() {
+                if (!isDisplayable()) return;
+                try {
+                    List<IngredientDTO> ingredients = get();
+                    stockTableModel.setRowCount(0);
+                    int lowCount = 0;
+                    for (IngredientDTO ing : ingredients) {
+                        boolean low = ing.getStockQuantity().compareTo(ing.getMinStockLevel()) <= 0;
+                        if (low) lowCount++;
+                        stockTableModel.addRow(new Object[]{
+                                ing.getId(), ing.getName(), ing.getUnit(),
+                                QTY_FMT.format(ing.getStockQuantity()),
+                                QTY_FMT.format(ing.getMinStockLevel()),
+                                low ? "🚨 CẢNH BÁO: SẮP HẾT HÀNG (Cần nhập gấp)" : "✅ Đủ dùng"
+                        });
+                    }
+                    if (lowCount > 0) {
+                        lblLowStockBanner.setText("🚨 CẢNH BÁO TỒN KHO: " + lowCount + " nguyên liệu chạm định mức!");
+                        lblLowStockBanner.setBackground(DANGER_RED);
+                    } else {
+                        lblLowStockBanner.setText("✅ Tồn kho an toàn: Không có nguyên liệu dưới định mức.");
+                        lblLowStockBanner.setBackground(SAFE_GREEN);
+                    }
+                    lblLowStockBanner.setForeground(Color.WHITE);
+                } catch (Exception ex) { showNetworkError(ex); }
+            }
+        }.execute();
     }
 
     private void loadRevenueStatistics() {
-        billTableModel.setRowCount(0);
-        List<BillDTO> bills = adminBUS.getAllBills();
+        new SwingWorker<List<BillDTO>, Void>() {
+            @Override protected List<BillDTO> doInBackground() {
+                return adminBUS.getAllBills();
+            }
+            @Override protected void done() {
+                if (!isDisplayable()) return;
+                try {
+                    List<BillDTO> bills = get();
+                    billTableModel.setRowCount(0);
+                    for (BillDTO b : bills) {
+                        billTableModel.addRow(new Object[]{
+                                "#" + b.getId(), "Phiên #" + b.getTableSessionId(),
+                                MONEY_FMT.format(b.getDiscount()), MONEY_FMT.format(b.getTax()),
+                                MONEY_FMT.format(b.getTotalAmount()),
+                                b.getPaymentMethod() == null ? "---" : b.getPaymentMethod().name(),
+                                b.getPaidAt() == null ? "---" : b.getPaidAt().format(TIME_FMT)
+                        });
+                    }
+                    lblCardTotalRevenue.setText(MONEY_FMT.format(adminBUS.calculateTotalRevenue(bills)));
+                    lblCardTotalBills.setText(bills.size() + " Hóa đơn");
+                    lblCardTotalDiscount.setText(MONEY_FMT.format(adminBUS.calculateTotalDiscount(bills)));
+                    lblCardTotalTax.setText(MONEY_FMT.format(adminBUS.calculateTotalTax(bills)));
+                } catch (Exception ex) { showNetworkError(ex); }
+            }
+        }.execute();
+    }
 
-        for (BillDTO b : bills) {
-            billTableModel.addRow(new Object[]{
-                    "#" + b.getId(),
-                    "Phiên #" + b.getTableSessionId(),
-                    MONEY_FMT.format(b.getDiscount()),
-                    MONEY_FMT.format(b.getTax()),
-                    MONEY_FMT.format(b.getTotalAmount()),
-                    b.getPaymentMethod().name(),
-                    b.getPaidAt() != null ? b.getPaidAt().format(TIME_FMT) : "---"
-            });
-        }
+    private void showNetworkError(Exception ex) {
+        Throwable cause = ex instanceof ExecutionException && ex.getCause() != null
+                ? ex.getCause() : ex;
+        CToast.error(this, "Lỗi giao tiếp server: " + cause.getMessage());
+    }
 
-        lblCardTotalRevenue.setText(MONEY_FMT.format(adminBUS.calculateTotalRevenue(bills)));
-        lblCardTotalBills.setText(bills.size() + " Hóa đơn");
-        lblCardTotalDiscount.setText(MONEY_FMT.format(adminBUS.calculateTotalDiscount(bills)));
-        lblCardTotalTax.setText(MONEY_FMT.format(adminBUS.calculateTotalTax(bills)));
+    private void performUpdate(String name, java.util.concurrent.Callable<Boolean> operation,
+                               Runnable refresh) {
+        new SwingWorker<Boolean, Void>() {
+            @Override protected Boolean doInBackground() throws Exception { return operation.call(); }
+            @Override protected void done() {
+                if (!isDisplayable()) return;
+                try {
+                    if (!Boolean.TRUE.equals(get())) throw new IllegalStateException("Server từ chối thao tác");
+                    CToast.success(AdminGUI.this, name + " thành công");
+                    if (refresh != null) refresh.run();
+                } catch (Exception ex) { showNetworkError(ex); }
+            }
+        }.execute();
     }
 
     private void handleAddFood() {
         try {
-            CategoryDTO selectedCat = (CategoryDTO) cboCategory.getSelectedItem();
-            Long catId = selectedCat != null ? selectedCat.getId() : null;
+            CategoryDTO cat = (CategoryDTO) cboCategory.getSelectedItem();
+            Long categoryId = cat == null ? null : cat.getId();
             BigDecimal price = new BigDecimal(txtPrice.getText().trim());
-
-            boolean ok = adminBUS.addNewFood(
-                    txtSku.getText(), catId, txtFoodName.getText(),
-                    price, txtCoverUrl.getText(), chkPublished.isSelected()
-            );
-            if (ok) {
-                JOptionPane.showMessageDialog(this, "Đã thêm món ăn mới vào thực đơn Bếp Nhà!");
-                loadCategoriesAndFoods();
-            } else {
-                JOptionPane.showMessageDialog(this, "Thêm thất bại (Kiểm tra trùng mã SKU)!", "Lỗi", JOptionPane.ERROR_MESSAGE);
-            }
-        } catch (NumberFormatException ex) {
-            JOptionPane.showMessageDialog(this, "Đơn giá không hợp lệ!");
-        }
+            String sku = txtSku.getText().trim();
+            String name = txtFoodName.getText().trim();
+            String url = txtCoverUrl.getText().trim();
+            boolean published = chkPublished.isSelected();
+            if (sku.isEmpty() || name.isEmpty() || categoryId == null || price.signum() < 0)
+                throw new IllegalArgumentException("SKU, tên, danh mục và giá không được để trống");
+            performUpdate("Thêm món", () -> adminBUS.addNewFood(sku, categoryId, name, price,
+                    url, published), this::loadCategoriesAndFoods);
+        } catch (RuntimeException ex) { CToast.error(this, "Thông tin món không hợp lệ: " + ex.getMessage()); }
     }
 
     private void handleUpdateFood() {
         int row = foodTable.getSelectedRow();
-        if (row == -1) {
-            JOptionPane.showMessageDialog(this, "Hãy chọn 1 món ăn trên bảng để cập nhật!");
-            return;
-        }
+        if (row < 0) { CToast.warning(this, "Hãy chọn món cần sửa"); return; }
         try {
-            Long foodId = (Long) foodTableModel.getValueAt(row, 0);
-            CategoryDTO selectedCat = (CategoryDTO) cboCategory.getSelectedItem();
-            Long catId = selectedCat != null ? selectedCat.getId() : null;
+            row = foodTable.convertRowIndexToModel(row);
+            Long id = (Long) foodTableModel.getValueAt(row, 0);
+            CategoryDTO cat = (CategoryDTO) cboCategory.getSelectedItem();
+            Long categoryId = cat == null ? null : cat.getId();
             BigDecimal price = new BigDecimal(txtPrice.getText().trim());
-
-            if (adminBUS.updateFood(foodId, txtFoodName.getText(), price, catId, chkPublished.isSelected())) {
-                JOptionPane.showMessageDialog(this, "Cập nhật món ăn #" + foodId + " thành công!");
-                loadCategoriesAndFoods();
-            }
-        } catch (NumberFormatException ex) {
-            JOptionPane.showMessageDialog(this, "Đơn giá không hợp lệ!");
-        }
+            String name = txtFoodName.getText().trim();
+            boolean published = chkPublished.isSelected();
+            if (name.isEmpty() || categoryId == null || price.signum() < 0)
+                throw new IllegalArgumentException("Tên, danh mục và giá không hợp lệ");
+            performUpdate("Cập nhật món", () -> adminBUS.updateFood(id, name, price,
+                    categoryId, published), this::loadCategoriesAndFoods);
+        } catch (RuntimeException ex) { CToast.error(this, "Thông tin món không hợp lệ: " + ex.getMessage()); }
     }
 
     private void handleDeleteFood() {
         int row = foodTable.getSelectedRow();
-        if (row == -1) {
-            JOptionPane.showMessageDialog(this, "Hãy chọn 1 món ăn cần xóa!");
-            return;
-        }
-        Long foodId = (Long) foodTableModel.getValueAt(row, 0);
-        String name = foodTableModel.getValueAt(row, 2).toString();
-
+        if (row < 0) { CToast.warning(this, "Hãy chọn món cần ẩn"); return; }
+        row = foodTable.convertRowIndexToModel(row);
+        Long id = (Long) foodTableModel.getValueAt(row, 0);
+        String name = String.valueOf(foodTableModel.getValueAt(row, 2));
         int confirm = JOptionPane.showConfirmDialog(this,
-                "Bạn có chắc muốn xóa mềm món '" + name + "'?\nMón ăn sẽ ẩn khỏi Tablet của khách nhưng vẫn giữ nguyên trong lịch sử hóa đơn cũ.",
-                "Xác nhận xóa mềm - Bếp Nhà", JOptionPane.YES_NO_OPTION);
-        if (confirm == JOptionPane.YES_OPTION && adminBUS.deleteFood(foodId)) {
-            loadCategoriesAndFoods();
-        }
+                "Ẩn món '" + name + "'? Món vẫn giữ trong lịch sử hóa đơn.",
+                "Xác nhận", JOptionPane.YES_NO_OPTION);
+        if (confirm == JOptionPane.YES_OPTION)
+            performUpdate("Ẩn món", () -> adminBUS.deleteFood(id), this::loadCategoriesAndFoods);
     }
 
     private void handleRestockSelectedIngredient() {
         int row = stockTable.getSelectedRow();
-        if (row == -1) {
-            JOptionPane.showMessageDialog(this, "Vui lòng chọn 1 nguyên liệu trong bảng để nhập thêm hàng!");
-            return;
-        }
-        Long ingId = (Long) stockTableModel.getValueAt(row, 0);
-        String ingName = stockTableModel.getValueAt(row, 1).toString();
-        String unit = stockTableModel.getValueAt(row, 2).toString();
-
-        String input = JOptionPane.showInputDialog(this,
-                "Nhập số lượng (" + unit + ") cần bổ sung vào kho cho [" + ingName + "]:", "10.0");
-        if (input != null && !input.trim().isEmpty()) {
-            try {
-                BigDecimal added = new BigDecimal(input.trim());
-                if (adminBUS.restockIngredient(ingId, added)) {
-                    JOptionPane.showMessageDialog(this, "Đã cộng thêm " + added + " " + unit + " vào kho [" + ingName + "]!");
-                    loadInventoryAndAlerts();
-                }
-            } catch (NumberFormatException ex) {
-                JOptionPane.showMessageDialog(this, "Số lượng nhập vào phải là số hợp lệ!");
-            }
-        }
+        if (row < 0) { CToast.warning(this, "Hãy chọn nguyên liệu cần nhập thêm"); return; }
+        row = stockTable.convertRowIndexToModel(row);
+        Long id = (Long) stockTableModel.getValueAt(row, 0);
+        String name = String.valueOf(stockTableModel.getValueAt(row, 1));
+        String unit = String.valueOf(stockTableModel.getValueAt(row, 2));
+        String input = JOptionPane.showInputDialog(this, "Nhập lượng " + unit + " cho [" + name + "]:", "10.0");
+        if (input == null) return;
+        try {
+            BigDecimal amount = new BigDecimal(input.trim());
+            if (amount.signum() <= 0) throw new IllegalArgumentException("Số lượng phải lớn hơn 0");
+            performUpdate("Nhập kho", () -> adminBUS.restockIngredient(id, amount), this::loadInventoryAndAlerts);
+        } catch (RuntimeException ex) { CToast.error(this, "Số lượng không hợp lệ: " + ex.getMessage()); }
     }
 
     private void handleCreateNewIngredient() {
-        JTextField txtName = new JTextField();
-        JTextField txtUnit = new JTextField("kg");
-        JTextField txtStock = new JTextField("20");
-        JTextField txtMin = new JTextField("5");
-
-        Object[] message = {
-                "Tên nguyên liệu:", txtName,
-                "Đơn vị tính (kg, gram, phần, gói):", txtUnit,
-                "Số lượng tồn ban đầu:", txtStock,
-                "Mức cảnh báo tối thiểu (min_stock_level):", txtMin
-        };
-
-        int option = JOptionPane.showConfirmDialog(this, message, "Khai Báo Nguyên Liệu Mới", JOptionPane.OK_CANCEL_OPTION);
-        if (option == JOptionPane.OK_OPTION) {
-            try {
-                adminBUS.addIngredient(
-                        txtName.getText(),
-                        txtUnit.getText(),
-                        new BigDecimal(txtStock.getText().trim()),
-                        new BigDecimal(txtMin.getText().trim())
-                );
-                loadInventoryAndAlerts();
-            } catch (Exception ex) {
-                JOptionPane.showMessageDialog(this, "Dữ liệu nhập không hợp lệ!");
-            }
-        }
+        JTextField name = new JTextField();
+        JTextField unit = new JTextField("kg");
+        JTextField stock = new JTextField("20");
+        JTextField min = new JTextField("5");
+        Object[] form = {"Tên nguyên liệu:", name, "Đơn vị tính:", unit,
+                "Tồn đầu kỳ:", stock, "Định mức tối thiểu:", min};
+        if (JOptionPane.showConfirmDialog(this, form, "Thêm nguyên liệu",
+                JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
+        try {
+            String n = name.getText().trim();
+            String u = unit.getText().trim();
+            BigDecimal initial = new BigDecimal(stock.getText().trim());
+            BigDecimal minimum = new BigDecimal(min.getText().trim());
+            if (n.isEmpty() || u.isEmpty() || initial.signum() < 0 || minimum.signum() < 0)
+                throw new IllegalArgumentException("Tên, đơn vị và lượng tồn không hợp lệ");
+            performUpdate("Thêm nguyên liệu", () -> adminBUS.addIngredient(n, u, initial, minimum),
+                    this::loadInventoryAndAlerts);
+        } catch (RuntimeException ex) { CToast.error(this, "Dữ liệu nhập không hợp lệ: " + ex.getMessage()); }
     }
 
     // LogoIcon đồng bộ 100% với AuthFrame
@@ -878,37 +917,89 @@ public class AdminGUI extends JFrame {
             FontMetrics fm = g2.getFontMetrics();
             g2.drawString("⌂", x + (42 - fm.stringWidth("⌂")) / 2, y + ((42 - fm.getHeight()) / 2) + fm.getAscent());
         }
-        @Override public int getIconWidth() { return 42; }
-        @Override public int getIconHeight() { return 42; }
+
+        @Override
+        public int getIconWidth() {
+            return 42;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return 42;
+        }
     }
 
     private Font getCustomFont(String fontName, int style, int size) {
         return new Font(fontName, style, size);
     }
 
-    /** Man hinh quan tri chi chay noi bo tren may Server/POS. */
+    /** Admin là client TCP độc lập, không trực tiếp truy cập database. */
     public static void showAdminLogin() {
-        JTextField account = new JTextField(24);
-        JPasswordField password = new JPasswordField(24);
-        JPanel form = new JPanel(new GridLayout(2, 2, 8, 8));
-        form.add(new JLabel("Email / SDT ADMIN:")); form.add(account);
-        form.add(new JLabel("Mat khau:")); form.add(password);
-        int result = JOptionPane.showConfirmDialog(null, form,
-                "Dang nhap ADMIN - May chu trung tam", JOptionPane.OK_CANCEL_OPTION,
-                JOptionPane.PLAIN_MESSAGE);
-        if (result != JOptionPane.OK_OPTION) return;
-        char[] typed = password.getPassword();
-        try {
-            UserDTO user = new bus.AuthBUS().login(account.getText().trim(), new String(typed));
-            if (!"ADMIN".equalsIgnoreCase(user.getRoleName()))
-                throw new SecurityException("Tai khoan nay khong co quyen ADMIN");
-            new AdminGUI(user).setVisible(true);
-        } catch (Exception ex) {
-            JOptionPane.showMessageDialog(null, "Dang nhap khong thanh cong hoac khong du quyen ADMIN.",
-                    "Tu choi truy cap", JOptionPane.ERROR_MESSAGE);
-        } finally {
-            java.util.Arrays.fill(typed, '\0');
-        }
+        JDialog dialog = new JDialog((Frame) null, "Đăng nhập quản trị — An Nhiên", true);
+        JPanel body = new JPanel(new BorderLayout(12, 12));
+        body.setBorder(new EmptyBorder(18, 22, 18, 22));
+        JPanel fields = new JPanel(new GridLayout(2, 2, 10, 10));
+        JTextField account = new JTextField(23);
+        JPasswordField password = new JPasswordField(23);
+        fields.add(new JLabel("Email / SĐT ADMIN:")); fields.add(account);
+        fields.add(new JLabel("Mật khẩu:")); fields.add(password);
+        JLabel feedback = new JLabel("Đăng nhập qua máy chủ TCP với tài khoản ADMIN.");
+        JButton signIn = new JButton("Đăng nhập");
+        JButton cancel = new JButton("Hủy");
+        cancel.addActionListener(e -> dialog.dispose());
+        JPanel footer = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        footer.add(cancel); footer.add(signIn);
+        signIn.addActionListener(e -> {
+            char[] pass = password.getPassword();
+            String user = account.getText().trim();
+            if (user.isEmpty() || pass.length == 0) {
+                java.util.Arrays.fill(pass, '\0');
+                feedback.setText("Vui lòng điền tài khoản và mật khẩu");
+                return;
+            }
+            String secret = new String(pass);
+            java.util.Arrays.fill(pass, '\0');
+            password.setText("");
+            signIn.setEnabled(false);
+            feedback.setText("Đang xác thực...");
+            new SwingWorker<Object[], Void>() {
+                @Override protected Object[] doInBackground() {
+                    SocketClient socket = new SocketClient();
+                    try {
+                        UserDTO admin = AuthBUS.loginWorkstation(socket, user, secret);
+                        if (!"ADMIN".equalsIgnoreCase(admin.getRoleName()))
+                            throw new SecurityException("Tài khoản không có quyền ADMIN");
+                        return new Object[]{admin, socket};
+                    } catch (RuntimeException ex) {
+                        socket.close();
+                        throw ex;
+                    }
+                }
+                @Override protected void done() {
+                    signIn.setEnabled(true);
+                    try {
+                        Object[] result = get();
+                        UserDTO admin = (UserDTO) result[0];
+                        SocketClient socket = (SocketClient) result[1];
+                        if (!dialog.isDisplayable()) { socket.close(); return; }
+                        dialog.dispose();
+                        new AdminGUI(admin, socket).setVisible(true);
+                    } catch (Exception ex) {
+                        Throwable cause = ex instanceof ExecutionException ? ex.getCause() : ex;
+                        feedback.setText(cause == null ? "Không đăng nhập được" : "Lỗi: " + cause.getMessage());
+                    }
+                }
+            }.execute();
+        });
+        body.add(feedback, BorderLayout.NORTH);
+        body.add(fields, BorderLayout.CENTER);
+        body.add(footer, BorderLayout.SOUTH);
+        dialog.setContentPane(body);
+        dialog.getRootPane().setDefaultButton(signIn);
+        dialog.pack();
+        dialog.setResizable(false);
+        dialog.setLocationRelativeTo(null);
+        dialog.setVisible(true);
     }
 
     public static void main(String[] args) {
