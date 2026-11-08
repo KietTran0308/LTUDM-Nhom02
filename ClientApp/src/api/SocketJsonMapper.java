@@ -292,6 +292,8 @@ public class SocketJsonMapper {
         OrderDTO o = new OrderDTO();
         if (obj.has("id") && !obj.isNull("id")) o.setId(obj.getLong("id"));
         o.setOrderCode(obj.optString("orderCode", ""));
+        if (obj.has("createdAt") && !obj.isNull("createdAt"))
+            o.setCreatedAt(java.time.LocalDateTime.parse(obj.getString("createdAt")));
         if (obj.has("parentOrderId") && !obj.isNull("parentOrderId")) o.setParentOrderId(obj.getLong("parentOrderId"));
         if (obj.has("tableId") && !obj.isNull("tableId")) o.setTableId(obj.getLong("tableId"));
         if (obj.has("tableSessionId") && !obj.isNull("tableSessionId"))

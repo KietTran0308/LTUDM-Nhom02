@@ -270,6 +270,10 @@ public class ClientTabletBUS {
         order.setOrderType(OrderType.DINE_IN);
         order.setStatus(OrderStatus.PENDING);
         order.setNote(buildOrderNote(itemNotes));
+        for (OrderItemDTO item : currentCart) {
+            String note = itemNotes == null ? null : itemNotes.get(item.getFoodsId());
+            item.setNote(note == null ? "" : note.trim());
+        }
         order.setItems(new ArrayList<>(currentCart));
 
         order.setTableSessionId(sessionId);

@@ -654,6 +654,8 @@ public class OrderDAO {
         OrderDTO order = new OrderDTO();
         order.setId(nullableLong(rs, "id"));
         order.setOrderCode(rs.getString("order_code"));
+        Timestamp createdAt = rs.getTimestamp("created_at");
+        if (createdAt != null) order.setCreatedAt(createdAt.toLocalDateTime());
         order.setParentOrderId(nullableLong(rs, "parent_order_id"));
         order.setUserId(nullableLong(rs, "user_id"));
         order.setTableId(nullableLong(rs, "table_id"));
