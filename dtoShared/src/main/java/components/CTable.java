@@ -15,7 +15,7 @@ import java.util.ArrayList;
 public class CTable extends JPanel {
 
     private static final String[] COLUMNS = {
-            "Mã Món Trong Đơn", "Tên Món Ăn", "Số Lượng", "Trạng Thái Bếp"
+            "Mã món", "Tên món ăn", "Số phần", "Ghi chú", "Tiến độ món"
     };
 
     private final DefaultTableModel tableModel;
@@ -57,6 +57,7 @@ public class CTable extends JPanel {
 
     /** Làm mới dữ liệu khi server gửi trạng thái đơn mới. */
     public void updateTrackedItems(List<OrderItemDTO> items) {
+        Long selectedId = getSelectedOrderItemId();
         tableModel.setRowCount(0);
         rowItemIds.clear();
         if (items == null) return;
@@ -67,8 +68,16 @@ public class CTable extends JPanel {
                     item.getId() != null ? "#" + item.getId() : "---",
                     item.getFoodsName(),
                     item.getQuantity(),
+                    item.getNote(),
                     formatStatusVietnamese(item.getStatus())
             });
+        }
+        if (selectedId != null) {
+            int row = rowItemIds.indexOf(selectedId);
+            if (row >= 0) {
+                int viewRow = table.convertRowIndexToView(row);
+                if (viewRow >= 0) table.setRowSelectionInterval(viewRow, viewRow);
+            }
         }
     }
 
@@ -86,12 +95,12 @@ public class CTable extends JPanel {
     }
 
     private static String formatStatusVietnamese(OrderStatus status) {
-        if (status == null) return "⏳ Chờ xác nhận";
+        if (status == null) return "Chờ bếp nhận";
         switch (status) {
-            case PENDING: return "⏳ Chờ xác nhận";
+            case PENDING: return "Chờ bếp nhận";
             case RECEIVED: return "📥 Bếp đã nhận";
             case COOKING: return "🔥 Đang chế biến";
-            case COMPLETED: return "🛎️ Đã nấu xong";
+            case COMPLETED: return "Nấu xong — chờ phục vụ";
             case SERVED: return "✅ Đã lên món";
             case CANCELLED: return "❌ Đã hủy";
             default: return status.name();

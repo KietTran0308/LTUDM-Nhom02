@@ -280,6 +280,7 @@ public class SocketJsonMapper {
                 itemObj.put("quantity", item.getQuantity());
                 itemObj.put("lineTotal", item.getLineTotal());
                 if (item.getStatus() != null) itemObj.put("status", item.getStatus().name());
+                if (item.getNote() != null) itemObj.put("note", item.getNote());
                 arr.put(itemObj);
             }
         }
@@ -291,6 +292,8 @@ public class SocketJsonMapper {
         OrderDTO o = new OrderDTO();
         if (obj.has("id") && !obj.isNull("id")) o.setId(obj.getLong("id"));
         o.setOrderCode(obj.optString("orderCode", ""));
+        if (obj.has("createdAt") && !obj.isNull("createdAt"))
+            o.setCreatedAt(java.time.LocalDateTime.parse(obj.getString("createdAt")));
         if (obj.has("parentOrderId") && !obj.isNull("parentOrderId")) o.setParentOrderId(obj.getLong("parentOrderId"));
         if (obj.has("tableId") && !obj.isNull("tableId")) o.setTableId(obj.getLong("tableId"));
         if (obj.has("tableSessionId") && !obj.isNull("tableSessionId"))
@@ -317,7 +320,10 @@ public class SocketJsonMapper {
                     obj.optBigDecimal("unitPrice", BigDecimal.ZERO),
                     obj.optInt("quantity", 1),
                     obj.optBigDecimal("lineTotal", BigDecimal.ZERO),
-                    OrderStatus.valueOf(obj.optString("status", "PENDING"))
+                    OrderStatus.valueOf(obj.optString("status", "PENDING")),
+                    obj.has("note") && !obj.isNull("note") ? obj.getString("note") : null,
+                    readDateTime(obj, "updatedAt"),
+                    readDateTime(obj, "completedAt")
             ));
         }
         return list;
@@ -370,6 +376,11 @@ public class SocketJsonMapper {
             list.add(t);
         }
         return list;
+    }
+
+    private static java.time.LocalDateTime readDateTime(JSONObject obj, String key) {
+        if (!obj.has(key) || obj.isNull(key)) return null;
+        return java.time.LocalDateTime.parse(obj.getString(key));
     }
 
     private static JSONObject billToJson(BillDTO b) {

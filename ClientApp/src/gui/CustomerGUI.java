@@ -85,7 +85,6 @@ public class CustomerGUI extends JFrame {
 
     private JPanel cartItemsListPanel;
     private JLabel lblCartDetailTotal;
-    private CTextField txtVoucher;
 
     /**
      * Chỉ gọi SAU KHI StaffGUI nhận ACK ENTER_CUSTOMER_MODE từ Server.
@@ -367,7 +366,7 @@ public class CustomerGUI extends JFrame {
         topBrandBox.add(Box.createVerticalStrut(22));
         topBrandBox.add(tableBadge);
 
-        categoryListPanel = new JPanel();
+        categoryListPanel = new CategoryListPanel();
         categoryListPanel.setLayout(new BoxLayout(categoryListPanel, BoxLayout.Y_AXIS));
         categoryListPanel.setOpaque(false);
 
@@ -423,21 +422,50 @@ public class CustomerGUI extends JFrame {
         }
 
         sidebar.add(topBrandBox, BorderLayout.NORTH);
-        sidebar.add(categoryListPanel, BorderLayout.CENTER);
+        sidebar.add(createCategoryScrollPane(categoryListPanel), BorderLayout.CENTER);
         sidebar.add(sidebarActions, BorderLayout.SOUTH);
 
         add(sidebar, BorderLayout.WEST);
     }
 
+    // Danh mục cuộn độc lập; các nút gọi nhân viên/tính tiền vẫn cố định.
+    private static JScrollPane createCategoryScrollPane(JPanel categories) {
+        JScrollPane scroll = new JScrollPane(categories,
+                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
+                JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.setVerticalScrollBar(new CScrollBar());
+        scroll.getVerticalScrollBar().setUnitIncrement(24);
+        scroll.setWheelScrollingEnabled(true);
+        scroll.setMinimumSize(new Dimension(0, 0));
+        return scroll;
+    }
+
+    private static class CategoryListPanel extends JPanel implements Scrollable {
+        @Override public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+        @Override public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) {
+            return 24;
+        }
+        @Override public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction) {
+            return Math.max(24, visible.height - 44);
+        }
+        @Override public boolean getScrollableTracksViewportWidth() { return true; }
+        @Override public boolean getScrollableTracksViewportHeight() { return false; }
+    }
+
     private void requestService(String title, String message) {
         if (tabletBUS == null || !tabletBUS.isServerConnected()) {
             CToast.show(this,
-                    "Chưa kết nối ServerApp. Vui lòng báo trực tiếp với nhân viên.",
+                    "Mất kết nối. Vui lòng thử lại hoặc gọi nhân viên.",
                     title, CToast.WARNING);
             return;
         }
         if (tabletBUS.callStaffSupport(message)) {
-            CToast.info(this, "Yêu cầu đã gửi qua Socket; đang chờ Server xác nhận.");
+            CToast.info(this, "Đang gửi yêu cầu. Vui lòng đợi phản hồi.");
         } else {
             CToast.warning(this, "Chưa xác thực phiên bàn hoặc mất kết nối.");
         }
@@ -445,20 +473,20 @@ public class CustomerGUI extends JFrame {
 
     private void showSessionBill(OrderDTO bill) {
         if (bill == null) {
-            CToast.info(this, "Phien ban chua co don goi mon.");
+            CToast.info(this, "Bàn chưa có món đã gọi.");
             return;
         }
         StringBuilder lines = new StringBuilder();
-        lines.append("TAM TINH BAN #").append(currentTableId).append("\n\n");
+        lines.append("TẠM TÍNH CẢ BÀN #").append(currentTableId).append("\n\n");
         if (bill.getItems() != null) for (OrderItemDTO item : bill.getItems()) {
             lines.append(item.getFoodsName()).append(" x ").append(item.getQuantity())
                     .append(" = ").append(MONEY_FORMAT.format(item.getLineTotal())).append("\n");
         }
-        lines.append("\nTAM TINH: ").append(MONEY_FORMAT.format(bill.getTotalAmount()));
-        lines.append("\nThanh toan chinh thuc tai POS cua thu ngan.");
+        lines.append("\nTẠM TÍNH CẢ BÀN: ").append(MONEY_FORMAT.format(bill.getTotalAmount()));
+        lines.append("\nVui lòng liên hệ nhân viên để thanh toán tại quầy.");
         JTextArea details = new JTextArea(lines.toString(), 18, 44);
         details.setEditable(false);
-        JDialog dlg = new JDialog(this, "Hoa don tam tinh", false);
+        JDialog dlg = new JDialog(this, "Hóa đơn tạm tính", false);
         dlg.add(new JScrollPane(details));
         dlg.pack();
         dlg.setLocationRelativeTo(this);
@@ -518,7 +546,9 @@ public class CustomerGUI extends JFrame {
         btn.setContentAreaFilled(false);
         btn.setFocusPainted(false);
         btn.setBorder(new EmptyBorder(12, 16, 12, 16));
-        btn.setMaximumSize(new Dimension(210, 44));
+        btn.setPreferredSize(new Dimension(190, 44));
+        btn.setMinimumSize(new Dimension(0, 44));
+        btn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
         btn.setAlignmentX(Component.LEFT_ALIGNMENT);
         btn.setHorizontalAlignment(SwingConstants.LEFT);
         btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
@@ -541,7 +571,7 @@ public class CustomerGUI extends JFrame {
         topBanner.setBackground(Color.WHITE);
         topBanner.setBorder(new EmptyBorder(16, 26, 14, 26));
 
-        btnTrackOrderTop = new JButton("📋 Theo Dõi Đơn Bếp (0)") {
+        btnTrackOrderTop = new JButton("Món đã gọi (0 phần)") {
             @Override
             protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g;
@@ -603,7 +633,7 @@ public class CustomerGUI extends JFrame {
         headerInfo.add(btnMemberAccount);
 
 // Số món đã gửi
-        lblSentItems = new JLabel("Đã gửi bếp: 0 món");
+        lblSentItems = new JLabel("Đã gọi: 0 dòng món / 0 phần");
         lblSentItems.setFont(Utils.getCustomFont(
                 "Inter", Font.PLAIN, 13));
         lblSentItems.setForeground(Utils.TEXT_MUTED);
@@ -727,19 +757,10 @@ public class CustomerGUI extends JFrame {
         checkoutCard.setOpaque(false);
         checkoutCard.setBorder(new EmptyBorder(16, 22, 16, 22));
 
-        JPanel voucherBox = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
-        voucherBox.setOpaque(false);
-        JLabel lblVoucher = new JLabel("Mã ưu đãi (Voucher):");
-        lblVoucher.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 14));
-        lblVoucher.setForeground(Utils.TEXT_DARK);
-        txtVoucher = new CTextField("Nhập mã giảm giá (nếu có)...", 280, 42);
-        voucherBox.add(lblVoucher);
-        voucherBox.add(txtVoucher);
-
         JPanel submitBox = new JPanel(new FlowLayout(FlowLayout.RIGHT, 20, 0));
         submitBox.setOpaque(false);
 
-        lblCartDetailTotal = new JLabel("Tổng tạm tính: 0 VNĐ");
+        lblCartDetailTotal = new JLabel("Tạm tính lượt gọi này: 0 VNĐ");
         lblCartDetailTotal.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 20));
         lblCartDetailTotal.setForeground(Utils.TERRACOTTA);
 
@@ -878,9 +899,9 @@ public class CustomerGUI extends JFrame {
         barContent.setCursor(new Cursor(Cursor.HAND_CURSOR));
         barContent.setToolTipText("Bấm để xem hoặc thu gọn giỏ hàng");
 
-        lblSummaryCountBadge = createTerracottaBadge("🛒 0 món", 5, 9);
+        lblSummaryCountBadge = createTerracottaBadge("🛒 0 phần", 5, 9);
 
-        lblSummaryTotalMoney = new JLabel("Tổng: 0 VNĐ");
+        lblSummaryTotalMoney = new JLabel("Giỏ chưa gửi: 0 VNĐ");
         lblSummaryTotalMoney.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 13));
         lblSummaryTotalMoney.setForeground(new Color(253, 224, 71));
 
@@ -1131,7 +1152,7 @@ public class CustomerGUI extends JFrame {
             CButton btnAdd = new CButton("+ Chọn Món", cardWidth - 24, 38);
             btnAdd.addActionListener(e -> {
                 if (awaitingOrderConfirmation) {
-                    CToast.warning(this, "Đang chờ bếp xác nhận đơn trước. Vui lòng kiểm tra đơn đã gửi.");
+                    CToast.warning(this, "Đang gửi yêu cầu gọi món. Vui lòng đợi phản hồi.");
                     return;
                 }
                 tabletBUS.addFoodToCart(food);
@@ -1232,7 +1253,7 @@ public class CustomerGUI extends JFrame {
 
     private void changeFoodQuantity(Long foodId, int delta) {
         if (awaitingOrderConfirmation) {
-            CToast.warning(this, "Đơn đang chờ bếp xác nhận. Vui lòng đợi phản hồi trước khi sửa giỏ.");
+            CToast.warning(this, "Đang gửi yêu cầu gọi món. Vui lòng đợi phản hồi trước khi sửa giỏ.");
             return;
         }
         tabletBUS.updateCartQuantity(foodId, delta);
@@ -1250,11 +1271,11 @@ public class CustomerGUI extends JFrame {
 
         int totalQuantity = tabletBUS.getTotalCartQuantity();
         String formattedSubtotal = MONEY_FORMAT.format(tabletBUS.calculateCartSubtotal());
-        lblCartDetailTotal.setText("Tổng tạm tính: " + formattedSubtotal);
+        lblCartDetailTotal.setText("Tạm tính lượt gọi này: " + formattedSubtotal);
 
         if (totalQuantity > 0) {
-            lblSummaryCountBadge.setText("🛒 " + totalQuantity + " món");
-            lblSummaryTotalMoney.setText("Tổng: " + formattedSubtotal);
+            lblSummaryCountBadge.setText("🛒 " + totalQuantity + " phần");
+            lblSummaryTotalMoney.setText("Giỏ chưa gửi: " + formattedSubtotal);
             summaryCartWrapper.setVisible(true);
         } else {
             summaryCartWrapper.setVisible(false);
@@ -1368,21 +1389,21 @@ public class CustomerGUI extends JFrame {
         List<OrderItemDTO> tracked = tabletBUS.getTrackedItems();
 
         trackTable.updateTrackedItems(tracked);
-        trackTable.getTable().clearSelection();
-
         if (btnRequestCancelSupport != null) {
-            btnRequestCancelSupport.setEnabled(false);
+            btnRequestCancelSupport.setEnabled(tabletBUS.canRequestCancelOrEdit(getSelectedTrackedItem()));
         }
-
-        if (lblSentItems != null) {
-            lblSentItems.setText(
-                    "Đã gửi bếp: " + tracked.size() + " món");
+        int activeLines = 0;
+        int portions = 0;
+        int cancelled = 0;
+        for (OrderItemDTO item : tracked) {
+            if (item.getStatus() == OrderStatus.CANCELLED) { cancelled++; continue; }
+            activeLines++;
+            if (item.getQuantity() != null) portions += item.getQuantity();
         }
-
-        if (btnTrackOrderTop != null) {
-            btnTrackOrderTop.setText(
-                    "📋 Đơn đã gửi (" + tracked.size() + " món)");
-        }
+        String summary = activeLines + " dòng món / " + portions + " phần"
+                + (cancelled > 0 ? " · " + cancelled + " dòng đã hủy" : "");
+        if (lblSentItems != null) lblSentItems.setText("Đã gọi: " + summary);
+        if (btnTrackOrderTop != null) btnTrackOrderTop.setText("Món đã gọi (" + portions + " phần)");
     }
 
     private JButton createOutlineButton(String text) {
@@ -1407,7 +1428,7 @@ public class CustomerGUI extends JFrame {
         if (awaitingOrderConfirmation) return;
         if (!tabletBUS.isServerConnected()) {
             CToast.show(this,
-                    "Không thể gửi đơn khi chưa kết nối bếp. Vui lòng kiểm tra ServerApp.",
+                    "Mất kết nối. Vui lòng thử lại hoặc gọi nhân viên.",
                     "Chưa kết nối", CToast.WARNING);
             return;
         }
@@ -1415,23 +1436,18 @@ public class CustomerGUI extends JFrame {
         int quantity = tabletBUS.getTotalCartQuantity();
         int confirm = JOptionPane.showConfirmDialog(this,
                 "Bàn #" + currentTableId + " — " + quantity + " phần món\n"
-                        + "Tạm tính: " + MONEY_FORMAT.format(tabletBUS.calculateCartSubtotal()) + "\n\n"
+                        + "Tạm tính lượt gọi này: " + MONEY_FORMAT.format(tabletBUS.calculateCartSubtotal()) + "\n\n"
                         + "Xác nhận gửi xuống bếp? Sau khi gửi, nếu muốn hủy/sửa món bạn cần liên hệ nhân viên.",
                 "Xác nhận gọi món", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
         if (confirm != JOptionPane.YES_OPTION) return;
 
-        String voucher = txtVoucher.getText().trim();
-        if (voucher.equals("Nhập mã giảm giá (nếu có)...")) {
-            voucher = "";
-        }
-
-        if (tabletBUS.submitOrderToServer(voucher, new HashMap<>(itemNotesMap))) {
+        if (tabletBUS.submitOrderToServer("", new HashMap<>(itemNotesMap))) {
             awaitingOrderConfirmation = true;
             btnSendKitchen.setEnabled(false);
-            btnSendKitchen.setText("Đang chờ xác nhận...");
+            btnSendKitchen.setText("Đang gửi yêu cầu...");
         } else {
             CToast.show(this,
-                    "Chưa kết nối được với ServerApp (Port 8888)!\nHãy khởi động ServerApp.Main trước.",
+                    "Mất kết nối. Vui lòng thử lại hoặc gọi nhân viên.",
                     "Lỗi Kết Nối Mạng", CToast.ERROR);
         }
     }
@@ -1627,8 +1643,7 @@ public class CustomerGUI extends JFrame {
 
     private OrderItemDTO getSelectedTrackedItem() {
         if (trackTable == null || tabletBUS == null) return null;
-        int row = trackTable.getTable().getSelectedRow();
-        return tabletBUS.getTrackedItemAt(row);
+        return tabletBUS.getTrackedItemById(trackTable.getSelectedOrderItemId());
     }
 
     public static void main(String[] args) {

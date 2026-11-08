@@ -268,6 +268,7 @@ public class SocketJsonMapper {
                         itemObj.optBigDecimal("lineTotal", BigDecimal.ZERO),
                         OrderStatus.PENDING
                 ));
+                items.get(items.size() - 1).setNote(itemObj.optString("note", ""));
             }
         }
         o.setItems(items);
@@ -278,6 +279,7 @@ public class SocketJsonMapper {
         JSONObject obj = new JSONObject();
         if (o.getId() != null) obj.put("id", o.getId());
         if (o.getOrderCode() != null) obj.put("orderCode", o.getOrderCode());
+        if (o.getCreatedAt() != null) obj.put("createdAt", o.getCreatedAt().toString());
         if (o.getParentOrderId() != null) obj.put("parentOrderId", o.getParentOrderId());
         if (o.getTableId() != null) obj.put("tableId", o.getTableId());
         if (o.getTableSessionId() != null) obj.put("tableSessionId", o.getTableSessionId());
@@ -307,6 +309,7 @@ public class SocketJsonMapper {
                 if (item.getOrderId() != null) obj.put("orderId", item.getOrderId());
                 if (item.getFoodsId() != null) obj.put("foodsId", item.getFoodsId());
                 obj.put("foodsName", item.getFoodsName());
+                if (item.getNote() != null) obj.put("note", item.getNote());
                 obj.put("unitPrice", item.getUnitPrice());
                 obj.put("quantity", item.getQuantity());
                 obj.put("lineTotal", item.getLineTotal());
