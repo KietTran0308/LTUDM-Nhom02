@@ -9,15 +9,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Đặt tại: ClientApp -> package api
- * Chuyên đóng gói Request (Client -> Server) và giải mã Response (Server -> Client)
- */
 public class SocketJsonMapper {
 
-    // =========================================================================
-    // 1. CHIỀU CLIENT GỬI LÊN SERVER (REQUEST -> JSON)
-    // =========================================================================
+    // CLIENT GỬI GÓI TIN
     public static String toJsonString(SocketPacket packet) {
         JSONObject root = new JSONObject();
         root.put("action", packet.getAction().name());
@@ -32,8 +26,7 @@ public class SocketJsonMapper {
                 break;
 
             case CONFIRM_PASSWORD_RESET:
-                if (data instanceof Map<?, ?>) {
-                    Map<?, ?> payload = (Map<?, ?>) data;
+                if (data instanceof Map<?, ?> payload) {
                     JSONObject body = new JSONObject();
                     body.put("email", payload.get("email"));
                     body.put("otp", payload.get("otp"));
@@ -42,22 +35,37 @@ public class SocketJsonMapper {
                 }
                 break;
 
-            case LOGIN_STAFF:
-            case LOGIN:
+            case LOGIN_STAFF, LOGIN:
                 if (data != null) root.put("data", data.toString());           // emailOrPhone
                 if (extraData != null) root.put("extraData", extraData.toString()); // password
                 break;
 
-            case REGISTER:
-                if (data instanceof UserDTO) {
-                    root.put("data", userToJson((UserDTO) data));
-                }
-                break;
+            case ORDER_SUBMIT, PLACE_ORDER:
+                if (data instanceof OrderDTO o) {
+                    JSONObject obj = new JSONObject();
+                    if (o.getUserId() != null) obj.put("userId", o.getUserId());
+                    if (o.getTableId() != null) obj.put("tableId", o.getTableId());
+                    if (o.getTableSessionId() != null) obj.put("tableSessionId", o.getTableSessionId());
+                    if (o.getOrderType() != null) obj.put("orderType", o.getOrderType().name());
+                    if (o.getStatus() != null) obj.put("status", o.getStatus().name());
+                    if (o.getNote() != null) obj.put("note", o.getNote());
 
-            case ORDER_SUBMIT:
-            case PLACE_ORDER:
-                if (data instanceof OrderDTO) {
-                    root.put("data", orderToJson((OrderDTO) data));
+                    JSONArray arr = new JSONArray();
+                    if (o.getItems() != null) {
+                        for (OrderItemDTO item : o.getItems()) {
+                            JSONObject itemObj = new JSONObject();
+                            itemObj.put("foodsId", item.getFoodsId());
+                            itemObj.put("foodsName", item.getFoodsName());
+                            itemObj.put("unitPrice", item.getUnitPrice());
+                            itemObj.put("quantity", item.getQuantity());
+                            itemObj.put("lineTotal", item.getLineTotal());
+                            if (item.getStatus() != null) itemObj.put("status", item.getStatus().name());
+                            if (item.getNote() != null) itemObj.put("note", item.getNote());
+                            arr.put(itemObj);
+                        }
+                    }
+                    obj.put("items", arr);
+                    root.put("data", obj);
                 }
                 if (extraData != null) {
                     root.put("extraData", extraData.toString()); // voucherCode
@@ -72,31 +80,78 @@ public class SocketJsonMapper {
                 if (data != null) root.put("data", data.toString()); // session token
                 break;
 
-            case UPDATE_ITEM_STATUS:
-            case MARK_ITEM_SERVED:
-            case SET_KITCHEN_ITEM_STATUS:
+            case UPDATE_ITEM_STATUS, MARK_ITEM_SERVED, SET_KITCHEN_ITEM_STATUS:
                 if (data != null) root.put("data", data);  // itemId
                 if (extraData instanceof OrderStatus) root.put("extraData", ((OrderStatus) extraData).name());
                 break;
 
-            case CALL_STAFF:
-                if (data != null) root.put("data", data.toString()); // Nội dung gọi nhân viên
-                break;
-
             case PAY_TABLE_BILL:
-                if (data instanceof BillDTO) root.put("data", billToJson((BillDTO) data));
+                if (data instanceof BillDTO b) {
+                    JSONObject obj = new JSONObject();
+                    if (b.getTableSessionId() != null) obj.put("tableSessionId", b.getTableSessionId());
+                    obj.put("totalAmount", b.getTotalAmount());
+                    obj.put("discount", b.getDiscount());
+                    obj.put("tax", b.getTax());
+                    if (b.getPaymentMethod() != null) obj.put("paymentMethod", b.getPaymentMethod().name());
+                    root.put("data", obj);
+                }
                 break;
 
             case ADMIN_ADD_FOOD:
             case ADMIN_UPDATE_FOOD:
-                if (data instanceof FoodDTO) root.put("data", foodToJson((FoodDTO) data));
+                if (data instanceof FoodDTO f) {
+                    JSONObject obj = new JSONObject();
+                    if (f.getId() != null) obj.put("id", f.getId());
+                    if (f.getCategoryId() != null) obj.put("categoryId", f.getCategoryId());
+                    if (f.getSku() != null) obj.put("sku", f.getSku());
+                    if (f.getName() != null) obj.put("name", f.getName());
+                    if (f.getPrice() != null) obj.put("price", f.getPrice());
+                    if (f.getCoverImageUrl() != null) obj.put("coverImageUrl", f.getCoverImageUrl());
+                    if (f.getIsPublished() != null) obj.put("isPublished", f.getIsPublished());
+                    root.put("data", obj);
+                }
                 break;
+
             case ADMIN_ADD_INGREDIENT:
             case ADMIN_RESTOCK_INGREDIENT:
-                if (data instanceof IngredientDTO) root.put("data", ingredientToJson((IngredientDTO) data));
+                if (data instanceof IngredientDTO ing) {
+                    JSONObject obj = new JSONObject();
+                    if (ing.getId() != null) obj.put("id", ing.getId());
+                    if (ing.getName() != null) obj.put("name", ing.getName());
+                    if (ing.getUnit() != null) obj.put("unit", ing.getUnit());
+                    if (ing.getStockQuantity() != null) obj.put("stockQuantity", ing.getStockQuantity());
+                    if (ing.getMinStockLevel() != null) obj.put("minStockLevel", ing.getMinStockLevel());
+                    root.put("data", obj);
+                }
                 break;
+
             case ADMIN_DELETE_FOOD:
                 if (data instanceof Long) root.put("data", data);
+                break;
+
+            case ADMIN_GET_ACCOUNTS:
+                if (data instanceof List) {
+                    JSONArray arr = new JSONArray();
+                    for (Object item : (List<?>) data) {
+                        if (item instanceof UserDTO) {
+                            arr.put(userToJson((UserDTO) item));
+                        }
+                    }
+                    root.put("data", arr);
+                }
+                break;
+
+            case ADMIN_CREATE_ACCOUNT:
+            case ADMIN_UPDATE_ACCOUNT:
+                if (data instanceof UserDTO) {
+                    root.put("data", userToJson((UserDTO) data));
+                }
+                break;
+
+            case ADMIN_LOCK_ACCOUNT:
+                if (data instanceof Long) {
+                    root.put("data", data);
+                }
                 break;
 
             default:
@@ -107,9 +162,7 @@ public class SocketJsonMapper {
         return root.toString();
     }
 
-    // =========================================================================
-    // 2. CHIỀU CLIENT NHẬN TỪ SERVER VỀ (JSON -> RESPONSE PACKET)
-    // =========================================================================
+    // NHẬN GÓI TIN
     public static SocketPacket fromJsonString(String rawJson) {
         JSONObject root = new JSONObject(rawJson);
 
@@ -123,9 +176,7 @@ public class SocketJsonMapper {
 
         if (success) {
             switch (action) {
-                case LOGIN_STAFF:
-                case LOGIN:
-                case REGISTER:
+                case LOGIN_STAFF, LOGIN, REGISTER:
                     if (root.has("data") && !root.isNull("data")) {
                         data = jsonToUser(root.getJSONObject("data"));
                     }
@@ -144,9 +195,7 @@ public class SocketJsonMapper {
                     }
                     break;
 
-                case ORDER_SUBMIT:
-                case ORDER_CREATED:
-                case PLACE_ORDER:
+                case ORDER_SUBMIT, ORDER_CREATED, PLACE_ORDER:
                     if (root.has("data") && !root.isNull("data")) {
                         data = jsonToOrder(root.getJSONObject("data"));
                     }
@@ -161,8 +210,7 @@ public class SocketJsonMapper {
                     }
                     break;
 
-                case ITEM_STATUS_CHANGED:
-                case KITCHEN_UPDATE_STATUS:
+                case ITEM_STATUS_CHANGED, KITCHEN_UPDATE_STATUS:
                     if (root.has("data") && !root.isNull("data")) {
                         data = root.getLong("data"); // orderItemId
                     }
@@ -171,24 +219,33 @@ public class SocketJsonMapper {
                     }
                     break;
 
-                case UPDATE_ITEM_STATUS:
-                case MARK_ITEM_SERVED:
-                case SET_KITCHEN_ITEM_STATUS:
+                case UPDATE_ITEM_STATUS, MARK_ITEM_SERVED, SET_KITCHEN_ITEM_STATUS:
                     if (root.has("data") && !root.isNull("data")) data = root.getLong("data");
                     if (root.has("extraData") && !root.isNull("extraData"))
                         extraData = OrderStatus.valueOf(root.getString("extraData"));
                     break;
+
                 case CALL_STAFF:
                     data = root.optString("data", "");
                     break;
-                case ENTER_CUSTOMER_MODE:
-                case ORDER_COMPLETED:
-                case SESSION_CLOSED:
+
+                case MEMBER_LOGIN:
+                    if (root.has("data") && !root.isNull("data")) {
+                        data = jsonToUser(root.getJSONObject("data"));
+                    }
+                    break;
+
+                case MEMBER_PROFILE, MEMBER_HISTORY:
+                    data = root.optString("data", "");
+                    break;
+
+                case MEMBER_LOGOUT:
+                    break;
+
+                case ENTER_CUSTOMER_MODE, ORDER_COMPLETED, SESSION_CLOSED, OPEN_TABLE_SESSION:
                     if (root.has("data") && !root.isNull("data")) data = root.getLong("data");
                     break;
-                case OPEN_TABLE_SESSION:
-                    if (root.has("data") && !root.isNull("data")) data = root.getLong("data");
-                    break;
+
                 case GET_KITCHEN_QUEUE:
                     data = new ArrayList<OrderDTO>();
                     if (root.has("data") && !root.isNull("data")) {
@@ -198,11 +255,21 @@ public class SocketJsonMapper {
                         data = orders;
                     }
                     break;
-                case LIST_TABLES:
-                case GET_ALL_TABLES:
-                case PAY_TABLE_BILL:
+
+                case LIST_TABLES, GET_ALL_TABLES, PAY_TABLE_BILL:
                     if (root.has("data") && !root.isNull("data")) {
-                        data = jsonArrayToTableList(root.getJSONArray("data"));
+                        JSONArray arr = root.getJSONArray("data");
+                        List<TableDTO> tables = new ArrayList<>();
+                        for (int i = 0; i < arr.length(); i++) {
+                            JSONObject obj = arr.getJSONObject(i);
+                            TableDTO t = new TableDTO(obj.getLong("id"), obj.optString("tableName", ""),
+                                    obj.optInt("capacity", 4), obj.optBoolean("status", true));
+                            t.setFloorNumber(obj.optInt("floorNumber", 1));
+                            if (obj.has("activeSessionId") && !obj.isNull("activeSessionId"))
+                                t.setActiveSessionId(obj.getLong("activeSessionId"));
+                            tables.add(t);
+                        }
+                        data = tables;
                     }
                     break;
 
@@ -210,23 +277,70 @@ public class SocketJsonMapper {
                     if (root.has("data") && !root.isNull("data"))
                         data = jsonArrayToFoodList(root.getJSONArray("data"));
                     break;
+
                 case ADMIN_GET_CATEGORIES:
                     if (root.has("data") && !root.isNull("data"))
                         data = jsonArrayToCategoryList(root.getJSONArray("data"));
                     break;
+
                 case ADMIN_GET_INGREDIENTS:
-                    if (root.has("data") && !root.isNull("data"))
-                        data = jsonArrayToIngredientList(root.getJSONArray("data"));
+                    if (root.has("data") && !root.isNull("data")) {
+                        JSONArray arr = root.getJSONArray("data");
+                        List<IngredientDTO> ingredients = new ArrayList<>();
+                        for (int i = 0; i < arr.length(); i++) {
+                            JSONObject obj = arr.getJSONObject(i);
+                            IngredientDTO ing = new IngredientDTO();
+                            if (obj.has("id") && !obj.isNull("id")) ing.setId(obj.getLong("id"));
+                            ing.setName(obj.optString("name", ""));
+                            ing.setUnit(obj.optString("unit", ""));
+                            ing.setStockQuantity(obj.optBigDecimal("stockQuantity", BigDecimal.ZERO));
+                            ing.setMinStockLevel(obj.optBigDecimal("minStockLevel", BigDecimal.ZERO));
+                            ingredients.add(ing);
+                        }
+                        data = ingredients;
+                    }
                     break;
+
                 case ADMIN_GET_BILLS:
-                    if (root.has("data") && !root.isNull("data"))
-                        data = jsonArrayToBillList(root.getJSONArray("data"));
+                    if (root.has("data") && !root.isNull("data")) {
+                        JSONArray arr = root.getJSONArray("data");
+                        List<BillDTO> bills = new ArrayList<>();
+                        for (int i = 0; i < arr.length(); i++) {
+                            JSONObject obj = arr.getJSONObject(i);
+                            BillDTO b = new BillDTO();
+                            if (obj.has("id") && !obj.isNull("id")) b.setId(obj.getLong("id"));
+                            if (obj.has("tableSessionId") && !obj.isNull("tableSessionId"))
+                                b.setTableSessionId(obj.getLong("tableSessionId"));
+                            b.setTotalAmount(obj.optBigDecimal("totalAmount", BigDecimal.ZERO));
+                            b.setDiscount(obj.optBigDecimal("discount", BigDecimal.ZERO));
+                            b.setTax(obj.optBigDecimal("tax", BigDecimal.ZERO));
+                            if (obj.has("paymentMethod") && !obj.isNull("paymentMethod"))
+                                b.setPaymentMethod(PaymentMethod.valueOf(obj.getString("paymentMethod")));
+                            if (obj.has("paymentStatus") && !obj.isNull("paymentStatus"))
+                                b.setPaymentStatus(PaymentStatus.valueOf(obj.getString("paymentStatus")));
+                            if (obj.has("paidAt") && !obj.isNull("paidAt"))
+                                b.setPaidAt(java.time.LocalDateTime.parse(obj.getString("paidAt")));
+                            if (obj.has("createdAt") && !obj.isNull("createdAt"))
+                                b.setCreatedAt(java.time.LocalDateTime.parse(obj.getString("createdAt")));
+                            bills.add(b);
+                        }
+                        data = bills;
+                    }
                     break;
 
                 case VIEW_SESSION_BILL:
                 case GET_TABLE_BILL_PREVIEW:
                     if (root.has("data") && !root.isNull("data")) {
                         data = jsonToOrder(root.getJSONObject("data"));
+                    }
+                    break;
+
+                case ADMIN_GET_ACCOUNTS:
+                    if (root.has("data") && !root.isNull("data")) {
+                        JSONArray arr = root.getJSONArray("data");
+                        List<UserDTO> users = new ArrayList<>();
+                        for (int i = 0; i < arr.length(); i++) users.add(jsonToUser(arr.getJSONObject(i)));
+                        data = users;
                     }
                     break;
 
@@ -240,71 +354,56 @@ public class SocketJsonMapper {
         return packet;
     }
 
-    // --- Các hàm Helper của Client ---
+
     private static JSONObject userToJson(UserDTO u) {
         JSONObject obj = new JSONObject();
-        obj.put("email", u.getEmail());
-        obj.put("passwordHash", u.getPasswordHash());
-        obj.put("fullName", u.getFullName());
-        obj.put("phone", u.getPhone());
+
+        if (u.getId() != null) obj.put("id", u.getId());
+        if (u.getRoleID() != null) obj.put("roleID", u.getRoleID());
+        if (u.getRoleName() != null) obj.put("roleName", u.getRoleName());
+        if (u.getEmail() != null) obj.put("email", u.getEmail());
+        if (u.getPasswordHash() != null) obj.put("passwordHash", u.getPasswordHash());
+        if (u.getFullName() != null) obj.put("fullName", u.getFullName());
+        if (u.getPhone() != null) obj.put("phone", u.getPhone());
+        if (u.getIsActive() != null) obj.put("isActive", u.getIsActive());
+
         return obj;
     }
 
     private static UserDTO jsonToUser(JSONObject obj) {
         UserDTO u = new UserDTO();
-        if (obj.has("id") && !obj.isNull("id")) u.setId(obj.getLong("id"));
+
+        if (!obj.isNull("id") && obj.has("id")) u.setId(obj.getLong("id"));
         if (obj.has("roleID") && !obj.isNull("roleID")) u.setRoleID(obj.getLong("roleID"));
+        if (obj.has("isActive") && !obj.isNull("isActive")) u.setIsActive(obj.getBoolean("isActive"));
+
         u.setEmail(obj.optString("email", ""));
         u.setFullName(obj.optString("fullName", ""));
         u.setPhone(obj.optString("phone", ""));
         u.setRoleName(obj.optString("roleName", "CUSTOMER"));
+
         return u;
-    }
-
-    private static JSONObject orderToJson(OrderDTO o) {
-        JSONObject obj = new JSONObject();
-        if (o.getUserId() != null) obj.put("userId", o.getUserId());
-        if (o.getTableId() != null) obj.put("tableId", o.getTableId());
-        if (o.getTableSessionId() != null) obj.put("tableSessionId", o.getTableSessionId());
-        if (o.getOrderType() != null) obj.put("orderType", o.getOrderType().name());
-        if (o.getStatus() != null) obj.put("status", o.getStatus().name());
-        if (o.getNote() != null) obj.put("note", o.getNote());
-
-        JSONArray arr = new JSONArray();
-        if (o.getItems() != null) {
-            for (OrderItemDTO item : o.getItems()) {
-                JSONObject itemObj = new JSONObject();
-                itemObj.put("foodsId", item.getFoodsId());
-                itemObj.put("foodsName", item.getFoodsName());
-                itemObj.put("unitPrice", item.getUnitPrice());
-                itemObj.put("quantity", item.getQuantity());
-                itemObj.put("lineTotal", item.getLineTotal());
-                if (item.getStatus() != null) itemObj.put("status", item.getStatus().name());
-                if (item.getNote() != null) itemObj.put("note", item.getNote());
-                arr.put(itemObj);
-            }
-        }
-        obj.put("items", arr);
-        return obj;
     }
 
     private static OrderDTO jsonToOrder(JSONObject obj) {
         OrderDTO o = new OrderDTO();
+
+        o.setTableName(obj.optString("tableName", ""));
         if (obj.has("id") && !obj.isNull("id")) o.setId(obj.getLong("id"));
         o.setOrderCode(obj.optString("orderCode", ""));
         if (obj.has("createdAt") && !obj.isNull("createdAt"))
             o.setCreatedAt(java.time.LocalDateTime.parse(obj.getString("createdAt")));
-        if (obj.has("parentOrderId") && !obj.isNull("parentOrderId")) o.setParentOrderId(obj.getLong("parentOrderId"));
-        if (obj.has("tableId") && !obj.isNull("tableId")) o.setTableId(obj.getLong("tableId"));
+        if (obj.has("parentOrderId") && !obj.isNull("parentOrderId"))
+            o.setParentOrderId(obj.getLong("parentOrderId"));
+        if (obj.has("tableId") && !obj.isNull("tableId"))
+            o.setTableId(obj.getLong("tableId"));
         if (obj.has("tableSessionId") && !obj.isNull("tableSessionId"))
             o.setTableSessionId(obj.getLong("tableSessionId"));
         o.setSubtotal(obj.optBigDecimal("subtotal", BigDecimal.ZERO));
         o.setDiscountAmount(obj.optBigDecimal("discountAmount", BigDecimal.ZERO));
         o.setTotalAmount(obj.optBigDecimal("totalAmount", BigDecimal.ZERO));
         o.setNote(obj.optString("note", ""));
-        if (obj.has("items") && !obj.isNull("items")) {
-            o.setItems(jsonArrayToOrderItemList(obj.getJSONArray("items")));
-        }
+        if (obj.has("items") && !obj.isNull("items")) o.setItems(jsonArrayToOrderItemList(obj.getJSONArray("items")));
         return o;
     }
 
@@ -329,6 +428,7 @@ public class SocketJsonMapper {
         return list;
     }
 
+    // Dùng ở: GET_MENU_AND_CATEGORIES, ADMIN_GET_FOODS
     private static List<FoodDTO> jsonArrayToFoodList(JSONArray arr) {
         List<FoodDTO> list = new ArrayList<>();
         for (int i = 0; i < arr.length(); i++) {
@@ -364,93 +464,9 @@ public class SocketJsonMapper {
         return list;
     }
 
-    private static List<TableDTO> jsonArrayToTableList(JSONArray arr) {
-        List<TableDTO> list = new ArrayList<>();
-        for (int i = 0; i < arr.length(); i++) {
-            JSONObject obj = arr.getJSONObject(i);
-            TableDTO t = new TableDTO(obj.getLong("id"), obj.optString("tableName", ""),
-                    obj.optInt("capacity", 4), obj.optBoolean("status", true));
-            t.setFloorNumber(obj.optInt("floorNumber", 1));
-            if (obj.has("activeSessionId") && !obj.isNull("activeSessionId"))
-                t.setActiveSessionId(obj.getLong("activeSessionId"));
-            list.add(t);
-        }
-        return list;
-    }
-
+    // Dùng 2 lần trong jsonArrayToOrderItemList (updatedAt, completedAt)
     private static java.time.LocalDateTime readDateTime(JSONObject obj, String key) {
         if (!obj.has(key) || obj.isNull(key)) return null;
         return java.time.LocalDateTime.parse(obj.getString(key));
-    }
-
-    private static JSONObject billToJson(BillDTO b) {
-        JSONObject obj = new JSONObject();
-        if (b.getTableSessionId() != null) obj.put("tableSessionId", b.getTableSessionId());
-        obj.put("totalAmount", b.getTotalAmount());
-        obj.put("discount", b.getDiscount());
-        obj.put("tax", b.getTax());
-        if (b.getPaymentMethod() != null) obj.put("paymentMethod", b.getPaymentMethod().name());
-        return obj;
-    }
-
-    private static JSONObject foodToJson(FoodDTO f) {
-        JSONObject obj = new JSONObject();
-        if (f.getId() != null) obj.put("id", f.getId());
-        if (f.getCategoryId() != null) obj.put("categoryId", f.getCategoryId());
-        if (f.getSku() != null) obj.put("sku", f.getSku());
-        if (f.getName() != null) obj.put("name", f.getName());
-        if (f.getPrice() != null) obj.put("price", f.getPrice());
-        if (f.getCoverImageUrl() != null) obj.put("coverImageUrl", f.getCoverImageUrl());
-        if (f.getIsPublished() != null) obj.put("isPublished", f.getIsPublished());
-        return obj;
-    }
-
-    private static JSONObject ingredientToJson(IngredientDTO i) {
-        JSONObject obj = new JSONObject();
-        if (i.getId() != null) obj.put("id", i.getId());
-        if (i.getName() != null) obj.put("name", i.getName());
-        if (i.getUnit() != null) obj.put("unit", i.getUnit());
-        if (i.getStockQuantity() != null) obj.put("stockQuantity", i.getStockQuantity());
-        if (i.getMinStockLevel() != null) obj.put("minStockLevel", i.getMinStockLevel());
-        return obj;
-    }
-
-    private static List<IngredientDTO> jsonArrayToIngredientList(JSONArray arr) {
-        List<IngredientDTO> result = new ArrayList<>();
-        for (int index = 0; index < arr.length(); index++) {
-            JSONObject obj = arr.getJSONObject(index);
-            IngredientDTO i = new IngredientDTO();
-            if (obj.has("id") && !obj.isNull("id")) i.setId(obj.getLong("id"));
-            i.setName(obj.optString("name", ""));
-            i.setUnit(obj.optString("unit", ""));
-            i.setStockQuantity(obj.optBigDecimal("stockQuantity", BigDecimal.ZERO));
-            i.setMinStockLevel(obj.optBigDecimal("minStockLevel", BigDecimal.ZERO));
-            result.add(i);
-        }
-        return result;
-    }
-
-    private static List<BillDTO> jsonArrayToBillList(JSONArray arr) {
-        List<BillDTO> result = new ArrayList<>();
-        for (int index = 0; index < arr.length(); index++) {
-            JSONObject obj = arr.getJSONObject(index);
-            BillDTO b = new BillDTO();
-            if (obj.has("id") && !obj.isNull("id")) b.setId(obj.getLong("id"));
-            if (obj.has("tableSessionId") && !obj.isNull("tableSessionId"))
-                b.setTableSessionId(obj.getLong("tableSessionId"));
-            b.setTotalAmount(obj.optBigDecimal("totalAmount", BigDecimal.ZERO));
-            b.setDiscount(obj.optBigDecimal("discount", BigDecimal.ZERO));
-            b.setTax(obj.optBigDecimal("tax", BigDecimal.ZERO));
-            if (obj.has("paymentMethod") && !obj.isNull("paymentMethod"))
-                b.setPaymentMethod(PaymentMethod.valueOf(obj.getString("paymentMethod")));
-            if (obj.has("paymentStatus") && !obj.isNull("paymentStatus"))
-                b.setPaymentStatus(PaymentStatus.valueOf(obj.getString("paymentStatus")));
-            if (obj.has("paidAt") && !obj.isNull("paidAt"))
-                b.setPaidAt(java.time.LocalDateTime.parse(obj.getString("paidAt")));
-            if (obj.has("createdAt") && !obj.isNull("createdAt"))
-                b.setCreatedAt(java.time.LocalDateTime.parse(obj.getString("createdAt")));
-            result.add(b);
-        }
-        return result;
     }
 }

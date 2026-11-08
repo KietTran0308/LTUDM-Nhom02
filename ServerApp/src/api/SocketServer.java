@@ -1,6 +1,7 @@
 package api;
 
 import dto.*;
+import bus.ServerOrderBUS;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -49,7 +50,7 @@ public class SocketServer {
     /** POS cuc bo thay doi phien ban: tat ca iPad STAFF cap nhat so do ban. */
     public static void broadcastTablesChanged() {
         emit(staffClients, new SocketPacket(SocketAction.LIST_TABLES, true,
-                "So do ban da thay doi", dao.TableDAO.getAllTables(), null));
+                "So do ban da thay doi", new ServerOrderBUS().getAllRestaurantTables(), null));
     }
 
     public static void broadcastOrderCreated(OrderDTO order) {

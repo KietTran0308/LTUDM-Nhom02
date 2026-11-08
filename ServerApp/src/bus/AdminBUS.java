@@ -1,54 +1,74 @@
 package bus;
 
-import dao.*;
+import dao.BillDAO;
+import dao.CategoryDAO;
+import dao.IngredientDAO;
 import dto.*;
+
 import java.math.BigDecimal;
+import java.sql.SQLException;
 import java.text.Normalizer;
 import java.util.List;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class AdminBUS {
-    private final FoodDAO foodDAO = new FoodDAO();
+    private final FoodBUS foodBUS = new FoodBUS();
     private final CategoryDAO categoryDAO = new CategoryDAO();
     private final IngredientDAO ingredientDAO = new IngredientDAO();
     private final BillDAO billDAO = new BillDAO();
+    private final UserBUS userBUS = new UserBUS();
+    private final AuthBUS authBUS = new AuthBUS();
 
     // --- 1. NGHIỆP VỤ QUẢN LÝ MÓN ĂN ---
-    public List<FoodDTO> getAllFoods() {
-        return foodDAO.getAllFoodsForAdmin();
+
+    public List<FoodDTO> getAllFoods() throws SQLException {
+        // Lấy tất cả món chưa xóa cho Admin
+        return foodBUS.getAllFoodsForAdmin();
     }
 
     public List<CategoryDTO> getAllCategories() {
         return categoryDAO.getAllCategories();
     }
 
-    public boolean addNewFood(String sku, Long categoryId, String name, BigDecimal price, String coverUrl, boolean isPublished) {
+    public boolean addNewFood(String sku, Long categoryId, String name, BigDecimal price, String coverUrl, boolean isPublished) throws SQLException {
         FoodDTO food = new FoodDTO();
-        food.setSku(sku.trim().toUpperCase());
+        food.setSku(sku);
         food.setCategoryId(categoryId);
-        food.setName(name.trim());
+        food.setName(name);
+        // Tạo slug cơ bản, FoodBUS sẽ lo việc trim và validate
         food.setSlug(generateSlug(name) + "-" + (System.currentTimeMillis() % 10000));
-        food.setDescription("Món ngon chuẩn vị Haidilao");
+        food.setDescription("Món ngon chuẩn vị");
         food.setPrice(price);
         food.setIsPublished(isPublished);
         food.setCoverImageUrl(coverUrl);
-        return foodDAO.insertFoodWithCover(food);
+
+        // Gọi createFood của FoodBUS để kiểm tra trùng SKU, Tên, Slug trước khi Insert
+        foodBUS.createFood(food);
+        return true;
     }
 
-    public boolean updateFood(Long id, String name, BigDecimal price, Long categoryId, boolean isPublished) {
-        FoodDTO food = new FoodDTO();
-        food.setId(id);
-        food.setName(name.trim());
+    public boolean updateFood(Long id, String name, BigDecimal price, Long categoryId, boolean isPublished) throws SQLException {
+        // Vì GUI cập nhật không gửi SKU và Slug, ta phải lấy object cũ từ DB lên
+        // để pass qua được hàm validateFoodData của FoodBUS
+        FoodDTO food = foodBUS.getFoodById(id);
+
+        // Cập nhật các trường mà AdminGUI gửi sang
+        food.setName(name);
         food.setPrice(price);
         food.setCategoryId(categoryId);
         food.setIsPublished(isPublished);
-        return foodDAO.updateFoodBasicInfo(food);
+
+        // Gọi updateFood của FoodBUS để kiểm tra trùng lặp và tính hợp lệ
+        foodBUS.updateFood(food);
+        return true;
     }
 
-    public boolean deleteFood(Long id) {
-        return foodDAO.softDeleteFood(id);
+    public boolean deleteFood(Long id) throws SQLException {
+        // Gọi deleteFood của FoodBUS để kiểm tra tồn tại trước khi soft delete
+        return foodBUS.deleteFood(id);
     }
+
 
     // --- 2. NGHIỆP VỤ KHO NGUYÊN LIỆU & CẢNH BÁO ---
     public List<IngredientDTO> getAllIngredients() {
@@ -97,6 +117,48 @@ public class AdminBUS {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
+    // --- 4. NGHIỆP VỤ QUẢN LÝ TÀI KHOẢN (HOÀN THIỆN) ---
+
+    public List<UserDTO> getAllAccounts() throws SQLException {
+        return userBUS.getAllUsers();
+    }
+
+    // Nghiệp vụ Thêm tài khoản mới (sử dụng AuthBUS)
+    public boolean createNewAccount(String fullName, String phone, String email, Long roleId, String roleName) throws Exception {
+        UserDTO newUser = new UserDTO();
+        newUser.setFullName(fullName);
+        newUser.setPhone(phone);
+        // Nếu không có email, có thể tạo email giả định hoặc để trống tùy DB của bạn
+        newUser.setEmail(email != null && !email.isEmpty() ? email : phone + "@bepnha.com");
+        newUser.setRoleName(roleName);
+        newUser.setIsActive(true);
+
+        // Mật khẩu mặc định khi Admin cấp tài khoản (ví dụ: số điện thoại)
+        // AuthBUS.register sẽ tự động băm (hash) mật khẩu này
+        newUser.setPasswordHash(phone);
+
+        // Gọi hàm register của AuthBUS để kiểm tra trùng lặp và lưu DB
+        authBUS.register(newUser);
+        return true;
+    }
+
+    // Nghiệp vụ Cập nhật tài khoản
+    public boolean updateAccount(Long id, String fullName, String phone, String email) throws SQLException {
+        UserDTO user = userBUS.getUserById(id);
+
+        user.setFullName(fullName);
+        user.setPhone(phone);
+        user.setEmail(email != null && !email.isEmpty() ? email : user.getEmail());
+
+        return userBUS.updateUser(user);
+    }
+
+    // Nghiệp vụ Khóa/Mở khóa tài khoản
+    public boolean lockAccount(Long id) throws SQLException {
+        return userBUS.deactivateUser(id);
+    }
+
+
     // Hàm tiện ích chuyển tên tiếng Việt có dấu thành slug chuẩn
     private String generateSlug(String input) {
         String temp = Normalizer.normalize(input, Normalizer.Form.NFD);
@@ -107,5 +169,18 @@ public class AdminBUS {
                 .replaceAll("[^a-z0-9\\s-]", "")
                 .trim()
                 .replaceAll("\\s+", "-");
+    }
+
+    public boolean toggleAccountActive(
+            Long accountId, Long adminId) throws SQLException {
+
+        if (accountId == null || accountId <= 0)
+            throw new IllegalArgumentException("ID không hợp lệ");
+
+        if (accountId.equals(adminId))
+            throw new SecurityException(
+                    "Không thể tự khóa tài khoản đang đăng nhập");
+
+        return userBUS.toggleAccountActive(accountId);
     }
 }

@@ -1,6 +1,7 @@
 package gui;
 
 import api.SocketClient;
+import api.ImageSocketClient;
 import bus.ClientTabletBUS;
 import components.*;
 import dto.*;
@@ -31,6 +32,8 @@ public class CustomerGUI extends JFrame {
     private static final String VIEW_CART_DETAIL = "VIEW_CART_DETAIL";
     private static final String VIEW_ORDER_TRACKING = "VIEW_ORDER_TRACKING";
 
+    private static final String BRAND_LOGO_IMAGE_KEY = "things/logo2.png";
+
     private static final int ITEMS_PER_ROW = 4;
     private static final int MIN_CARD_WIDTH = 225;
     private static final int MAX_CARD_WIDTH = 360;
@@ -38,7 +41,6 @@ public class CustomerGUI extends JFrame {
     private static final int IMAGE_HEIGHT = 140;
     private static final int CARD_GAP = 16;
 
-    private final SocketClient sessionSocket;
     private Long currentTableId;
     private Long activeSessionId;
     private final ClientTabletBUS tabletBUS;
@@ -73,32 +75,25 @@ public class CustomerGUI extends JFrame {
 
     // Doi man hinh noi bo bang remove/add; khong dung bo cuc dang the.
     private JPanel centerContentHost;
-    private JComponent menuView;
-    private JComponent cartView;
-    private JComponent trackingView;
+    private JComponent menuView, cartView, trackingView;
     private String currentActiveView = VIEW_MENU;
 
     private JPanel summaryCartWrapper;
-    private JLabel lblSummaryCountBadge;
-    private JLabel lblSummaryTotalMoney;
+    private JLabel lblSummaryCountBadge, lblSummaryTotalMoney;
     private JLabel lblSummaryToggleAction;
 
     private JPanel cartItemsListPanel;
     private JLabel lblCartDetailTotal;
 
-    /**
-     * Chỉ gọi SAU KHI StaffGUI nhận ACK ENTER_CUSTOMER_MODE từ Server.
-     */
     public CustomerGUI(Long tableId, Long sessionId, SocketClient customerSocket) {
-        this.sessionSocket = Objects.requireNonNull(customerSocket, "Can Socket da xac nhan CUSTOMER MODE");
+        Objects.requireNonNull(customerSocket, "Can Socket da xac nhan CUSTOMER MODE");
 
         if (tableId == null || tableId <= 0 || sessionId == null || sessionId <= 0
                 || !customerSocket.isConnected())
             throw new IllegalArgumentException("Thieu phien ban da xac minh");
         this.currentTableId = tableId;
         this.activeSessionId = sessionId;
-        this.sessionSocket.bindCustomerTable(tableId);
-        this.tabletBUS = new ClientTabletBUS(tableId, sessionId, sessionSocket);
+        this.tabletBUS = new ClientTabletBUS(tableId, sessionId, customerSocket);
 
         setTitle("An Nhien | Goi mon tai ban #" + tableId);
         setSize(1360, 820);
@@ -126,26 +121,24 @@ public class CustomerGUI extends JFrame {
 
     private void loadInitialData() {
         SwingUtilities.invokeLater(() -> {
-            if (!sessionSocket.isConnected()) {
+            if (!tabletBUS.isConnected()) {
                 renderMenuCards(activeCategoryId);
                 CToast.error(this,
                         "Mất kết nối máy chủ. Không thể tải thực đơn.");
                 return;
             }
 
-            // Yêu cầu thực đơn nếu chưa nhận dữ liệu.
             if (!tabletBUS.hasReceivedMenuResponse()) {
                 tabletBUS.reloadMenu();
             }
 
-            // Lấy các món đã gọi của phiên bàn hiện tại.
             tabletBUS.requestTableTracking();
         });
     }
 
     private void startResponseTimer() {
         responseTimer = new javax.swing.Timer(100, e -> {
-            if (!sessionSocket.isConnected()
+            if (!tabletBUS.isConnected()
                     && awaitingOrderConfirmation) {
                 resetSendOrderButtonState();
                 CToast.error(this,
@@ -161,8 +154,7 @@ public class CustomerGUI extends JFrame {
 
     private void returnToLogin(String message) {
         if (responseTimer != null) responseTimer.stop();
-        sessionSocket.logout();
-        sessionSocket.close();
+        tabletBUS.logout();
         getContentPane().removeAll();
         if (tabletBUS != null) {
             itemNotesMap.clear();
@@ -175,123 +167,88 @@ public class CustomerGUI extends JFrame {
         if (message != null && !message.isBlank()) CToast.info(login, message);
     }
 
-    private void onServerPacketCallback(SocketPacket packet) {
-        if (!packet.isSuccess()) {
-            if (packet.getAction() == SocketAction.GET_MENU_AND_CATEGORIES) {
-                // Phan biet loi SQL/Server voi truong hop khong co mon duoc mo ban.
+    private void onTabletEvent(ClientTabletBUS.Event event) {
+        if (event == null) return;
+        switch (event.type) {
+            case MENU_ERROR:
                 renderMenuCards(activeCategoryId);
-            }
-            if (packet.getAction() == SocketAction.PLACE_ORDER
-                    || packet.getAction() == SocketAction.ORDER_SUBMIT) {
-                resetSendOrderButtonState();
-            }
-            CToast.show(this, packet.getMessage(), "Thông báo từ Bếp Nhà", CToast.WARNING);
-            return;
-        }
-
-        switch (packet.getAction()) {
-            case REGISTER_TABLE:
-                tabletBUS.requestTableTracking();
+                CToast.warning(this, event.message);
                 break;
-
-            case GET_MENU_AND_CATEGORIES:
+            case ORDER_ERROR:
+                resetSendOrderButtonState();
+                CToast.warning(this, event.message);
+                break;
+            case ERROR:
+                CToast.warning(this, event.message);
+                break;
+            case MENU:
                 rebuildCategoryButtons(tabletBUS.getCategories());
                 renderMenuCards(activeCategoryId);
                 break;
-
-            case ORDER_SUBMIT:
-            case PLACE_ORDER:
+            case ORDER_SENT:
                 resetSendOrderButtonState();
                 itemNotesMap.clear();
                 refreshAllCartViews();
                 refreshTrackTable();
                 switchCenterView(VIEW_ORDER_TRACKING);
                 tabletBUS.requestTableTracking();
-                CToast.show(this, packet.getMessage(), "Đặt món thành công", CToast.SUCCESS);
+                CToast.success(this, "Đặt món thành công.");
                 break;
-
-            case GET_TABLE_TRACKING:
+            case TRACKING:
                 refreshTrackTable();
                 break;
-
-            case ITEM_STATUS_CHANGED:
-            case KITCHEN_UPDATE_STATUS:
+            case ITEM_STATUS:
                 refreshTrackTable();
-                if (packet.getData() instanceof Long && packet.getExtraData() == OrderStatus.COMPLETED) {
-                    Long completedId = (Long) packet.getData();
+                if (event.data instanceof Long && event.status == OrderStatus.COMPLETED) {
+                    Long completedId = (Long) event.data;
                     if (completedNotified.add(completedId)) {
-                        OrderItemDTO completedItem = tabletBUS.getTrackedItemById(completedId);
-                        String foodName = completedItem != null ? completedItem.getFoodsName() : "Món #" + completedId;
-                        lblKitchenNotice.setText("🔔 " + foodName + " đã chế biến xong — vui lòng chờ nhân viên mang món.");
+                        OrderItemDTO item = tabletBUS.getTrackedItemById(completedId);
+                        String foodName = item == null ? "Món #" + completedId : item.getFoodsName();
+                        lblKitchenNotice.setText("🔔 " + foodName + " đã chế biến xong — chờ phục vụ.");
                         lblKitchenNotice.setVisible(true);
                     }
                 }
                 break;
-
-            case CALL_STAFF:
-                CToast.success(this, packet.getMessage());
+            case STAFF_CALLED:
+                CToast.success(this, event.message);
                 break;
-
             case ORDER_COMPLETED:
                 lblKitchenNotice.setText("🔔 Một đơn đã hoàn tất chế biến — nhân viên sẽ mang món ra bàn.");
                 lblKitchenNotice.setVisible(true);
-                CToast.success(this, packet.getMessage());
+                CToast.success(this, event.message);
                 tabletBUS.requestTableTracking();
                 break;
-            case VIEW_SESSION_BILL:
-                showSessionBill((OrderDTO) packet.getData());
+            case BILL:
+                if (event.data instanceof OrderDTO) showSessionBill((OrderDTO) event.data);
+                else CToast.info(this, "Bàn chưa có món đã gọi.");
                 break;
-
             case MEMBER_LOGIN:
-                if (packet.getData() instanceof UserDTO) {
-                    loggedInMember = (UserDTO) packet.getData();
-
-                    btnMemberAccount.setText(
-                            "Tài khoản: " + loggedInMember.getFullName()
-                    );
-
-                    CToast.success(this,
-                            "Đăng nhập thành viên thành công.");
+                if (event.data instanceof UserDTO) {
+                    loggedInMember = (UserDTO) event.data;
+                    btnMemberAccount.setText("Tài khoản: " + loggedInMember.getFullName());
+                    CToast.success(this, "Đăng nhập thành viên thành công.");
                 }
                 break;
-
             case MEMBER_PROFILE:
-                memberProfileText = String.valueOf(
-                        packet.getData() == null
-                                ? "Chưa có thông tin."
-                                : packet.getData()
-                );
+                memberProfileText = event.data == null ? "Chưa có thông tin." : String.valueOf(event.data);
                 updateMemberProfileText();
                 break;
-
             case MEMBER_HISTORY:
-                memberHistoryText = String.valueOf(
-                        packet.getData() == null
-                                ? "Chưa có lịch sử đặt món."
-                                : packet.getData()
-                );
+                memberHistoryText = event.data == null ? "Chưa có lịch sử đặt món." : String.valueOf(event.data);
                 updateMemberProfileText();
                 break;
-
             case MEMBER_LOGOUT:
                 loggedInMember = null;
                 btnMemberAccount.setText("Đăng nhập thành viên");
-
                 if (memberProfileDialog != null) {
                     memberProfileDialog.dispose();
                     memberProfileDialog = null;
                     memberProfileArea = null;
                 }
-
-                CToast.success(this,
-                        "Đã đăng xuất tài khoản thành viên.");
+                CToast.success(this, "Đã đăng xuất tài khoản thành viên.");
                 break;
             case SESSION_CLOSED:
-            case TABLE_CLEARED_RESET:
                 returnToLogin("Đã đóng phiên bàn. Thiết bị sẵn sàng cho lượt khách tiếp theo.");
-                return;
-
-            default:
                 break;
         }
     }
@@ -328,18 +285,40 @@ public class CustomerGUI extends JFrame {
         logoRow.setOpaque(false);
         logoRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JLabel lblIcon = new JLabel(Utils.getScaledIcon("/img/things/logo.png", 45, 45));
+        // Logo o ServerApp/src/img/things/logo2.png, truyen byte qua TCP Socket.
+        // Hien thi placeholder ngay, tai logo tren background thread.
+        // Khong duoc goi ImageSocketClient.fetchImage tren Swing EDT.
+        JLabel lblIcon = new JLabel("BN", SwingConstants.CENTER);
+        lblIcon.setPreferredSize(new Dimension(45, 45));
+        lblIcon.setFont(Utils.getCustomFont("Inter", Font.BOLD, 18));
+        lblIcon.setForeground(Color.WHITE);
+        loadBrandLogoViaSocket(lblIcon);
         lblIcon.setBorder(new EmptyBorder(0, 0, 0, 12));
+
+        // Chi hien tuy chon tra thiet bi khi bam vao logo, khong hien nut tren sidebar.
+        // Logo van duoc tai qua TCP Socket va cap nhat tren chinh JLabel nay.
+        JPopupMenu staffMenu = new JPopupMenu();
+        JMenuItem miLogout = new JMenuItem("Trả thiết bị / Đăng xuất");
+        miLogout.setFont(Utils.getCustomFont("Inter", Font.BOLD, 13));
+        miLogout.addActionListener(e -> logout());
+        staffMenu.add(miLogout);
+        lblIcon.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (!SwingUtilities.isLeftMouseButton(e)) return;
+                staffMenu.show(lblIcon, 0, lblIcon.getHeight());
+            }
+        });
 
         JPanel logoTextPanel = new JPanel();
         logoTextPanel.setLayout(new BoxLayout(logoTextPanel, BoxLayout.Y_AXIS));
         logoTextPanel.setOpaque(false);
 
-        JLabel lblBrandName = new JLabel("Bếp Nhà");
+        JLabel lblBrandName = new JLabel("Gọi món");
         lblBrandName.setFont(Utils.getCustomFont("Inter", Font.BOLD, 20));
         lblBrandName.setForeground(Color.WHITE);
 
-        JLabel lblBrandSub = new JLabel("RESTAURANT  /  GỌI MÓN");
+        JLabel lblBrandSub = new JLabel("AN NHIÊN");
         lblBrandSub.setFont(Utils.getCustomFont("Inter", Font.BOLD, 9));
         lblBrandSub.setForeground(Utils.TEXT_MUTED);
 
@@ -348,84 +327,44 @@ public class CustomerGUI extends JFrame {
         logoRow.add(lblIcon);
         logoRow.add(logoTextPanel);
 
-        JPanel tableBadge = new JPanel(new BorderLayout()) {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g;
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(new Color(45, 59, 51));
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 16, 16);
-            }
-        };
-        tableBadge.setOpaque(false);
-        tableBadge.setBorder(new EmptyBorder(10, 14, 10, 14));
-        tableBadge.setMaximumSize(new Dimension(220, 58));
-        tableBadge.setAlignmentX(Component.LEFT_ALIGNMENT);
-
         topBrandBox.add(logoRow);
         topBrandBox.add(Box.createVerticalStrut(22));
-        topBrandBox.add(tableBadge);
 
         categoryListPanel = new CategoryListPanel();
         categoryListPanel.setLayout(new BoxLayout(categoryListPanel, BoxLayout.Y_AXIS));
         categoryListPanel.setOpaque(false);
 
-        CButton btnCallStaff = new CButton("Gọi nhân viên hỗ trợ", 205, 46);
-        btnCallStaff.addActionListener(e -> {
-            String req = JOptionPane.showInputDialog(this,
-                    "Quý khách cần hỗ trợ gì? (Thêm đồ dùng, chỉnh món, hủy món, gọi tính tiền...):",
-                    "Gọi nhân viên Bếp Nhà", JOptionPane.PLAIN_MESSAGE);
-            if (req != null && !req.trim().isEmpty()) {
-                if (!tabletBUS.callStaffSupport(req.trim())) {
-                    CToast.warning(this, "Chưa xác thực phiên bàn hoặc mất kết nối.");
-                }
-            }
-        });
-
-        JButton btnViewBill = new JButton("Xem tạm tính của bàn");
-        btnViewBill.addActionListener(e -> {
-            if (!tabletBUS.requestBillPreview()) CToast.warning(this, "Khong tai duoc tam tinh");
-        });
-        btnViewBill.setPreferredSize(new Dimension(205, 43));
-        btnViewBill.setMaximumSize(new Dimension(205, 43));
-
-        JButton btnRequestBill = new JButton("Yêu cầu tính tiền");
-        btnRequestBill.setFont(Utils.getCustomFont("Inter", Font.BOLD, 13));
-        btnRequestBill.setForeground(Color.WHITE);
-        btnRequestBill.setBackground(new Color(48, 63, 55));
-        btnRequestBill.setFocusPainted(false);
-        btnRequestBill.setBorder(new EmptyBorder(13, 10, 13, 10));
-        btnRequestBill.setPreferredSize(new Dimension(205, 46));
-        btnRequestBill.setMaximumSize(new Dimension(205, 46));
-        btnRequestBill.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        btnRequestBill.addActionListener(e -> requestService("Tính tiền",
-                "Bàn #" + currentTableId + " yêu cầu nhân viên kiểm tra hóa đơn và hỗ trợ thanh toán."));
-
-        JButton btnLogout = new JButton("Trả thiết bị / Đăng xuất");
-        btnLogout.setFont(Utils.getCustomFont("Inter", Font.BOLD, 12));
-        btnLogout.setForeground(new Color(218, 226, 219));
-        btnLogout.setContentAreaFilled(false);
-        btnLogout.setFocusPainted(false);
-        btnLogout.setBorder(new EmptyBorder(12, 2, 5, 2));
-        btnLogout.setPreferredSize(new Dimension(205, 37));
-        btnLogout.setMaximumSize(new Dimension(205, 37));
-        btnLogout.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        btnLogout.addActionListener(e -> logout());
-
-        JPanel sidebarActions = new JPanel();
-        sidebarActions.setOpaque(false);
-        sidebarActions.setLayout(new BoxLayout(sidebarActions, BoxLayout.Y_AXIS));
-        for (JComponent comp : new JComponent[]{btnCallStaff, btnViewBill, btnRequestBill, btnLogout}) {
-            comp.setAlignmentX(Component.CENTER_ALIGNMENT);
-            sidebarActions.add(comp);
-            sidebarActions.add(Box.createVerticalStrut(8));
-        }
-
         sidebar.add(topBrandBox, BorderLayout.NORTH);
         sidebar.add(createCategoryScrollPane(categoryListPanel), BorderLayout.CENTER);
-        sidebar.add(sidebarActions, BorderLayout.SOUTH);
 
         add(sidebar, BorderLayout.WEST);
+    }
+
+    private void loadBrandLogoViaSocket(JLabel target) {
+        new SwingWorker<BufferedImage, Void>() {
+            @Override
+            protected BufferedImage doInBackground() {
+                return ImageSocketClient.fetchImage(BRAND_LOGO_IMAGE_KEY);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    BufferedImage received = get();
+                    if (received == null || received.getWidth() <= 0 || received.getHeight() <= 0) {
+                        System.err.println("Khong nhan duoc logo qua TCP: " + BRAND_LOGO_IMAGE_KEY);
+                        return;
+                    }
+                    Image scaled = received.getScaledInstance(45, 45, Image.SCALE_SMOOTH);
+                    target.setIcon(new ImageIcon(scaled));
+                    target.setText(null);
+                    target.revalidate();
+                    target.repaint();
+                } catch (Exception ex) {
+                    System.err.println("Loi tai logo TCP: " + ex.getMessage());
+                }
+            }
+        }.execute();
     }
 
     // Danh mục cuộn độc lập; các nút gọi nhân viên/tính tiền vẫn cố định.
@@ -567,9 +506,12 @@ public class CustomerGUI extends JFrame {
         JPanel centerContainer = new JPanel(new BorderLayout());
         centerContainer.setBackground(Utils.CREAM_BG);
 
-        JPanel topBanner = new JPanel(new BorderLayout());
+        // Dat TAT CA thanh phan tren mot hang ngang bang FlowLayout.
+        // Boc trong JScrollPane de khong bi xuong dong khi cua so hep
+        // hoac khi ten thanh vien / thong bao bep dai.
+        JPanel topBanner = new JPanel(new FlowLayout(FlowLayout.LEFT, 14, 0));
         topBanner.setBackground(Color.WHITE);
-        topBanner.setBorder(new EmptyBorder(16, 26, 14, 26));
+        topBanner.setBorder(new EmptyBorder(12, 20, 12, 20));
 
         btnTrackOrderTop = new JButton("Món đã gọi (0 phần)") {
             @Override
@@ -599,25 +541,9 @@ public class CustomerGUI extends JFrame {
         });
 
         initSummaryCartBar();
-        JPanel rightBannerActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 0));
-        rightBannerActions.setOpaque(false);
-        rightBannerActions.add(summaryCartWrapper);
-        rightBannerActions.add(btnTrackOrderTop);
-
-        JPanel introduction = new JPanel();
-        introduction.setLayout(new BoxLayout(introduction, BoxLayout.Y_AXIS));
-        introduction.setOpaque(false);
-        introduction.setPreferredSize(new Dimension(425, 90));
-
-// Dòng đầu: Thông tin bàn và đăng nhập thành viên
-        JPanel headerInfo = new JPanel(
-                new FlowLayout(FlowLayout.LEFT, 10, 0));
-        headerInfo.setOpaque(false);
-        headerInfo.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         JLabel lblTable = new JLabel("Bàn #" + currentTableId);
-        lblTable.setFont(Utils.getCustomFont(
-                "Inter", Font.BOLD, 17));
+        lblTable.setFont(Utils.getCustomFont("Inter", Font.BOLD, 17));
         lblTable.setForeground(Utils.FOREST_BG);
 
         btnMemberAccount = createOutlineButton("Đăng nhập thành viên");
@@ -629,32 +555,26 @@ public class CustomerGUI extends JFrame {
             }
         });
 
-        headerInfo.add(lblTable);
-        headerInfo.add(btnMemberAccount);
-
-// Số món đã gửi
-        lblSentItems = new JLabel("Đã gọi: 0 dòng món / 0 phần");
-        lblSentItems.setFont(Utils.getCustomFont(
-                "Inter", Font.PLAIN, 13));
-        lblSentItems.setForeground(Utils.TEXT_MUTED);
-        lblSentItems.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-// Thông báo từ màn hình bếp
         lblKitchenNotice = new JLabel("Chưa có thông báo mới từ bếp.");
-        lblKitchenNotice.setFont(Utils.getCustomFont(
-                "Inter", Font.PLAIN, 12));
+        lblKitchenNotice.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 12));
         lblKitchenNotice.setForeground(Utils.TERRACOTTA);
-        lblKitchenNotice.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        introduction.add(headerInfo);
-        introduction.add(Box.createVerticalStrut(8));
-        introduction.add(lblSentItems);
-        introduction.add(Box.createVerticalStrut(6));
-        introduction.add(lblKitchenNotice);
+        // Them truc tiep tung thanh phan vao topBanner: KHONG chia cot/hang.
+        topBanner.add(lblTable);
+        topBanner.add(btnMemberAccount);
+        topBanner.add(lblKitchenNotice);
+        topBanner.add(summaryCartWrapper);
+        topBanner.add(btnTrackOrderTop);
 
-        topBanner.add(introduction, BorderLayout.WEST);
-        topBanner.add(rightBannerActions, BorderLayout.EAST);
-        topBanner.add(lblKitchenNotice, BorderLayout.SOUTH);
+        // JScrollPane cho phep FlowLayout giu mot hang ke ca khi noi dung rong hon man hinh.
+        JScrollPane topBannerScroll = new JScrollPane(
+                topBanner,
+                JScrollPane.VERTICAL_SCROLLBAR_NEVER,
+                JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        topBannerScroll.setBorder(BorderFactory.createEmptyBorder());
+        topBannerScroll.getViewport().setBackground(Color.WHITE);
+        topBannerScroll.getHorizontalScrollBar().setUnitIncrement(20);
+        topBannerScroll.setPreferredSize(new Dimension(0, 82));
 
         centerContentHost = new JPanel(new BorderLayout());
         centerContentHost.setBackground(Utils.CREAM_BG);
@@ -690,7 +610,7 @@ public class CustomerGUI extends JFrame {
         trackingView = createInlineTrackOrderView();
         centerContentHost.add(menuView, BorderLayout.CENTER);
 
-        centerContainer.add(topBanner, BorderLayout.NORTH);
+        centerContainer.add(topBannerScroll, BorderLayout.NORTH);
         centerContainer.add(centerContentHost, BorderLayout.CENTER);
 
         add(centerContainer, BorderLayout.CENTER);
@@ -798,25 +718,15 @@ public class CustomerGUI extends JFrame {
         JPanel headerBar = new JPanel(new BorderLayout());
         headerBar.setOpaque(false);
 
-        JLabel lblTitle = new JLabel("🔥 Các món đã gửi xuống bếp — Bàn #" + currentTableId);
+        JLabel lblTitle = new JLabel("Các món bạn đã gọi — Bàn #" + currentTableId);
         lblTitle.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 22));
         lblTitle.setForeground(Utils.TEXT_DARK);
 
-        JButton btnBack = createOutlineButton("← Quay lại Thực Đơn");
+        JButton btnBack = createOutlineButton("Quay lại Thực Đơn");
         btnBack.addActionListener(e -> switchCenterView(VIEW_MENU));
-
-        JButton btnRefresh = createOutlineButton("↻ Làm mới tiến độ");
-        btnRefresh.addActionListener(e -> {
-            if (!tabletBUS.isServerConnected()) {
-                CToast.warning(this, "Chưa kết nối được bếp. Vui lòng gọi nhân viên.");
-            } else {
-                tabletBUS.requestTableTracking();
-            }
-        });
 
         JPanel trackingActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         trackingActions.setOpaque(false);
-        trackingActions.add(btnRefresh);
         trackingActions.add(btnBack);
         headerBar.add(lblTitle, BorderLayout.WEST);
         headerBar.add(trackingActions, BorderLayout.EAST);
@@ -836,13 +746,8 @@ public class CustomerGUI extends JFrame {
 
         btnRequestCancelSupport.addActionListener(e -> handleCancelOrEditSupportRequest());
 
-        JLabel lblHint = new JLabel("<html><i>Chọn món đang chờ / bếp đã nhận để nhờ nhân viên xem xét hủy, sửa. Món đang nấu hoặc đã lên món không được tự hủy.</i></html>");
-        lblHint.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 13));
-        lblHint.setForeground(Color.GRAY);
-
         JPanel trackFooter = new JPanel(new BorderLayout(12, 0));
         trackFooter.setOpaque(false);
-        trackFooter.add(lblHint, BorderLayout.CENTER);
         trackFooter.add(btnRequestCancelSupport, BorderLayout.EAST);
 
         wrapper.add(headerBar, BorderLayout.NORTH);
@@ -1392,17 +1297,10 @@ public class CustomerGUI extends JFrame {
         if (btnRequestCancelSupport != null) {
             btnRequestCancelSupport.setEnabled(tabletBUS.canRequestCancelOrEdit(getSelectedTrackedItem()));
         }
-        int activeLines = 0;
         int portions = 0;
-        int cancelled = 0;
         for (OrderItemDTO item : tracked) {
-            if (item.getStatus() == OrderStatus.CANCELLED) { cancelled++; continue; }
-            activeLines++;
             if (item.getQuantity() != null) portions += item.getQuantity();
         }
-        String summary = activeLines + " dòng món / " + portions + " phần"
-                + (cancelled > 0 ? " · " + cancelled + " dòng đã hủy" : "");
-        if (lblSentItems != null) lblSentItems.setText("Đã gọi: " + summary);
         if (btnTrackOrderTop != null) btnTrackOrderTop.setText("Món đã gọi (" + portions + " phần)");
     }
 
@@ -1453,10 +1351,10 @@ public class CustomerGUI extends JFrame {
     }
 
     private void processServerPackets() {
-        SocketPacket packet;
+        ClientTabletBUS.Event event;
 
-        while ((packet = tabletBUS.pollPacket()) != null) {
-            onServerPacketCallback(packet);
+        while ((event = tabletBUS.pollEvent()) != null) {
+            onTabletEvent(event);
 
             // GUI có thể đã đóng khi server kết thúc phiên.
             if (!responseTimer.isRunning()) {
@@ -1530,19 +1428,7 @@ public class CustomerGUI extends JFrame {
                     return;
                 }
 
-                Map<String, String> credentials = new HashMap<>();
-                credentials.put("email", email);
-                credentials.put(
-                        "password", new String(passwordChars));
-
-                SocketPacket request = new SocketPacket(
-                        SocketAction.MEMBER_LOGIN,
-                        currentTableId,
-                        credentials,
-                        null
-                );
-
-                if (sessionSocket.sendRequest(request)) {
+                if (tabletBUS.loginMember(email, new String(passwordChars))) {
                     dialog.dispose();
                     CToast.info(this,
                             "Đang xác thực tài khoản thành viên...");
@@ -1586,14 +1472,7 @@ public class CustomerGUI extends JFrame {
                 new JButton("Đăng xuất thành viên");
 
         btnLogoutMember.addActionListener(e -> {
-            boolean sent = sessionSocket.sendRequest(
-                    new SocketPacket(
-                            SocketAction.MEMBER_LOGOUT,
-                            currentTableId,
-                            null,
-                            null
-                    )
-            );
+            boolean sent = tabletBUS.logoutMember();
 
             if (!sent) {
                 CToast.error(this,
@@ -1614,19 +1493,8 @@ public class CustomerGUI extends JFrame {
         updateMemberProfileText();
         memberProfileDialog.setVisible(true);
 
-        sessionSocket.sendRequest(new SocketPacket(
-                SocketAction.MEMBER_PROFILE,
-                currentTableId,
-                null,
-                null
-        ));
-
-        sessionSocket.sendRequest(new SocketPacket(
-                SocketAction.MEMBER_HISTORY,
-                currentTableId,
-                null,
-                null
-        ));
+        tabletBUS.requestMemberProfile();
+        tabletBUS.requestMemberHistory();
     }
 
     private void updateMemberProfileText() {
@@ -1646,7 +1514,4 @@ public class CustomerGUI extends JFrame {
         return tabletBUS.getTrackedItemById(trackTable.getSelectedOrderItemId());
     }
 
-    public static void main(String[] args) {
-        AuthGUI.main(args);
-    }
 }

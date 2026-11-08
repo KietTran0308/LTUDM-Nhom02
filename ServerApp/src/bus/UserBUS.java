@@ -14,7 +14,6 @@ public class UserBUS {
         this.userDAO = new UserDAO();
     }
 
-    // Lấy danh sách tất cả người dùng
     public List<UserDTO> getAllUsers() throws SQLException {
         return userDAO.findAll();
     }
@@ -83,5 +82,14 @@ public class UserBUS {
         }
 
         return userDAO.existsByPhone(phone.trim());
+    }
+
+    public boolean toggleAccountActive(long accountId)
+            throws SQLException {
+
+        if (accountId <= 0)
+            throw new IllegalArgumentException("ID không hợp lệ");
+
+        return userDAO.toggleAccountActive(accountId);
     }
 }

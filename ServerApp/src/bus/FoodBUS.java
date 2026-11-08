@@ -1,11 +1,9 @@
-
 package bus;
 
-import dao.FoodDAO;
 import dao.CategoryDAO;
-
-import dto.FoodDTO;
+import dao.FoodDAO;
 import dto.CategoryDTO;
+import dto.FoodDTO;
 
 import java.math.BigDecimal;
 import java.sql.SQLException;
@@ -28,6 +26,11 @@ public class FoodBUS {
             throws SQLException {
 
         return foodDAO.getPublishedFoodsForTablet();
+    }
+
+    // Danh muc di cung thuc don cho tablet; API khong goi CategoryDAO truc tiep.
+    public List<CategoryDTO> getAllCategories() {
+        return categoryDAO.getAllCategories();
     }
 
     // Lấy tất cả món chưa xóa cho Admin

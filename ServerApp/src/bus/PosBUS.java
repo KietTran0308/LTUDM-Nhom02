@@ -1,6 +1,5 @@
 package bus;
 
-import api.SocketServer;
 import dao.BillDAO;
 import dao.OrderDAO;
 import dao.TableDAO;
@@ -10,6 +9,9 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.sql.SQLException;
 import java.util.List;
+import api.SocketServer;
+
+import api.SocketServer;
 
 public final class PosBUS {
     private final UserDTO operator;
@@ -17,10 +19,9 @@ public final class PosBUS {
     private final ServerOrderBUS orderBUS = new ServerOrderBUS();
 
     public PosBUS(UserDTO operator) {
-        if (operator == null || operator.getId() == null || operator.getRoleName() == null
-                || !("STAFF".equalsIgnoreCase(operator.getRoleName())
-                || "ADMIN".equalsIgnoreCase(operator.getRoleName()))) {
-            throw new SecurityException("POS chỉ dành cho STAFF/ADMIN đã xác thực qua Server.");
+        if (operator == null || operator.getId() == null
+                || !"ADMIN".equalsIgnoreCase(operator.getRoleName())) {
+            throw new SecurityException("POS chỉ dành cho ADMIN đã xác thực qua Server.");
         }
         this.operator = operator;
     }

@@ -3,6 +3,7 @@ package bus;
 import dao.UserDAO;
 import dto.UserDTO;
 import utils.PasswordReset;
+import utils.PasswordUtil;
 
 public class AuthBUS {
     private final UserDAO userDAO = new UserDAO();

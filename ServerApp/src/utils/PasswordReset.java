@@ -1,6 +1,5 @@
 package utils;
 
-import bus.Password;
 import dao.UserDAO;
 import jakarta.mail.Message;
 import jakarta.mail.Session;
@@ -19,11 +18,6 @@ import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
-/**
- * Quên mật khẩu bằng mã OTP email: không cần thêm bảng SQL.
- * Lưu OTP trong bộ nhớ Server (khởi động lại Server sẽ mất mã còn hiệu lực).
- * Không bao giờ gửi OTP về Client hoặc ghi mã/mật khẩu vào log.
- */
 public class PasswordReset {
 
     private static final long TTL_MS = 10 * 60_000L;
@@ -149,7 +143,7 @@ public class PasswordReset {
                 if (entry.failedAttempts >= MAX_OTP_ATTEMPTS) pendingCodes.remove(email, entry);
                 return false;
             }
-            String encoded = Password.encode(newPassword);
+            String encoded = PasswordUtil.encode(newPassword);
             boolean updated = userDAO.updatePasswordByEmail(email, encoded);
             if (updated) {
                 pendingCodes.remove(email, entry); // Mã chỉ được dùng một lần.

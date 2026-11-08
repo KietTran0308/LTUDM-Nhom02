@@ -35,11 +35,6 @@ public class OrderDAO {
         }
     }
 
-    /**
-     * A transaction owns the table lock, active session, root/sub-order selection,
-     * stock deduction, order/items creation, and restaurant-table status.
-     * Never use client-supplied prices or totals.
-     */
     public Long createTableOrderTransaction(OrderDTO order) throws SQLException {
         if (order == null || order.getOrderType() != OrderType.DINE_IN ||
                 order.getTableId() == null || order.getTableId() <= 0 ||
@@ -52,7 +47,7 @@ public class OrderDAO {
             try {
                 // Lock the physical table to serialize first orders and add-on orders.
                 try (PreparedStatement ps = conn.prepareStatement(
-                        "SELECT id FROM restaurant_tables WHERE id = ? FOR UPDATE")) {
+                        "SELECT id FROM tables WHERE id = ? FOR UPDATE")) {
                     ps.setLong(1, order.getTableId());
                     try (ResultSet rs = ps.executeQuery()) {
                         if (!rs.next()) throw new SQLException("Bàn không tồn tại");
@@ -166,7 +161,7 @@ public class OrderDAO {
                     ps.executeBatch();
                 }
                 try (PreparedStatement ps = conn.prepareStatement(
-                        "UPDATE restaurant_tables SET status = FALSE WHERE id = ?")) {
+                        "UPDATE tables SET status = FALSE WHERE id = ?")) {
                     ps.setLong(1, order.getTableId());
                     if (ps.executeUpdate() != 1) throw new SQLException("Không thể cập nhật trạng thái bàn");
                 }
@@ -306,14 +301,28 @@ public class OrderDAO {
         return list;
     }
 
-    /** Kitchen queue only includes orders from ACTIVE table sessions. */
+    /**
+     * Kitchen queue only includes orders from ACTIVE table sessions.
+     */
     public List<OrderDTO> getKitchenQueue() {
         List<OrderDTO> orders = new ArrayList<>();
-        String sql = "SELECT o.* FROM orders o " +
-                "JOIN table_sessions ts ON ts.id = o.table_session_id " +
-                "WHERE ts.status = 'ACTIVE' AND o.status <> 'CANCELLED' " +
-                "AND EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id " +
-                "AND oi.status NOT IN ('SERVED','CANCELLED')) ORDER BY o.created_at ASC";
+        String sql = """
+                SELECT o.*, rt.table_name AS display_table_name
+                FROM orders o
+                JOIN table_sessions ts
+                    ON ts.id = o.table_session_id
+                LEFT JOIN tables rt
+                    ON rt.id = o.table_id
+                WHERE ts.status = 'ACTIVE'
+                  AND o.status <> 'CANCELLED'
+                  AND EXISTS (
+                      SELECT 1
+                      FROM order_items oi
+                      WHERE oi.order_id = o.id
+                        AND oi.status NOT IN ('SERVED', 'CANCELLED')
+                  )
+                ORDER BY o.created_at ASC
+                """;
         try (Connection conn = dbConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
@@ -322,7 +331,9 @@ public class OrderDAO {
                 o.setItems(readOrderItems(conn, o.getId()));
                 orders.add(o);
             }
-        } catch (SQLException e) { throw new IllegalStateException("Lỗi truy vấn hàng đợi bếp", e); }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Lỗi truy vấn hàng đợi bếp", e);
+        }
         return orders;
     }
 
@@ -333,8 +344,12 @@ public class OrderDAO {
         try (Connection conn = dbConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, itemId);
-            try (ResultSet rs = ps.executeQuery()) { return rs.next() ? rs.getLong(1) : null; }
-        } catch (SQLException e) { throw new IllegalStateException("Lỗi tìm bàn theo món", e); }
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getLong(1) : null;
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Lỗi tìm bàn theo món", e);
+        }
     }
 
     public boolean updateOrderItemStatus(Long orderItemId, OrderStatus newStatus) {
@@ -354,7 +369,10 @@ public class OrderDAO {
                                 "WHERE oi.id = ? FOR UPDATE")) {
                     ps.setLong(1, orderItemId);
                     try (ResultSet rs = ps.executeQuery()) {
-                        if (!rs.next()) { conn.rollback(); return false; }
+                        if (!rs.next()) {
+                            conn.rollback();
+                            return false;
+                        }
                         orderId = rs.getLong("order_id");
                         foodId = rs.getLong("foods_id");
                         quantity = rs.getInt("quantity");
@@ -365,18 +383,25 @@ public class OrderDAO {
                         // The session's CLOSED state (payment) is the final barrier.
                         if ("CANCELLED".equals(orderStatus) || "CLOSED".equals(sessionStatus) ||
                                 ("COMPLETED".equals(orderStatus) && sessionStatus == null)) {
-                            conn.rollback(); return false;
+                            conn.rollback();
+                            return false;
                         }
                     }
                 }
-                if (oldStatus == newStatus) { conn.commit(); return true; }
+                if (oldStatus == newStatus) {
+                    conn.commit();
+                    return true;
+                }
                 boolean permitted = (oldStatus == OrderStatus.PENDING && newStatus == OrderStatus.RECEIVED)
                         || (oldStatus == OrderStatus.RECEIVED && newStatus == OrderStatus.COOKING)
                         || (oldStatus == OrderStatus.COOKING && newStatus == OrderStatus.COMPLETED)
                         || (oldStatus == OrderStatus.COMPLETED && newStatus == OrderStatus.SERVED)
                         || ((oldStatus == OrderStatus.PENDING || oldStatus == OrderStatus.RECEIVED)
                         && newStatus == OrderStatus.CANCELLED);
-                if (!permitted) { conn.rollback(); return false; }
+                if (!permitted) {
+                    conn.rollback();
+                    return false;
+                }
 
                 if (newStatus == OrderStatus.CANCELLED) {
                     Map<Long, BigDecimal> ingredients = new HashMap<>();
@@ -409,11 +434,17 @@ public class OrderDAO {
              PreparedStatement ps = c.prepareStatement(
                      "SELECT order_id FROM order_items WHERE id = ?")) {
             ps.setLong(1, itemId);
-            try (ResultSet rs = ps.executeQuery()) { return rs.next() ? rs.getLong(1) : null; }
-        } catch (SQLException e) { throw new IllegalStateException("Loi tim don cua mon", e); }
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getLong(1) : null;
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Loi tim don cua mon", e);
+        }
     }
 
-    /** Goi sau khi cap nhat mon; chi dung khi tat ca mon da che bien xong. */
+    /**
+     * Goi sau khi cap nhat mon; chi dung khi tat ca mon da che bien xong.
+     */
     public OrderDTO completedOrderIfReady(long itemId) {
         Long orderId = getOrderIdByItem(itemId);
         if (orderId == null) return null;
@@ -427,7 +458,9 @@ public class OrderDAO {
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) return null;
             }
-        } catch (SQLException e) { throw new IllegalStateException("Khong kiem tra duoc don hoan tat", e); }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Khong kiem tra duoc don hoan tat", e);
+        }
         return getOrderById(orderId);
     }
 
@@ -462,17 +495,25 @@ public class OrderDAO {
                                 "WHERE o.id = ? FOR UPDATE")) {
                     ps.setLong(1, orderId);
                     try (ResultSet rs = ps.executeQuery()) {
-                        if (!rs.next()) { conn.rollback(); return false; }
+                        if (!rs.next()) {
+                            conn.rollback();
+                            return false;
+                        }
                         oldStatus = OrderStatus.valueOf(rs.getString("status"));
                         sessionStatus = rs.getString("session_status");
                     }
                 }
                 if (oldStatus == OrderStatus.CANCELLED || "CLOSED".equals(sessionStatus)) {
-                    conn.rollback(); return false;
+                    conn.rollback();
+                    return false;
                 }
-                if (oldStatus == newStatus) { conn.commit(); return true; }
+                if (oldStatus == newStatus) {
+                    conn.commit();
+                    return true;
+                }
                 if (newStatus.ordinal() <= oldStatus.ordinal()) {
-                    conn.rollback(); return false;
+                    conn.rollback();
+                    return false;
                 }
                 try (PreparedStatement ps = conn.prepareStatement(
                         "UPDATE orders SET status = ? WHERE id = ?")) {
@@ -510,7 +551,9 @@ public class OrderDAO {
         }
     }
 
-    /** All orders in the ACTIVE session, not historical orders at the same table. */
+    /**
+     * All orders in the ACTIVE session, not historical orders at the same table.
+     */
     public OrderDTO getMergedTableOrderForCheckout(Long tableId) {
         try (Connection conn = dbConnection.getConnection()) {
             Long sessionId = null;
@@ -567,7 +610,9 @@ public class OrderDAO {
         }
     }
 
-    /** Cancel only orders whose items have not begun cooking, and restore stock. */
+    /**
+     * Cancel only orders whose items have not begun cooking, and restore stock.
+     */
     public boolean cancelOrder(Long orderId, String reason) {
         if (reason == null || reason.trim().isEmpty()) {
             throw new IllegalArgumentException("Phải cung cấp lý do hủy đơn");
@@ -581,7 +626,8 @@ public class OrderDAO {
                     try (ResultSet rs = ps.executeQuery()) {
                         if (!rs.next() || !"PENDING".equals(rs.getString(1)) &&
                                 !"RECEIVED".equals(rs.getString(1))) {
-                            conn.rollback(); return false;
+                            conn.rollback();
+                            return false;
                         }
                     }
                 }
@@ -590,7 +636,10 @@ public class OrderDAO {
                                 "AND status <> 'CANCELLED' LIMIT 1")) {
                     ps.setLong(1, orderId);
                     try (ResultSet rs = ps.executeQuery()) {
-                        if (rs.next()) { conn.rollback(); return false; }
+                        if (rs.next()) {
+                            conn.rollback();
+                            return false;
+                        }
                     }
                 }
                 Map<Long, BigDecimal> requirements = new HashMap<>();
@@ -604,7 +653,8 @@ public class OrderDAO {
                             String itemStatus = rs.getString("status");
                             if (!"PENDING".equals(itemStatus) && !"RECEIVED".equals(itemStatus) &&
                                     !"CANCELLED".equals(itemStatus)) {
-                                conn.rollback(); return false;
+                                conn.rollback();
+                                return false;
                             }
                             if (!"CANCELLED".equals(itemStatus)) {
                                 refundableItems.add(new long[]{rs.getLong("foods_id"), rs.getInt("quantity")});
@@ -641,8 +691,11 @@ public class OrderDAO {
     }
 
     private static void rollback(Connection conn, Throwable cause) {
-        try { conn.rollback(); }
-        catch (SQLException e) { cause.addSuppressed(e); }
+        try {
+            conn.rollback();
+        } catch (SQLException e) {
+            cause.addSuppressed(e);
+        }
     }
 
     private static Long nullableLong(ResultSet rs, String column) throws SQLException {

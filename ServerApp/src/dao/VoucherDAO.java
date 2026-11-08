@@ -6,6 +6,7 @@ import java.sql.*;
 import java.time.LocalDateTime;
 
 public class VoucherDAO {
+
     public VoucherDTO getValidVoucherByCode(String code) {
         String sql = "SELECT * FROM vouchers " +
                 "WHERE code = ? AND is_active = TRUE " +

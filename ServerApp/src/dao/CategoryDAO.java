@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class CategoryDAO {
+
     public List<CategoryDTO> getAllCategories() {
         List<CategoryDTO> list = new ArrayList<>();
         String sql = "SELECT id, name, slug, description, created_at FROM categories ORDER BY id ASC";

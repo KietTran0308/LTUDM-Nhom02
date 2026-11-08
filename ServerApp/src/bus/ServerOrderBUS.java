@@ -13,15 +13,11 @@ public class ServerOrderBUS {
     private final OrderDAO orderDAO = new OrderDAO();
     private final VoucherDAO voucherDAO = new VoucherDAO();
 
-    /**
-     * Xử lý nghiệp vụ khi nhận 1 OrderDTO từ Tablet khách hàng gửi qua TCP Socket
-     */
     public OrderDTO processIncomingTableOrder(OrderDTO order, String voucherCode) throws Exception {
         if (order == null || order.getItems() == null || order.getItems().isEmpty()) {
             throw new IllegalArgumentException("Don khong co mon");
         }
-        // DAO khoa phien ban, kiem tra ACTIVE, lay gia mon tu DB, tru kho va tao
-        // orders/order_items trong MOT transaction. Khong tin gia do Client gui.
+
         order.setOrderCode("ORD" + java.util.UUID.randomUUID().toString()
                 .replace("-", "").substring(0, 16).toUpperCase(java.util.Locale.ROOT));
         order.setOrderType(OrderType.DINE_IN);
@@ -30,22 +26,43 @@ public class ServerOrderBUS {
         return orderDAO.getOrderById(id); // Tra ve itemId that sau khi INSERT.
     }
 
-    /**
-     * Dành cho Bếp: Đổi trạng thái món ăn
-     */
     public boolean changeDishStatusByKitchen(Long orderItemId, OrderStatus newStatus) {
         return orderDAO.updateOrderItemStatus(orderItemId, newStatus);
     }
 
-    /**
-     * Trả về danh sách các món đã gọi của bàn để hiển thị tab "Theo dõi đơn"
-     */
     public List<OrderItemDTO> getTableTrackingItems(Long tableId) {
         return orderDAO.getTrackingItemsByTable(tableId);
     }
 
     public List<TableDTO> getAllRestaurantTables() {
         return TableDAO.getAllTables();
+    }
+
+    // Kiem tra phien ban tai BUS: ClientHandler khong duoc phu thuoc TableDAO.
+    public boolean isActiveTableSession(Long tableId, Long sessionId) throws SQLException {
+        return tableId != null && tableId > 0 && sessionId != null && sessionId > 0
+                && TableDAO.isActiveSession(tableId, sessionId);
+    }
+
+    // Bep: doi trang thai mon va truy van hang doi thong qua BUS.
+    public List<OrderDTO> getKitchenQueue() {
+        return orderDAO.getKitchenQueue();
+    }
+
+    public Long getTableIdByOrderItem(Long itemId) {
+        if (itemId == null || itemId <= 0) return null;
+        return orderDAO.getTableIdByOrderItem(itemId);
+    }
+
+    public OrderDTO getOrderByItem(Long itemId) {
+        if (itemId == null || itemId <= 0) return null;
+        Long orderId = orderDAO.getOrderIdByItem(itemId);
+        return orderId == null ? null : orderDAO.getOrderById(orderId);
+    }
+
+    public OrderDTO getCompletedOrderIfReady(Long itemId) {
+        if (itemId == null || itemId <= 0) return null;
+        return orderDAO.completedOrderIfReady(itemId);
     }
 
     public OrderDTO getTableBillPreview(Long tableId) {

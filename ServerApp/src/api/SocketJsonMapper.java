@@ -14,9 +14,7 @@ import java.util.List;
  */
 public class SocketJsonMapper {
 
-    // =========================================================================
-    // 1. CHIỀU SERVER NHẬN YÊU CẦU TỪ CLIENT (JSON -> REQUEST PACKET)
-    // =========================================================================
+    // SERVER NHẬN PACKET JSON
     public static SocketPacket fromJsonString(String rawJson) {
         JSONObject root = new JSONObject(rawJson);
 
@@ -100,6 +98,19 @@ public class SocketJsonMapper {
                 break;
             case ADMIN_DELETE_FOOD:
                 if (root.has("data") && !root.isNull("data")) data = root.getLong("data");
+                break;
+
+            case ADMIN_CREATE_ACCOUNT:
+            case ADMIN_UPDATE_ACCOUNT:
+                if (root.has("data") && !root.isNull("data")) {
+                    data = jsonToUser(root.getJSONObject("data"));
+                }
+                break;
+
+            case ADMIN_LOCK_ACCOUNT:
+                if (root.has("data") && !root.isNull("data")) {
+                    data = root.getLong("data");
+                }
                 break;
 
             default:
@@ -210,6 +221,17 @@ public class SocketJsonMapper {
                 case ADMIN_GET_BILLS:
                     if (data instanceof List<?>) root.put("data", billListToJsonArray((List<BillDTO>) data));
                     break;
+                case ADMIN_GET_ACCOUNTS:
+                if (data instanceof List) {
+                    JSONArray arr = new JSONArray();
+                    for (Object item : (List<?>) data) {
+                        if (item instanceof UserDTO) {
+                            arr.put(userToJson((UserDTO) item));
+                        }
+                    }
+                    root.put("data", arr);
+                }
+                break;
 
                 case VIEW_SESSION_BILL:
                 case GET_TABLE_BILL_PREVIEW:
@@ -228,6 +250,11 @@ public class SocketJsonMapper {
     // --- Các hàm Helper của Server ---
     private static UserDTO jsonToUser(JSONObject obj) {
         UserDTO u = new UserDTO();
+
+        if (obj.has("id") && !obj.isNull("id")) u.setId(obj.getLong("id"));
+        if (obj.has("roleID") && !obj.isNull("roleID")) u.setRoleID(obj.getLong("roleID"));
+        if (obj.has("roleName") && !obj.isNull("roleName")) u.setRoleName(obj.getString("roleName"));
+
         u.setEmail(obj.optString("email", ""));
         u.setPasswordHash(obj.optString("passwordHash", ""));
         u.setFullName(obj.optString("fullName", ""));
@@ -243,6 +270,7 @@ public class SocketJsonMapper {
         obj.put("fullName", u.getFullName());
         obj.put("phone", u.getPhone());
         if (u.getRoleName() != null) obj.put("roleName", u.getRoleName());
+        if (u.getIsActive() != null) obj.put("isActive", u.getIsActive());
         return obj;
     }
 
@@ -255,20 +283,23 @@ public class SocketJsonMapper {
         o.setNote(obj.optString("note", ""));
 
         List<OrderItemDTO> items = new ArrayList<>();
+
         if (obj.has("items") && !obj.isNull("items")) {
             JSONArray arr = obj.getJSONArray("items");
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject itemObj = arr.getJSONObject(i);
-                items.add(new OrderItemDTO(
-                        null, null,
+                OrderItemDTO item = new OrderItemDTO(
+                        null,
+                        null,
                         itemObj.getLong("foodsId"),
                         itemObj.optString("foodsName", ""),
                         itemObj.optBigDecimal("unitPrice", BigDecimal.ZERO),
                         itemObj.optInt("quantity", 1),
                         itemObj.optBigDecimal("lineTotal", BigDecimal.ZERO),
                         OrderStatus.PENDING
-                ));
-                items.get(items.size() - 1).setNote(itemObj.optString("note", ""));
+                );
+                item.setNote(itemObj.optString("note", ""));
+                items.add(item);
             }
         }
         o.setItems(items);
@@ -279,11 +310,11 @@ public class SocketJsonMapper {
         JSONObject obj = new JSONObject();
         if (o.getId() != null) obj.put("id", o.getId());
         if (o.getOrderCode() != null) obj.put("orderCode", o.getOrderCode());
-        if (o.getCreatedAt() != null) obj.put("createdAt", o.getCreatedAt().toString());
         if (o.getParentOrderId() != null) obj.put("parentOrderId", o.getParentOrderId());
         if (o.getTableId() != null) obj.put("tableId", o.getTableId());
         if (o.getTableSessionId() != null) obj.put("tableSessionId", o.getTableSessionId());
-        if (o.getTableSessionId() != null) obj.put("tableSessionId", o.getTableSessionId());
+        if (o.getCreatedAt() != null) obj.put("createdAt", o.getCreatedAt().toString());
+        if (o.getTableName() != null) obj.put("tableName", o.getTableName());
         if (o.getSubtotal() != null) obj.put("subtotal", o.getSubtotal());
         if (o.getDiscountAmount() != null) obj.put("discountAmount", o.getDiscountAmount());
         if (o.getTotalAmount() != null) obj.put("totalAmount", o.getTotalAmount());
@@ -309,11 +340,13 @@ public class SocketJsonMapper {
                 if (item.getOrderId() != null) obj.put("orderId", item.getOrderId());
                 if (item.getFoodsId() != null) obj.put("foodsId", item.getFoodsId());
                 obj.put("foodsName", item.getFoodsName());
-                if (item.getNote() != null) obj.put("note", item.getNote());
                 obj.put("unitPrice", item.getUnitPrice());
                 obj.put("quantity", item.getQuantity());
                 obj.put("lineTotal", item.getLineTotal());
                 if (item.getStatus() != null) obj.put("status", item.getStatus().name());
+                if (item.getNote() != null) obj.put("note", item.getNote());
+                if (item.getUpdatedAt() != null) obj.put("updatedAt", item.getUpdatedAt().toString());
+                if (item.getCompletedAt() != null) obj.put("completedAt", item.getCompletedAt().toString());
                 arr.put(obj);
             }
         }

@@ -1,8 +1,11 @@
 package gui;
 
+import api.ImageSocketClient;
+import java.awt.image.BufferedImage;
+
 import api.SocketClient;
 import bus.KitchenBUS;
-import components.CToast;
+import components.*;
 import dto.*;
 
 import javax.swing.*;
@@ -17,22 +20,29 @@ import javax.swing.table.DefaultTableCellRenderer;
 import java.util.Objects;
 
 public class KitchenGUI extends JFrame {
+
     private final KitchenBUS kitchenBUS;
-    private final UserDTO currentUser;
     private final DefaultTableModel model;
+    private final CTable kitchenTable;
     private final JTable table;
     private final JTextArea history = new JTextArea();
-    private final JLabel status = new JLabel("Đang kết nối bếp...");
     private final Map<Long, OrderItemDTO> visibleItems = new HashMap<>();
     private final Map<Long, Long> pendingUpdates = new HashMap<>();
-    private final JButton nextAction = new JButton("Chọn món để thao tác");
-    private final JToggleButton waiting = new JToggleButton("Chờ nhận / đã nhận", true);
-    private final JToggleButton cooking = new JToggleButton("Đang chế biến");
-    private final JToggleButton ready = new JToggleButton("Chờ phục vụ");
+    private final CButton nextAction = new CButton("Chọn món để thao tác", 270, 48,
+            new Font("SansSerif", Font.BOLD, 16));
+
+    private final CToggleButton waiting = new CToggleButton("Chờ nhận / đã nhận", 255, true);
+    private final CToggleButton cooking = new CToggleButton("Đang chế biến", 220, false);
+    private final CToggleButton ready = new CToggleButton("Chờ phục vụ", 220, false);
     private final JLabel queueSummary = new JLabel("Chưa có món trong hàng đợi");
+
+    private static final int QUEUE_POLL_MS = 100;
+    private static final int AUTO_REFRESH_MS = 5000;
+    private static final String LOGO_IMAGE_KEY = "things/logo.png";
+
     private int stage;
     private javax.swing.Timer responseTimer;
-    private javax.swing.Timer fallbackTimer;
+    private javax.swing.Timer autoRefreshTimer;
 
     public KitchenGUI(UserDTO user, SocketClient authenticatedSocket) {
         if (user == null || user.getRoleName() == null ||
@@ -40,9 +50,10 @@ public class KitchenGUI extends JFrame {
                         "ADMIN".equalsIgnoreCase(user.getRoleName()))) {
             throw new IllegalArgumentException("Tài khoản không có quyền truy cập bếp");
         }
-        currentUser = user;
         kitchenBUS = new KitchenBUS(authenticatedSocket);
-        setTitle("Bếp Nhà | Màn hình bếp KDS");
+
+        setTitle("NHÀ HÀNG AN NHIÊN | Màn hình bếp");
+        setUndecorated(true);
         setSize(1330, 800);
         setLocationRelativeTo(null);
         setExtendedState(JFrame.MAXIMIZED_BOTH);
@@ -53,26 +64,34 @@ public class KitchenGUI extends JFrame {
         JPanel header = new JPanel(new BorderLayout(16, 0));
         header.setBackground(new Color(32, 43, 37));
         header.setBorder(new EmptyBorder(17, 24, 17, 24));
-        JLabel title = new JLabel("BẾP NHÀ  |  MÀN HÌNH ĐIỀU PHỐI BẾP");
+        JLabel title = new JLabel("NHÀ HÀNG AN NHIÊN  |  MÀN HÌNH BẾP");
         title.setForeground(Color.WHITE);
         title.setFont(new Font("SansSerif", Font.BOLD, 22));
         JPanel headerRight = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 0));
         headerRight.setOpaque(false);
-        JButton refresh = new JButton("Làm mới hàng đợi");
-        refresh.addActionListener(e -> kitchenBUS.refreshQueue());
-        JButton logout = new JButton("Đăng xuất");
+        CButton logout = new CButton("Đăng xuất", 120, 42);
         logout.addActionListener(e -> logout());
-        headerRight.add(refresh);
         headerRight.add(logout);
-        header.add(title, BorderLayout.WEST);
+        // Tai logo tu ServerApp qua TCP/IMG/1 tren luong nen, khong doc getResource cua ClientApp.
+        JPanel brand = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
+        brand.setOpaque(false);
+        brand.add(createSocketLogo(LOGO_IMAGE_KEY, 46));
+        brand.add(title);
+        header.add(brand, BorderLayout.WEST);
         header.add(headerRight, BorderLayout.EAST);
         add(header, BorderLayout.NORTH);
 
         String[] columns = {"Item ID", "Bàn", "Lượt gọi", "Tên món", "SL", "Ghi chú chế biến", "Giờ gọi", "Trạng thái"};
         model = new DefaultTableModel(columns, 0) {
-            @Override public boolean isCellEditable(int r, int c) { return false; }
+            @Override
+            public boolean isCellEditable(int r, int c) {
+                return false;
+            }
         };
-        table = new JTable(model);
+        // CTable la component dung chung: giu nguyen constructor CTable() cho tat ca GUI.
+        kitchenTable = new CTable();
+        table = kitchenTable.getTable();
+        table.setModel(model); // Chi cau hinh model rieng cho KitchenGUI.
         table.setRowHeight(48);
         table.setFont(new Font("SansSerif", Font.PLAIN, 15));
         table.setFillsViewportHeight(true);
@@ -81,8 +100,9 @@ public class KitchenGUI extends JFrame {
         table.getColumnModel().getColumn(2).setPreferredWidth(220);
         table.getColumnModel().getColumn(4).setPreferredWidth(270);
         table.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
-            @Override public Component getTableCellRendererComponent(JTable t, Object value,
-                    boolean selected, boolean focus, int row, int col) {
+            @Override
+            public Component getTableCellRendererComponent(JTable t, Object value,
+                                                           boolean selected, boolean focus, int row, int col) {
                 super.getTableCellRendererComponent(t, value, selected, focus, row, col);
                 OrderItemDTO item = selectedItemAt(row);
                 setToolTipText(value == null ? null : value.toString());
@@ -99,69 +119,71 @@ public class KitchenGUI extends JFrame {
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         JPanel middle = new JPanel(new BorderLayout(0, 8));
         middle.setBorder(new EmptyBorder(8, 22, 4, 22));
-        JPanel queueHeader = new JPanel(new GridLayout(3, 1, 0, 6));
+        // CToggleButton hiển thị tab, vẫn dùng ButtonGroup; không cần JTabbedPane / CardLayout.
+        JPanel queueHeader = new JPanel(new BorderLayout(0, 10));
         queueHeader.setOpaque(false);
-        queueHeader.add(status);
-        JPanel filters = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
-        filters.setOpaque(false);
+        JPanel filters = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        filters.setBackground(Color.WHITE);
+        filters.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(227, 232, 228)));
+
         ButtonGroup group = new ButtonGroup();
-        JToggleButton[] buttons = {waiting, cooking, ready};
-        for (int i = 0; i < buttons.length; i++) {
+        CToggleButton[] tabs = {waiting, cooking, ready};
+        for (int i = 0; i < tabs.length; i++) {
             final int selectedStage = i;
-            group.add(buttons[i]);
-            filters.add(buttons[i]);
-            buttons[i].addActionListener(e -> {
+            CToggleButton tab = tabs[i];
+            group.add(tab);
+            filters.add(tab);
+            tab.addActionListener(e -> {
                 stage = selectedStage;
                 renderQueue(kitchenBUS.getQueue());
             });
         }
-        queueHeader.add(filters);
-        queueHeader.add(queueSummary);
+        queueSummary.setFont(new Font("SansSerif", Font.PLAIN, 13));
+        queueSummary.setBorder(new EmptyBorder(1, 5, 2, 0));
+        queueSummary.setBackground(new Color(255, 255, 255));
+        queueHeader.add(filters, BorderLayout.CENTER);
+        queueHeader.add(queueSummary, BorderLayout.SOUTH);
         middle.add(queueHeader, BorderLayout.NORTH);
-        middle.add(new JScrollPane(table), BorderLayout.CENTER);
+        // CTable da co JScrollPane va thanh cuon rieng, khong boc ScrollPane lan nua.
+        middle.add(kitchenTable, BorderLayout.CENTER);
         history.setEditable(false);
         history.setRows(5);
         history.setForeground(new Color(167, 243, 208));
         history.setBackground(new Color(20, 29, 24));
-        JCheckBox showHistory = new JCheckBox("Hiện nhật ký thao tác");
+
         JScrollPane historyPane = new JScrollPane(history);
         historyPane.setVisible(false);
         JPanel historyPanel = new JPanel(new BorderLayout());
-        historyPanel.add(showHistory, BorderLayout.NORTH);
-        historyPanel.add(historyPane, BorderLayout.CENTER);
-        showHistory.addActionListener(e -> {
-            historyPane.setVisible(showHistory.isSelected());
-            historyPanel.revalidate();
-        });
         middle.add(historyPanel, BorderLayout.SOUTH);
         add(middle, BorderLayout.CENTER);
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.CENTER, 14, 12));
         actions.setBackground(Color.WHITE);
-        nextAction.setFont(new Font("SansSerif", Font.BOLD, 16));
-        nextAction.setPreferredSize(new Dimension(270, 48));
+
         nextAction.setEnabled(false);
         nextAction.addActionListener(e -> advanceSelectedItem());
         actions.add(nextAction);
         actions.add(new JLabel("Nấu xong → nhân viên mang món → xác nhận đã phục vụ"));
         add(actions, BorderLayout.SOUTH);
 
-        responseTimer = new javax.swing.Timer(100, e -> {
-            SocketPacket packet;
-            while ((packet = kitchenBUS.pollPacket()) != null) handlePacket(packet);
-            if (!kitchenBUS.isConnected()) status.setText("● Mất kết nối máy chủ — tạm dừng thao tác");
+        responseTimer = new javax.swing.Timer(QUEUE_POLL_MS, e -> {
+            KitchenBUS.Event event;
+            while ((event = kitchenBUS.pollEvent()) != null) onKitchenEvent(event);
             pendingUpdates.entrySet().removeIf(entry -> System.currentTimeMillis() - entry.getValue() > 15000);
             updateAction();
         });
         responseTimer.start();
-        // Chi la phuong an du phong; cap nhat chinh do Server PUSH ngay khi co thay doi.
-        fallbackTimer = new javax.swing.Timer(5000, e -> {
+        // Server PUSH cho thay doi ngay; Timer dinh ky dong bo lai hang doi neu bo lo PUSH.
+        autoRefreshTimer = new javax.swing.Timer(AUTO_REFRESH_MS, e -> {
             if (kitchenBUS.isConnected()) kitchenBUS.refreshQueue();
         });
-        fallbackTimer.start();
-        kitchenBUS.refreshQueue();
+        autoRefreshTimer.start();
+        kitchenBUS.refreshQueue(); // Lay du lieu lan dau khi mo man hinh.
         addWindowListener(new java.awt.event.WindowAdapter() {
-            @Override public void windowClosing(java.awt.event.WindowEvent e) { logout(); }
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent e) {
+                logout();
+            }
         });
     }
 
@@ -170,19 +192,9 @@ public class KitchenGUI extends JFrame {
         return visibleItems.get((Long) model.getValueAt(table.convertRowIndexToModel(viewRow), 0));
     }
 
-    private OrderStatus nextStatus(OrderItemDTO item) {
-        if (item == null || item.getStatus() == null) return null;
-        return switch (item.getStatus()) {
-            case PENDING -> OrderStatus.RECEIVED;
-            case RECEIVED -> OrderStatus.COOKING;
-            case COOKING -> OrderStatus.COMPLETED;
-            default -> null;
-        };
-    }
-
     private void updateAction() {
         OrderItemDTO item = selectedItemAt(table.getSelectedRow());
-        OrderStatus next = nextStatus(item);
+        OrderStatus next = kitchenBUS.nextStatus(item);
         boolean pending = item != null && pendingUpdates.containsKey(item.getId());
         nextAction.setText(pending ? "Đang cập nhật..." : next == OrderStatus.RECEIVED ? "Nhận món"
                 : next == OrderStatus.COOKING ? "Bắt đầu chế biến"
@@ -193,12 +205,12 @@ public class KitchenGUI extends JFrame {
 
     private void advanceSelectedItem() {
         OrderItemDTO item = selectedItemAt(table.getSelectedRow());
-        OrderStatus next = nextStatus(item);
+        OrderStatus next = kitchenBUS.nextStatus(item);
         if (next == null || pendingUpdates.containsKey(item.getId())) return;
         if (kitchenBUS.updateItemStatus(item.getId(), next)) {
             pendingUpdates.put(item.getId(), System.currentTimeMillis());
             updateAction();
-        } else CToast.error(this, "Mất kết nối. Vui lòng thử làm mới hàng đợi.");
+        } else CToast.error(this, "Mất kết nối Server. Vui lòng kiểm tra mạng và đăng nhập lại.");
     }
 
     private String statusText(OrderStatus value) {
@@ -213,34 +225,22 @@ public class KitchenGUI extends JFrame {
         };
     }
 
-    private void handlePacket(SocketPacket p) {
-        if (!p.isSuccess()) {
-            pendingUpdates.clear();
-            updateAction();
-            CToast.error(this, p.getMessage());
-            log("LỖI: " + p.getMessage());
-            return;
-        }
-        switch (p.getAction()) {
-            case GET_KITCHEN_QUEUE:
+    private void onKitchenEvent(KitchenBUS.Event event) {
+        switch (event.type) {
+            case QUEUE_UPDATED:
                 renderQueue(kitchenBUS.getQueue());
-                status.setText("● Đã kết nối Server | Nhân viên: " + currentUser.getFullName());
                 break;
-            case UPDATE_ITEM_STATUS:
-            case SET_KITCHEN_ITEM_STATUS:
-                if (p.getData() instanceof Long) {
-                    Long id = (Long) p.getData();
-                    pendingUpdates.remove(id);
-                    OrderItemDTO item = visibleItems.get(id);
-                    if (item != null && p.getExtraData() instanceof OrderStatus)
-                        item.setStatus((OrderStatus) p.getExtraData());
-                }
-                renderQueue(kitchenBUS.getQueue());
-                log("Đã cập nhật trạng thái món #" + p.getData());
-                kitchenBUS.refreshQueue();
+            case ITEM_UPDATED:
+                if (event.itemId != null) pendingUpdates.remove(event.itemId);
+                log("Đã cập nhật trạng thái món #" + event.itemId);
                 updateAction();
                 break;
-            default: break;
+            case ERROR:
+                pendingUpdates.clear();
+                updateAction();
+                CToast.error(this, event.message);
+                log("LỖI: " + event.message);
+                break;
         }
     }
 
@@ -288,9 +288,51 @@ public class KitchenGUI extends JFrame {
 
     private void logout() {
         if (responseTimer != null) responseTimer.stop();
-        if (fallbackTimer != null) fallbackTimer.stop();
+        if (autoRefreshTimer != null) autoRefreshTimer.stop();
         kitchenBUS.logout();
         dispose();
         new AuthGUI().setVisible(true);
     }
+    /** Load logo via TCP IMG/1, khong doc file local va khong block Swing EDT. */
+    private JLabel createSocketLogo(String imageKey, int size) {
+        JLabel label = new JLabel("AN", SwingConstants.CENTER);
+        Dimension dimension = new Dimension(size, size);
+        label.setPreferredSize(dimension);
+        label.setMinimumSize(dimension);
+        label.setMaximumSize(dimension);
+        label.setForeground(Color.WHITE);
+        label.setFont(new Font(Font.SANS_SERIF, Font.BOLD, Math.max(12, size / 3)));
+
+        new SwingWorker<BufferedImage, Void>() {
+            @Override
+            protected BufferedImage doInBackground() {
+                // ImageSocketClient gui IMG/1 things/logo.png, nhan cac block byte nhi phan.
+                return ImageSocketClient.fetchImage(imageKey);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    BufferedImage received = get();
+                    if (received == null) {
+                        System.err.println("[LOGO-TCP] Khong tai duoc " + imageKey);
+                        return;
+                    }
+                    label.setIcon(new ImageIcon(
+                            received.getScaledInstance(size, size, Image.SCALE_SMOOTH)));
+                    label.setText("");
+                    if ("things/logo.png".equals(imageKey)) setIconImage(received);
+                    label.revalidate();
+                    label.repaint();
+                    System.out.println("[LOGO-TCP] OK " + imageKey + " "
+                            + received.getWidth() + "x" + received.getHeight());
+                } catch (Exception ex) {
+                    System.err.println("[LOGO-TCP] Loi " + imageKey + ": " + ex.getMessage());
+                }
+            }
+        }.execute();
+        return label;
+    }
+
+
 }

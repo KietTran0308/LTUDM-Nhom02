@@ -10,21 +10,18 @@ public class CPasswordField extends JPasswordField {
     private String placeholder;
     private boolean showPassword = false;
 
-    private ImageIcon loadAndResizeIcon(String path, int width, int height) {
-        java.net.URL imgURL = getClass().getResource(path);
-        if (imgURL != null) {
-            ImageIcon originalIcon = new ImageIcon(imgURL);
-            Image img = originalIcon.getImage();
-            Image resizedImage = img.getScaledInstance(width, height, Image.SCALE_SMOOTH);
-            return new ImageIcon(resizedImage);
-        } else {
-            System.err.println("Lỗi: Không tìm thấy ảnh tại " + path);
-            return null;
-        }
-    }
+    private ImageIcon iconShow;
+    private ImageIcon iconHide;
 
-    private ImageIcon iconShow = loadAndResizeIcon("/img/things/eye.png", 20, 20);
-    private ImageIcon iconHide = loadAndResizeIcon("/img/things/eye_off.png", 20, 20);
+    public void setVisibilityIcons(ImageIcon showIcon, ImageIcon hideIcon) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> setVisibilityIcons(showIcon, hideIcon));
+            return;
+        }
+        this.iconShow = showIcon;
+        this.iconHide = hideIcon;
+        repaint();
+    }
 
     private static final Dimension DEFAULT_SIZE = new Dimension(420, 45);
     private static final Font DEFAULT_FONT = new Font("Inter", Font.PLAIN, 20);
@@ -74,6 +71,7 @@ public class CPasswordField extends JPasswordField {
                 }
             }
         });
+
     }
 
     @Override
@@ -108,7 +106,7 @@ public class CPasswordField extends JPasswordField {
         Graphics2D g2 = (Graphics2D) g;
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-        // Cập nhật logic: Nếu đang focus HOẶC có dữ liệu thì viền màu cam
+
         boolean hasData = getPassword().length > 0;
         if (isFocusOwner() || hasData) {
             g2.setColor(new Color(206, 93, 52));

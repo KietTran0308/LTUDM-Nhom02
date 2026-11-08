@@ -13,6 +13,7 @@ public class SocketClient {
     private Socket socket;
     private PrintWriter out;
     private BufferedReader in;
+
     private volatile boolean connected;
     private Long tableId;
     private final BlockingQueue<SocketPacket> packetQueue = new LinkedBlockingQueue<>();
@@ -23,7 +24,8 @@ public class SocketClient {
 
     public synchronized boolean connect(String host, int port, Long tableId) {
         if (connected && socket != null && !socket.isClosed()) return true;
-        if (socket != null) close(); // Dọn kết nối cũ trước khi kết nối lại.
+        if (socket != null) close();
+
         this.tableId = tableId;
         try {
             Socket s = new Socket();
@@ -35,8 +37,7 @@ public class SocketClient {
             connected = true;
             BufferedReader activeInput = in;
 
-            Thread reader = new Thread(
-                    () -> listenFromServer(s, activeInput), "client-socket-reader");
+            Thread reader = new Thread(() -> listenFromServer(s, activeInput), "client-socket-reader");
             reader.setDaemon(true);
             reader.start();
             return true;
@@ -64,7 +65,6 @@ public class SocketClient {
         } catch (IOException e) {
             if (connected) System.err.println("Mat ket noi Server: " + e.getMessage());
         } finally {
-            // Không cho thread cũ vô tình đánh dấu kết nối mới là đã ngắt.
             if (socket == activeSocket) {
                 connected = false;
                 try {
@@ -78,7 +78,6 @@ public class SocketClient {
     public synchronized boolean sendRequest(SocketPacket packet) {
         if (!connected || out == null || packet == null) return false;
         try {
-            // Tuyet doi khong log JSON thuc: LOGIN chua mat khau, REGISTER_TABLE chua token.
             out.println(SocketJsonMapper.toJsonString(packet));
             if (out.checkError()) {
                 connected = false;
@@ -100,16 +99,10 @@ public class SocketClient {
         return connected;
     }
 
-    /**
-     * Goi SAU khi Server phan hoi ENTER_CUSTOMER_MODE thanh cong.
-     */
     public void bindCustomerTable(Long tableId) {
         this.tableId = tableId;
     }
 
-    /**
-     * Tra ve false neu request khong duoc gui (ket noi da dong / loi Socket).
-     */
     public boolean requestMenuAndCategories() {
         return sendRequest(new SocketPacket(SocketAction.GET_MENU_AND_CATEGORIES, tableId, null, null));
     }

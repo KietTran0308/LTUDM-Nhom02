@@ -5,7 +5,6 @@ import dto.*;
 import java.math.BigDecimal;
 import java.util.List;
 
-/** Admin chỉ tạo yêu cầu. Mọi ghi CSDL và phân quyền thực hiện tại ServerApp. */
 public final class AdminBUS {
     private final SocketClient socket;
 
@@ -19,6 +18,9 @@ public final class AdminBUS {
         return socket.requestAndWait(new SocketPacket(action, null, data, null), 7000);
     }
 
+    // ==========================================================
+    // --- 1. NGHIỆP VỤ THỰC ĐƠN ---
+    // ==========================================================
     @SuppressWarnings("unchecked")
     public List<FoodDTO> getAllFoods() {
         return (List<FoodDTO>) request(SocketAction.ADMIN_GET_FOODS, null).getData();
@@ -88,5 +90,39 @@ public final class AdminBUS {
     public BigDecimal calculateTotalTax(List<BillDTO> bills) {
         return bills.stream().map(BillDTO::getTax).filter(java.util.Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    // ==========================================================
+    // --- 4. NGHIỆP VỤ TÀI KHOẢN ---
+    // ==========================================================
+    @SuppressWarnings("unchecked")
+    public List<UserDTO> getAllAccounts() {
+        return (List<UserDTO>) request(SocketAction.ADMIN_GET_ACCOUNTS, null).getData();
+    }
+
+    public boolean createNewAccount(String fullName, String phone, String email, Long roleId, String roleName) {
+        UserDTO u = new UserDTO();
+        u.setFullName(fullName);
+        u.setPhone(phone);
+        u.setEmail(email);
+        u.setRoleID(roleId);
+        u.setRoleName(roleName);
+        request(SocketAction.ADMIN_CREATE_ACCOUNT, u);
+        return true;
+    }
+
+    public boolean updateAccount(Long id, String fullName, String phone, String email) {
+        UserDTO u = new UserDTO();
+        u.setId(id);
+        u.setFullName(fullName);
+        u.setPhone(phone);
+        u.setEmail(email);
+        request(SocketAction.ADMIN_UPDATE_ACCOUNT, u);
+        return true;
+    }
+
+    public boolean lockAccount(Long id) {
+        request(SocketAction.ADMIN_LOCK_ACCOUNT, id);
+        return true;
     }
 }

@@ -1,6 +1,8 @@
 package dao;
 
 import dto.UserDTO;
+import utils.PasswordUtil;
+
 import java.sql.*;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -27,7 +29,7 @@ public class UserDAO {
             ps.setString(2, emailOrPhone.trim());
             rs = ps.executeQuery();
 
-            if (rs.next() && bus.PasswordUtil.matches(passwordHash, rs.getString("password_hash"))) {
+            if (rs.next() && PasswordUtil.matches(passwordHash, rs.getString("password_hash"))) {
                 UserDTO user = new UserDTO(
                         rs.getLong("id"),
                         rs.getLong("roleID"),
@@ -86,7 +88,7 @@ public class UserDAO {
 
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next() &&
-                        bus.PasswordUtil.matches(
+                        PasswordUtil.matches(
                                 password, rs.getString("password_hash")
                         )) {
                     return mapUser(rs);
@@ -343,6 +345,23 @@ public class UserDAO {
             ps.setLong(1, userId);
 
             return ps.executeUpdate() > 0;
+        }
+    }
+
+    public boolean toggleAccountActive(long accountId)
+            throws SQLException {
+
+        String sql = """
+        UPDATE users
+        SET is_active = NOT is_active
+        WHERE id = ?
+        """;
+
+        try (Connection conn = dbConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setLong(1, accountId);
+            return ps.executeUpdate() == 1;
         }
     }
 }

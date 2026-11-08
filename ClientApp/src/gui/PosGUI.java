@@ -1,5 +1,8 @@
 package gui;
 
+import api.ImageSocketClient;
+import java.awt.image.BufferedImage;
+
 import bus.PosBUS;
 import bus.AuthBUS;
 import api.SocketClient;
@@ -25,12 +28,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 
-/**
- * POS trên ClientApp: mọi nghiệp vụ chạy qua TCP Socket tới ServerApp.
- * Giao dien ke thua bo cuc StaffGUI cu: header xanh rung, luoi ban 3 cot,
- * hoa don chi tiet, bang tong tien/ VAT/ thanh toan. Nghiep vu do PosBUS xu ly.
- * Không truy cập DB hoặc BUS của server trực tiếp.
- */
 public final class PosGUI extends JFrame {
     private static final Color FREE_COLOR = new Color(38, 77, 56);
     private static final Color BUSY_COLOR = Utils.TERRACOTTA;
@@ -47,7 +44,6 @@ public final class PosGUI extends JFrame {
     };
     private final JTable billTable = new JTable(billItemsModel);
     private final JLabel lblSelectedTableInfo = new JLabel("Chưa chọn bàn cần thanh toán");
-    private final JLabel lblRootOrderCode = new JLabel("Mã đơn gốc (Root Order): ---");
     private final JLabel lblSubtotal = valueLabel("0 VNĐ", 14, Utils.TEXT_DARK);
     private final JLabel lblDiscount = valueLabel("0 VNĐ", 14, new Color(46, 125, 50));
     private final JLabel lblTaxVAT = valueLabel("0 VNĐ", 14, Utils.TEXT_DARK);
@@ -55,8 +51,8 @@ public final class PosGUI extends JFrame {
     private final JLabel lblStatus = new JLabel("POS trung tâm — sẵn sàng");
     private final JComboBox<PaymentMethod> cboPaymentMethod = new JComboBox<>(PaymentMethod.values());
     private final CButton btnOpenSession = new CButton("Mở phiên bàn", 154, 42);
-    private final CButton btnRefresh = new CButton("Làm mới danh sách bàn", 186, 42);
-    private final CButton btnCheckout = new CButton("Xuất hóa đơn & Giải phóng bàn", 490, 52);
+
+    private final CButton btnCheckout = new CButton("Xuất hóa đơn", 490, 52);
     private final JButton btnServed = new JButton("Đã phục vụ món được chọn");
 
     private List<OrderItemDTO> shownItems = Collections.emptyList();
@@ -66,9 +62,7 @@ public final class PosGUI extends JFrame {
     private boolean refreshing;
     private final Timer refreshTimer;
 
-    /**
-     * Mỗi máy POS đăng nhập bằng tài khoản STAFF/ADMIN cá nhân qua TCP.
-     */
+
     public static void showPosLogin() {
         JDialog dialog = new JDialog((Frame) null, "Đăng nhập POS — An Nhiên", true);
         JPanel content = new JPanel(new BorderLayout(12, 12));
@@ -80,7 +74,7 @@ public final class PosGUI extends JFrame {
         form.add(username);
         form.add(new JLabel("Mật khẩu:"));
         form.add(password);
-        JLabel feedback = new JLabel("Dùng tài khoản STAFF/ADMIN cá nhân, kết nối TCP tới Server.");
+        JLabel feedback = new JLabel("Chỉ tài khoản ADMIN trên máy POS được cấp phép mới có quyền thu ngân.");
         feedback.setForeground(new Color(135, 72, 42));
         JButton submit = new JButton("Đăng nhập POS");
         JButton cancel = new JButton("Hủy");
@@ -107,11 +101,13 @@ public final class PosGUI extends JFrame {
                     SocketClient connection = new SocketClient();
                     try {
                         UserDTO user = AuthBUS.loginWorkstation(connection, account, secret);
-                        if (user.getRoleName() == null ||
-                                !("STAFF".equalsIgnoreCase(user.getRoleName())
-                                        || "ADMIN".equalsIgnoreCase(user.getRoleName())))
-                            throw new SecurityException("Tài khoản không có quyền thu ngân");
-                        return new PosBUS(user, connection);
+                        if (!"ADMIN".equalsIgnoreCase(user.getRoleName()))
+                            throw new SecurityException("Chỉ ADMIN mới có quyền mở POS");
+                        PosBUS pos = new PosBUS(user, connection);
+                        // Xác thực với SERVER trước khi hiện giao diện:
+                        // đăng nhập ADMIN trên iPad không tự biến iPad thành máy thu ngân.
+                        pos.listTables(); // Server kiểm tra cả role và POS_ALLOWED_IPS.
+                        return pos;
                     } catch (RuntimeException ex) {
                         connection.close();
                         throw ex;
@@ -146,6 +142,10 @@ public final class PosGUI extends JFrame {
         dialog.setResizable(false);
         dialog.setLocationRelativeTo(null);
         dialog.setVisible(true);
+    }
+
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(PosGUI::showPosLogin);
     }
 
     private PosGUI(PosBUS pos) {
@@ -202,7 +202,7 @@ public final class PosGUI extends JFrame {
         JPanel leftBrand = new JPanel();
         leftBrand.setLayout(new BoxLayout(leftBrand, BoxLayout.X_AXIS));
         leftBrand.setOpaque(false);
-        JLabel lblIcon = new JLabel(Utils.getScaledIcon("img/things/logo.png", 40, 40));
+        JLabel lblIcon = createSocketLogo("things/logo.png", 40);
         lblIcon.setBorder(new EmptyBorder(0, 0, 0, 10));
         JPanel titleCol = new JPanel();
         titleCol.setLayout(new BoxLayout(titleCol, BoxLayout.Y_AXIS));
@@ -210,20 +210,16 @@ public final class PosGUI extends JFrame {
         JLabel brand = new JLabel("Nhà hàng An Nhiên  |  QUẢN LÝ BÀN & THU NGÂN");
         brand.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 20));
         brand.setForeground(Color.WHITE);
-        JLabel staff = new JLabel("Thu ngân: " + pos.getOperator().getFullName() +
-                " (" + pos.getOperator().getEmail() + ")");
-        staff.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 12));
-        staff.setForeground(Utils.GOLD_ACCENT);
+
         titleCol.add(brand);
         titleCol.add(Box.createVerticalStrut(3));
-        titleCol.add(staff);
+
         leftBrand.add(lblIcon);
         leftBrand.add(titleCol);
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 4));
         actions.setOpaque(false);
         btnOpenSession.addActionListener(e -> openSelectedTable());
-        btnRefresh.addActionListener(e -> refreshTables(true));
         JButton btnLogout = new JButton("Đăng xuất");
         btnLogout.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 13));
         btnLogout.setForeground(Color.WHITE);
@@ -234,7 +230,6 @@ public final class PosGUI extends JFrame {
         btnLogout.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         btnLogout.addActionListener(e -> dispose());
         actions.add(btnOpenSession);
-        actions.add(btnRefresh);
         actions.add(btnLogout);
 
         header.add(leftBrand, BorderLayout.WEST);
@@ -277,11 +272,8 @@ public final class PosGUI extends JFrame {
         billHeader.setOpaque(false);
         lblSelectedTableInfo.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 22));
         lblSelectedTableInfo.setForeground(Utils.TEXT_DARK);
-        lblRootOrderCode.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 13));
-        lblRootOrderCode.setForeground(Color.GRAY);
         billHeader.add(lblSelectedTableInfo);
         billHeader.add(Box.createVerticalStrut(4));
-        billHeader.add(lblRootOrderCode);
 
         billTable.setRowHeight(34);
         billTable.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 13));
@@ -377,7 +369,6 @@ public final class PosGUI extends JFrame {
         boolean hasTable = selectedTable != null;
         boolean active = hasTable && selectedTable.getActiveSessionId() != null;
         btnOpenSession.setEnabled(!busy && hasTable && !active);
-        btnRefresh.setEnabled(!busy && !refreshing);
         btnCheckout.setEnabled(!busy && active && billPreview != null &&
                 Objects.equals(selectedTable.getActiveSessionId(), billPreview.getTableSessionId()));
         int row = billTable.getSelectedRow();
@@ -437,7 +428,6 @@ public final class PosGUI extends JFrame {
         renderTableMap(lastTables);
         updateButtons();
         if (table.getActiveSessionId() != null) loadPreview();
-        else CToast.info(this, table.getTableName() + " chưa có phiên ACTIVE. Có thể mở phiên mới.");
     }
 
     private List<TableDTO> lastTables = Collections.emptyList();
@@ -446,7 +436,6 @@ public final class PosGUI extends JFrame {
         billPreview = null;
         shownItems = Collections.emptyList();
         billItemsModel.setRowCount(0);
-        lblRootOrderCode.setText("Mã đơn gốc (Root Order): ---");
         lblSubtotal.setText("0 VNĐ");
         lblDiscount.setText("0 VNĐ");
         lblTaxVAT.setText("0 VNĐ");
@@ -456,14 +445,10 @@ public final class PosGUI extends JFrame {
 
     private void renderMergedBillPreview(OrderDTO order) {
         clearInvoicePanel();
-        if (order == null) {
-            lblRootOrderCode.setText("Chưa có món trong phiên bàn này");
-            return;
-        }
+
         billPreview = order;
         shownItems = order.getItems() == null ? Collections.emptyList() : new ArrayList<>(order.getItems());
-        lblRootOrderCode.setText("Mã đơn gốc: " + order.getOrderCode()
-                + "  (ID #" + order.getId() + " — Đã gộp các lượt gọi thêm)");
+
         for (OrderItemDTO item : shownItems) {
             String turn = Objects.equals(item.getOrderId(), order.getId())
                     ? "Đơn gốc (#" + item.getOrderId() + ")"
@@ -488,9 +473,6 @@ public final class PosGUI extends JFrame {
         void accept(T value);
     }
 
-    /**
-     * Truy van CSDL tren SwingWorker, khong khoa Swing EDT.
-     */
     private <T> void execute(String description, java.util.concurrent.Callable<T> task,
                              ResultHandler<T> onSuccess) {
         if (busy || !isDisplayable()) return;
@@ -513,12 +495,9 @@ public final class PosGUI extends JFrame {
                     onSuccess.accept(result);
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
-                    CToast.error(PosGUI.this, "Tác vụ bị gián đoạn.");
                 } catch (Exception ex) {
                     Throwable cause = ex instanceof ExecutionException ? ex.getCause() : ex;
                     String msg = cause == null ? ex.getMessage() : cause.getMessage();
-                    lblStatus.setText("Lỗi: " + msg);
-                    CToast.error(PosGUI.this, "Thao tác thất bại: " + msg);
                 } finally {
                     updateButtons();
                 }
@@ -564,11 +543,8 @@ public final class PosGUI extends JFrame {
                         if (selectedTable.getActiveSessionId() == null) clearInvoicePanel();
                     }
                     renderTableMap(lastTables);
-                    if (notify) CToast.success(PosGUI.this, "Đã cập nhật sơ đồ bàn.");
-                    lblStatus.setText("Danh sách: " + lastTables.size() + " bàn — làm mới tự động 6 giây/lần");
                     if (selectedTable != null && selectedTable.getActiveSessionId() != null) loadPreview();
                 } catch (Exception ex) {
-                    lblStatus.setText("Không thể tải danh sách bàn: " + ex.getMessage());
                 } finally {
                     updateButtons();
                 }
@@ -647,8 +623,45 @@ public final class PosGUI extends JFrame {
         });
     }
 
-    public static void main(String[] args) {
-        SwingUtilities.invokeLater(PosGUI::showPosLogin);
+    private JLabel createSocketLogo(String imageKey, int size) {
+        JLabel label = new JLabel("AN", SwingConstants.CENTER);
+        Dimension dimension = new Dimension(size, size);
+        label.setPreferredSize(dimension);
+        label.setMinimumSize(dimension);
+        label.setMaximumSize(dimension);
+        label.setForeground(Color.WHITE);
+        label.setFont(new Font(Font.SANS_SERIF, Font.BOLD, Math.max(12, size / 3)));
+
+        new SwingWorker<BufferedImage, Void>() {
+            @Override
+            protected BufferedImage doInBackground() {
+                // ImageSocketClient gui IMG/1 things/logo.png, nhan cac block byte nhi phan.
+                return ImageSocketClient.fetchImage(imageKey);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    BufferedImage received = get();
+                    if (received == null) {
+                        System.err.println("[LOGO-TCP] Khong tai duoc " + imageKey);
+                        return;
+                    }
+                    label.setIcon(new ImageIcon(
+                            received.getScaledInstance(size, size, Image.SCALE_SMOOTH)));
+                    label.setText("");
+                    if ("things/logo.png".equals(imageKey)) setIconImage(received);
+                    label.revalidate();
+                    label.repaint();
+                    System.out.println("[LOGO-TCP] OK " + imageKey + " "
+                            + received.getWidth() + "x" + received.getHeight());
+                } catch (Exception ex) {
+                    System.err.println("[LOGO-TCP] Loi " + imageKey + ": " + ex.getMessage());
+                }
+            }
+        }.execute();
+        return label;
     }
+
 
 }

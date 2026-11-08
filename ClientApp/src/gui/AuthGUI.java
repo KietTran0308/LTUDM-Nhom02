@@ -1,8 +1,9 @@
 package gui;
 
+import api.ImageSocketClient;
+import java.awt.image.BufferedImage;
+
 import bus.AuthBUS;
-import dto.SocketAction;
-import dto.SocketPacket;
 import dto.UserDTO;
 import components.*;
 import utils.Utils;
@@ -18,7 +19,6 @@ import api.SocketClient;
 public class AuthGUI extends JFrame {
 
     private static final String CARD_LOGIN = "LOGIN";
-    private static final String CARD_REGISTER = "REGISTER";
     private static final String CARD_FORGOT = "FORGOT";
     private static final Color BRAND_ORANGE = new Color(206, 93, 52);
 
@@ -28,11 +28,10 @@ public class AuthGUI extends JFrame {
 
     private Timer responseTimer;
 
-    private JCheckBox chkRemember;
-    private CButton btnLogin, btnRegister;
+    private CButton btnLogin;
 
-    private CTextField txtLoginEmail, txtRegFullName, txtRegEmail, txtRegPhone;
-    private CPasswordField txtLoginPassword, txtRegPassword, txtRegConfirmPassword;
+    private CTextField txtLoginEmail;
+    private CPasswordField txtLoginPassword;
     private CTextField txtForgotEmail, txtForgotOtp;
     private CPasswordField txtForgotNewPassword, txtForgotConfirmPassword;
     private CButton btnSendResetCode, btnConfirmReset;
@@ -49,9 +48,11 @@ public class AuthGUI extends JFrame {
         add(createLeftPanel());
 
         rightCardPanel.add(createLoginPanel(), CARD_LOGIN);
-        rightCardPanel.add(createRegisterPanel(), CARD_REGISTER);
         rightCardPanel.add(createForgotPasswordPanel(), CARD_FORGOT);
         add(rightCardPanel);
+
+        // Tải hai icon một lần cho cả ba ô mật khẩu, không tải từ dtoShared.
+        loadPasswordIconsViaSocket();
 
         addWindowFocusListener(new WindowAdapter() {
             @Override
@@ -94,10 +95,7 @@ public class AuthGUI extends JFrame {
         logoPanel.setLayout(new BoxLayout(logoPanel, BoxLayout.X_AXIS));
         logoPanel.setOpaque(false);
 
-        JLabel lblIcon = new JLabel(Utils.getScaledIcon("img/things/logo.png", 50, 50));
-        lblIcon.setBorder(new EmptyBorder(0, 0, 0, 10));
-
-        JLabel lblIcon2 = new JLabel(Utils.getScaledIcon("img/things/logo2.png", 50, 50));
+        JLabel lblIcon2 = createSocketLogo("things/logo2.png", 50);
         lblIcon2.setBorder(new EmptyBorder(0, 0, 0, 10));
 
         JPanel logoTextPanel = new JPanel();
@@ -110,7 +108,6 @@ public class AuthGUI extends JFrame {
         logoTextPanel.add(lblBrandSub);
         logoTextPanel.add(lblBrandName);
         logoPanel.add(lblIcon2);
-        logoPanel.add(lblIcon);
         logoPanel.add(logoTextPanel);
         leftPanel.add(logoPanel, BorderLayout.NORTH);
 
@@ -134,20 +131,12 @@ public class AuthGUI extends JFrame {
         badgePanel.setMaximumSize(new Dimension(230, 28));
         badgePanel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        JLabel lblBadge = createLabel("VẬN HÀNH NHÀ HÀNG, ĐƠN GIẢN HƠN", "Inter", Font.BOLD, 10, new Color(201, 142, 84), Component.CENTER_ALIGNMENT);
-        lblBadge.setBorder(new EmptyBorder(7, 15, 7, 15));
-        badgePanel.add(lblBadge);
-
-        Color descColor = new Color(152, 161, 157);
         centerContent.add(badgePanel);
         centerContent.add(Box.createVerticalStrut(25));
         centerContent.add(createLabel("Mỗi đơn món,", "Be Vietnam Pro Black", Font.BOLD, 46, Color.WHITE, Component.CENTER_ALIGNMENT));
         centerContent.add(createLabel("một trải nghiệm", "Be Vietnam Pro Black", Font.BOLD, 46, Color.WHITE, Component.CENTER_ALIGNMENT));
         centerContent.add(createLabel("trọn vẹn.", "Be Vietnam Pro Black", Font.BOLD, 46, new Color(201, 142, 84), Component.CENTER_ALIGNMENT));
         centerContent.add(Box.createVerticalStrut(20));
-        centerContent.add(createLabel("Kết nối khách hàng, bếp và đội ngũ phục vụ trong một hệ", "Inter", Font.PLAIN, 15, descColor, Component.CENTER_ALIGNMENT));
-        centerContent.add(Box.createVerticalStrut(5));
-        centerContent.add(createLabel("thống thời gian thực.", "Inter", Font.PLAIN, 15, descColor, Component.CENTER_ALIGNMENT));
 
         centerWrapper.add(centerContent);
         leftPanel.add(centerWrapper, BorderLayout.CENTER);
@@ -177,15 +166,6 @@ public class AuthGUI extends JFrame {
         pnlOptions.setMaximumSize(new Dimension(470, 50));
         pnlOptions.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        chkRemember = new JCheckBox("Ghi nhớ đăng nhập");
-        chkRemember.setBackground(Color.WHITE);
-        chkRemember.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.PLAIN, 14));
-        chkRemember.setForeground(new Color(107, 114, 128));
-        chkRemember.setFocusPainted(false);
-        chkRemember.setIcon(new CCheckBox(false));
-        chkRemember.setSelectedIcon(new CCheckBox(true));
-        chkRemember.setSelected(true);
-
         JLabel lblForgot = createLabel("Quên mật khẩu?", "Be Vietnam Pro Black", Font.BOLD, 14, BRAND_ORANGE, Component.LEFT_ALIGNMENT);
         lblForgot.setCursor(new Cursor(Cursor.HAND_CURSOR));
         lblForgot.addMouseListener(new MouseAdapter() {
@@ -197,14 +177,11 @@ public class AuthGUI extends JFrame {
             }
         });
 
-        pnlOptions.add(chkRemember, BorderLayout.WEST);
         pnlOptions.add(lblForgot, BorderLayout.EAST);
 
         btnLogin = new CButton("Đăng nhập", 470, 50);
         btnLogin.setAlignmentX(Component.LEFT_ALIGNMENT);
         btnLogin.addActionListener(e -> handleLogin());
-
-        JPanel pnlRegister = createSwitchAuthPanel("Chưa có tài khoản? ", "Đăng ký ngay", CARD_REGISTER);
 
         formContainer.add(titleWrapper);
         formContainer.add(Box.createVerticalStrut(8));
@@ -228,82 +205,11 @@ public class AuthGUI extends JFrame {
         formContainer.add(Box.createVerticalStrut(35));
         formContainer.add(btnLogin);
         formContainer.add(Box.createVerticalStrut(30));
-        // Tablet/ POS chi cho nhan vien dang nhap; khach khong can tao tai khoan.
-        // Khong hien thi link dang ky CUSTOMER trong luong moi.
 
         rightWrapper.add(formContainer);
         return rightWrapper;
     }
 
-    private JPanel createRegisterPanel() {
-        JPanel rightWrapper = new JPanel(new GridBagLayout());
-        rightWrapper.setBackground(Color.WHITE);
-
-        JPanel formContainer = new JPanel();
-        formContainer.setLayout(new BoxLayout(formContainer, BoxLayout.Y_AXIS));
-        formContainer.setBackground(Color.WHITE);
-
-        JPanel titleWrapper = createTitleHeader("Đăng ký tài khoản");
-        JLabel lblSubtitle = createLabel("Tạo tài khoản để bắt đầu sử dụng các chức năng", "Inter", Font.PLAIN, 22, Color.GRAY, Component.LEFT_ALIGNMENT);
-
-        txtRegFullName = new CTextField("Nguyễn Minh Anh", 500, 50);
-        txtRegFullName.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        txtRegEmail = new CTextField("name@bepnha.vn", 500, 50);
-        txtRegEmail.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        txtRegPhone = new CTextField("090 123 4567", 500, 50);
-        txtRegPhone.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        txtRegPassword = new CPasswordField("••••••••", 500, 50);
-        txtRegPassword.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        txtRegConfirmPassword = new CPasswordField("••••••••", 500, 50);
-        txtRegConfirmPassword.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        btnRegister = new CButton("Đăng ký", 500, 50);
-        btnRegister.setAlignmentX(Component.LEFT_ALIGNMENT);
-        btnRegister.addActionListener(e -> handleRegister());
-
-        JPanel pnlLogin = createSwitchAuthPanel("Đã có tài khoản? ", "Đăng nhập", CARD_LOGIN);
-
-        formContainer.add(titleWrapper);
-        formContainer.add(Box.createVerticalStrut(8));
-        formContainer.add(lblSubtitle);
-        formContainer.add(Box.createVerticalStrut(35));
-        formContainer.add(createSeparator());
-        formContainer.add(Box.createVerticalStrut(25));
-        formContainer.add(createFieldLabel("Họ và tên"));
-        formContainer.add(Box.createVerticalStrut(5));
-        formContainer.add(txtRegFullName);
-        formContainer.add(Box.createVerticalStrut(15));
-        formContainer.add(createFieldLabel("Email"));
-        formContainer.add(Box.createVerticalStrut(5));
-        formContainer.add(txtRegEmail);
-        formContainer.add(Box.createVerticalStrut(15));
-        formContainer.add(createFieldLabel("Số điện thoại"));
-        formContainer.add(Box.createVerticalStrut(5));
-        formContainer.add(txtRegPhone);
-        formContainer.add(Box.createVerticalStrut(15));
-        formContainer.add(createFieldLabel("Mật khẩu"));
-        formContainer.add(Box.createVerticalStrut(5));
-        formContainer.add(txtRegPassword);
-        formContainer.add(Box.createVerticalStrut(15));
-        formContainer.add(createFieldLabel("Xác nhận mật khẩu"));
-        formContainer.add(Box.createVerticalStrut(5));
-        formContainer.add(txtRegConfirmPassword);
-        formContainer.add(Box.createVerticalStrut(25));
-        formContainer.add(btnRegister);
-        formContainer.add(Box.createVerticalStrut(25));
-        formContainer.add(pnlLogin);
-
-        rightWrapper.add(formContainer);
-        return rightWrapper;
-    }
-
-    /**
-     * Màn hình đặt lại mật khẩu, dùng cùng CardLayout để không mở JFrame khác.
-     */
     private JPanel createForgotPasswordPanel() {
         JPanel wrapper = new JPanel(new GridBagLayout());
         wrapper.setBackground(Color.WHITE);
@@ -425,104 +331,75 @@ public class AuthGUI extends JFrame {
         }
     }
 
-    private void handleRegister() {
-        String fullName = txtRegFullName.getText().trim();
-        String email = txtRegEmail.getText().trim();
-        String phone = txtRegPhone.getText().trim();
-        String pass = new String(txtRegPassword.getPassword()).trim();
-        String confirm = new String(txtRegConfirmPassword.getPassword()).trim();
-
-        if (fullName.isEmpty() || email.isEmpty() || pass.isEmpty()) {
-            CToast.show(this, "Vui lòng điền đầy đủ thông tin bắt buộc!", "Lỗi", CToast.WARNING);
-            return;
-        }
-        if (!pass.equals(confirm)) {
-            CToast.show(this, "Mật khẩu xác nhận không khớp!", "Lỗi", CToast.ERROR);
-            return;
-        }
-        if (!authBUS.register(fullName, email, phone, pass)) {
-            CToast.show(this, "Không kết nối được ServerApp (Port 8888)!", "Lỗi mạng", CToast.ERROR);
+    private void onAuthEvent(AuthBUS.Event event) {
+        if (event == null) return;
+        switch (event.type) {
+            case RESET_CODE:
+                btnSendResetCode.setEnabled(true);
+                if (event.success) {
+                    txtForgotOtp.setEnabled(true);
+                    txtForgotNewPassword.setEnabled(true);
+                    txtForgotConfirmPassword.setEnabled(true);
+                    btnConfirmReset.setEnabled(true);
+                    btnSendResetCode.setText("Gửi lại mã xác minh");
+                    CToast.info(this, event.message);
+                } else {
+                    CToast.error(this, event.message);
+                }
+                return;
+            case RESET_PASSWORD:
+                btnConfirmReset.setEnabled(true);
+                if (event.success) {
+                    CToast.success(this, "Đổi mật khẩu thành công. Hãy đăng nhập lại.");
+                    txtLoginEmail.setText(txtForgotEmail.getText().trim());
+                    txtLoginPassword.setText("");
+                    txtForgotOtp.setText("");
+                    txtForgotNewPassword.setText("");
+                    txtForgotConfirmPassword.setText("");
+                    txtForgotOtp.setEnabled(false);
+                    txtForgotNewPassword.setEnabled(false);
+                    txtForgotConfirmPassword.setEnabled(false);
+                    btnConfirmReset.setEnabled(false);
+                    cardLayout.show(rightCardPanel, CARD_LOGIN);
+                } else {
+                    CToast.warning(this, event.message);
+                }
+                return;
+            case LOGIN:
+                if (!event.success) {
+                    CToast.error(this, event.message);
+                    return;
+                }
+                if (event.user == null || event.user.getRoleName() == null) {
+                    CToast.error(this, "Server không trả tài khoản hoặc quyền hợp lệ.");
+                    return;
+                }
+                openRoleScreen(event.user);
+                return;
+            default:
+                if (!event.success) CToast.error(this, event.message);
         }
     }
 
-    private void onAuthServerResponse(SocketPacket packet) {
-        if (packet.getAction() == SocketAction.REQUEST_PASSWORD_RESET) {
-            btnSendResetCode.setEnabled(true);
-            if (packet.isSuccess()) {
-                txtForgotOtp.setEnabled(true);
-                txtForgotNewPassword.setEnabled(true);
-                txtForgotConfirmPassword.setEnabled(true);
-                btnConfirmReset.setEnabled(true);
-                btnSendResetCode.setText("Gửi lại mã (sau 60 giây)");
-                CToast.info(this, packet.getMessage());
-            } else {
-                CToast.error(this, packet.getMessage());
-            }
-            return;
-        }
-        if (packet.getAction() == SocketAction.CONFIRM_PASSWORD_RESET) {
-            btnConfirmReset.setEnabled(true);
-            if (packet.isSuccess()) {
-                CToast.success(this, "Đổi mật khẩu thành công. Hãy đăng nhập lại.");
-                txtLoginEmail.setText(txtForgotEmail.getText().trim());
-                txtLoginPassword.setText("");
-                txtForgotOtp.setText("");
-                txtForgotNewPassword.setText("");
-                txtForgotConfirmPassword.setText("");
-                txtForgotOtp.setEnabled(false);
-                txtForgotNewPassword.setEnabled(false);
-                txtForgotConfirmPassword.setEnabled(false);
-                btnConfirmReset.setEnabled(false);
-                cardLayout.show(rightCardPanel, CARD_LOGIN);
-            } else {
-                CToast.warning(this, packet.getMessage());
-            }
-            return;
-        }
-        if (packet.getAction() == SocketAction.REGISTER) {
-            if (packet.isSuccess()) {
-                CToast.success(this, "Đăng ký thành công. Vui lòng đăng nhập.");
-                txtLoginEmail.setText(txtRegEmail.getText());
-                cardLayout.show(rightCardPanel, CARD_LOGIN);
-            } else {
-                CToast.error(this, packet.getMessage());
-            }
-            return;
-        }
-        if (packet.getAction() != SocketAction.LOGIN && packet.getAction() != SocketAction.LOGIN_STAFF) return;
-        if (!packet.isSuccess()) {
-            CToast.error(this, packet.getMessage());
-            return;
-        }
-        if (!(packet.getData() instanceof UserDTO)) {
-            CToast.error(this, "Server không trả thông tin người dùng hợp lệ.");
-            return;
-        }
-        UserDTO user = (UserDTO) packet.getData();
-        String role = user.getRoleName();
-        if (role == null) {
-            CToast.error(this, "Tài khoản chưa được phân quyền.");
-            return;
-        }
+    private void openRoleScreen(UserDTO user) {
+        String role = user.getRoleName().toUpperCase(Locale.ROOT);
         SocketClient session = authBUS.getSocketClient();
-        // DUNG TIMER DANG NHAP TRUOC KHI TAO GUI MOI.
-        // Neu khong, AuthGUI co the lay mat goi LIST_TABLES tu packetQueue chung.
-        if (responseTimer != null) responseTimer.stop();
+        // Dung Timer cua man hinh cu, de man hinh moi doc queue ma khong bi tranh packet.
+        responseTimer.stop();
         JFrame next;
-        switch (role.toUpperCase(Locale.ROOT)) {
+        switch (role) {
             case "STAFF":
-                // Tat ca nhan vien tren ClientApp chi duoc chon ban / ban giao.
                 next = new StaffGUI(user, session);
                 break;
-            case "ADMIN":
-                CToast.warning(this, "Quan tri vien dang nhap truc tiep tren ServerApp (may trung tam).");
-                resetAuthenticatedLogin();
-                return;
             case "KITCHEN":
                 next = new KitchenGUI(user, session);
                 break;
+            case "ADMIN":
+                CToast.warning(this, "Quản trị viên đăng nhập trên ServerApp (máy trung tâm).");
+                resetAuthenticatedLogin();
+                return;
             case "CUSTOMER":
-                CToast.warning(this, "Khach su dung CUSTOMER MODE do nhan vien ban giao; khong dang nhap tai khoan rieng.");
+                CToast.warning(this, "Khách gọi món bằng thiết bị đã được nhân viên bàn giao.");
                 resetAuthenticatedLogin();
                 return;
             default:
@@ -591,20 +468,90 @@ public class AuthGUI extends JFrame {
 
     private void startResponseTimer() {
         responseTimer = new Timer(100, e -> {
-            // Chi doc MOT packet moi tick. Sau khi chuyen sang GUI khac,
-            // AuthGUI khong duoc tiep tuc rut queue cua StaffGUI/KitchenGUI.
-            SocketPacket packet = authBUS.pollPacket();
-            if (packet != null) handleServerResponse(packet);
+            AuthBUS.Event event = authBUS.pollEvent();
+            if (event != null) onAuthEvent(event);
         });
 
         responseTimer.start();
     }
 
-    private void handleServerResponse(SocketPacket packet) {
-        onAuthServerResponse(packet);
-    }
-
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> new AuthGUI().setVisible(true));
     }
+
+    private void loadPasswordIconsViaSocket() {
+        new SwingWorker<BufferedImage[], Void>() {
+            @Override
+            protected BufferedImage[] doInBackground() {
+                return new BufferedImage[]{
+                        ImageSocketClient.fetchImage("things/eye.png"),
+                        ImageSocketClient.fetchImage("things/eye_off.png")
+                };
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    BufferedImage[] images = get();
+                    ImageIcon iconShow = images[0] == null ? null : new ImageIcon(
+                            images[0].getScaledInstance(20, 20, Image.SCALE_SMOOTH));
+                    ImageIcon iconHide = images[1] == null ? null : new ImageIcon(
+                            images[1].getScaledInstance(20, 20, Image.SCALE_SMOOTH));
+
+                    // Các component dùng lại cùng hai icon, không mở 6 kết nối TCP.
+                    for (CPasswordField field : new CPasswordField[]{
+                            txtLoginPassword, txtForgotNewPassword, txtForgotConfirmPassword}) {
+                        if (field != null) field.setVisibilityIcons(iconShow, iconHide);
+                    }
+
+                    if (iconShow == null || iconHide == null) {
+                        System.err.println("[AUTH-ICON] Khong tai duoc day du eye.png / eye_off.png qua TCP");
+                    }
+                } catch (Exception ex) {
+                    System.err.println("[AUTH-ICON] Loi nhan icon mat qua TCP: " + ex.getMessage());
+                }
+            }
+        }.execute();
+    }
+
+    private JLabel createSocketLogo(String imageKey, int size) {
+        JLabel label = new JLabel("AN", SwingConstants.CENTER);
+        Dimension dimension = new Dimension(size, size);
+        label.setPreferredSize(dimension);
+        label.setMinimumSize(dimension);
+        label.setMaximumSize(dimension);
+        label.setForeground(Color.WHITE);
+        label.setFont(new Font(Font.SANS_SERIF, Font.BOLD, Math.max(12, size / 3)));
+
+        new SwingWorker<BufferedImage, Void>() {
+            @Override
+            protected BufferedImage doInBackground() {
+                return ImageSocketClient.fetchImage(imageKey);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    BufferedImage received = get();
+                    if (received == null) {
+                        System.err.println("[LOGO-TCP] Khong tai duoc " + imageKey);
+                        return;
+                    }
+                    label.setIcon(new ImageIcon(
+                            received.getScaledInstance(size, size, Image.SCALE_SMOOTH)));
+                    label.setText("");
+                    if ("things/logo.png".equals(imageKey)) setIconImage(received);
+                    label.revalidate();
+                    label.repaint();
+                    System.out.println("[LOGO-TCP] OK " + imageKey + " "
+                            + received.getWidth() + "x" + received.getHeight());
+                } catch (Exception ex) {
+                    System.err.println("[LOGO-TCP] Loi " + imageKey + ": " + ex.getMessage());
+                }
+            }
+        }.execute();
+        return label;
+    }
+
+
 }

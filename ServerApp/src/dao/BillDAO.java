@@ -128,7 +128,7 @@ public class BillDAO {
                     }
                 }
                 try (PreparedStatement ps = conn.prepareStatement(
-                        "UPDATE restaurant_tables SET status = 1 WHERE id = ?")) {
+                        "UPDATE tables SET status = 1 WHERE id = ?")) {
                     ps.setLong(1, actualTableId);
                     if (ps.executeUpdate() != 1) {
                         throw new SQLException("Khong the giai phong ban");

@@ -1,5 +1,8 @@
 package gui;
 
+import api.ImageSocketClient;
+import java.awt.image.BufferedImage;
+
 import api.SocketClient;
 import bus.StaffBUS;
 import components.*;
@@ -56,8 +59,8 @@ public class StaffGUI extends JFrame {
 
         // Timer chi rut packet trong bo nho tren EDT, KHONG goi SQL/socket lay lai ban.
         responseTimer = new Timer(120, e -> {
-            SocketPacket p;
-            while ((p = bus.pollPacket()) != null) handlePacket(p);
+            StaffBUS.Event event;
+            while ((event = bus.pollEvent()) != null) onStaffEvent(event);
         });
         responseTimer.start();
 
@@ -79,7 +82,11 @@ public class StaffGUI extends JFrame {
         JLabel heading = new JLabel("AN NHIÊN  |  CHỌN BÀN PHỤC VỤ");
         heading.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 22));
         heading.setForeground(Color.WHITE);
-        top.add(heading, BorderLayout.WEST);
+        JPanel titleRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
+        titleRow.setOpaque(false);
+        titleRow.add(createSocketLogo("things/logo.png", 46));
+        titleRow.add(heading);
+        top.add(titleRow, BorderLayout.WEST);
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 0));
         actions.setOpaque(false);
@@ -305,9 +312,6 @@ public class StaffGUI extends JFrame {
         selectedSessionId = table.getActiveSessionId();
         selectedTableName = table.getTableName();
         updateSelectionView();
-        if (selectedSessionId == null) {
-            CToast.info(this, "Bàn chưa mở phiên. Vui lòng yêu cầu thu ngân mở tại POS.");
-        }
     }
 
     private void clearSelection() {
@@ -436,50 +440,40 @@ public class StaffGUI extends JFrame {
         return label;
     }
 
-    private void handlePacket(SocketPacket p) {
-        if (!p.isSuccess()) {
-            if (p.getAction() == SocketAction.LIST_TABLES) {
-                selectedLabel.setText("Không tải được danh sách bàn: " + p.getMessage());
-                System.err.println("[StaffGUI] LIST_TABLES thất bại: " + p.getMessage());
-            }
-            if (p.getAction() == SocketAction.ENTER_CUSTOMER_MODE) {
+    private void onStaffEvent(StaffBUS.Event event) {
+        switch (event.type) {
+            case TABLES:
+                renderTables(bus.getTables());
+                break;
+            case HANDOFF_ERROR:
                 handoffPending = false;
                 pendingTableId = null;
                 pendingSessionId = null;
                 updateSelectionView();
-            }
-            CToast.warning(this, p.getMessage());
-            return;
-        }
-        switch (p.getAction()) {
-            case LIST_TABLES:
-                // SocketClient.reader -> packetQueue -> Swing Timer -> StaffBUS -> giao dien.
-                renderTables(bus.getTables());
+                CToast.error(this, event.message);
                 break;
-            case ENTER_CUSTOMER_MODE:
-                if (!handoffPending || !(p.getData() instanceof Long)
-                        || !Objects.equals(p.getData(), pendingSessionId)
-                        || !Objects.equals(p.getTableId(), pendingTableId)) {
-                    CToast.error(this, "Phản hồi bàn giao không khớp phiên đã yêu cầu.");
+            case HANDOFF:
+                if (!handoffPending || !Objects.equals(pendingTableId, event.tableId)
+                        || !Objects.equals(pendingSessionId, event.sessionId)) {
+                    CToast.error(this, "Phản hồi bàn giao không khớp phiên đang chọn.");
                     return;
                 }
                 responseTimer.stop();
-                sessionSocket.bindCustomerTable(pendingTableId);
-                // Socket da bi server ha quyen thanh CUSTOMER, khong logout/close.
-                new CustomerGUI(pendingTableId, pendingSessionId, sessionSocket).setVisible(true);
+                sessionSocket.bindCustomerTable(event.tableId);
+                // Server da ha quyen thanh CUSTOMER; giu socket khi chuyen GUI.
+                new CustomerGUI(event.tableId, event.sessionId, sessionSocket).setVisible(true);
                 dispose();
                 break;
             case SESSION_CLOSED:
-                // POS se phat tiep LIST_TABLES push sau khi thanh toan, KHONG request lai.
-                if (selectedTableId != null && Objects.equals(p.getTableId(), selectedTableId)) {
-                    CToast.info(this, "Phiên bàn vừa chọn đã đóng. Đang nhận sơ đồ bàn mới.");
-                }
+                if (selectedTableId != null && Objects.equals(selectedTableId, event.tableId))
+                    CToast.info(this, "Phiên bàn vừa chọn đã đóng. Đang đồng bộ sơ đồ bàn mới.");
                 break;
-            case CALL_STAFF:
-            case ORDER_COMPLETED:
-                CToast.info(this, p.getMessage());
+            case NOTICE:
+                CToast.info(this, event.message);
                 break;
-            default:
+            case ERROR:
+                selectedLabel.setText("Lỗi từ máy chủ: " + event.message);
+                CToast.warning(this, event.message);
                 break;
         }
     }
@@ -490,4 +484,46 @@ public class StaffGUI extends JFrame {
         new AuthGUI().setVisible(true);
         dispose();
     }
+    /** Load logo via TCP IMG/1, khong doc file local va khong block Swing EDT. */
+    private JLabel createSocketLogo(String imageKey, int size) {
+        JLabel label = new JLabel("AN", SwingConstants.CENTER);
+        Dimension dimension = new Dimension(size, size);
+        label.setPreferredSize(dimension);
+        label.setMinimumSize(dimension);
+        label.setMaximumSize(dimension);
+        label.setForeground(Color.WHITE);
+        label.setFont(new Font(Font.SANS_SERIF, Font.BOLD, Math.max(12, size / 3)));
+
+        new SwingWorker<BufferedImage, Void>() {
+            @Override
+            protected BufferedImage doInBackground() {
+                // ImageSocketClient gui IMG/1 things/logo.png, nhan cac block byte nhi phan.
+                return ImageSocketClient.fetchImage(imageKey);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    BufferedImage received = get();
+                    if (received == null) {
+                        System.err.println("[LOGO-TCP] Khong tai duoc " + imageKey);
+                        return;
+                    }
+                    label.setIcon(new ImageIcon(
+                            received.getScaledInstance(size, size, Image.SCALE_SMOOTH)));
+                    label.setText("");
+                    if ("things/logo.png".equals(imageKey)) setIconImage(received);
+                    label.revalidate();
+                    label.repaint();
+                    System.out.println("[LOGO-TCP] OK " + imageKey + " "
+                            + received.getWidth() + "x" + received.getHeight());
+                } catch (Exception ex) {
+                    System.err.println("[LOGO-TCP] Loi " + imageKey + ": " + ex.getMessage());
+                }
+            }
+        }.execute();
+        return label;
+    }
+
+
 }

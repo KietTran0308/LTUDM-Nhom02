@@ -12,9 +12,10 @@ public final class PosBUS {
     private final UserDTO operator;
 
     public PosBUS(UserDTO operator, SocketClient socket) {
-        if (operator == null || socket == null) {
-            throw new IllegalArgumentException(
-                    "Phiên đăng nhập POS không hợp lệ");
+        if (operator == null || socket == null || !socket.isConnected()
+                || !"ADMIN".equalsIgnoreCase(operator.getRoleName())) {
+            throw new SecurityException(
+                    "POS chỉ dành cho ADMIN có phiên kết nối hợp lệ");
         }
 
         this.operator = operator;
