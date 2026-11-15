@@ -33,6 +33,7 @@ public final class ImageSocketClient {
 
             try (DataOutputStream output = new DataOutputStream(socket.getOutputStream());
                  DataInputStream input = new DataInputStream(socket.getInputStream())) {
+
                 output.write(("IMG/1 " + safeName + "\n").getBytes(StandardCharsets.US_ASCII));
                 output.flush();
 

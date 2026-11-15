@@ -8,9 +8,9 @@ public class SocketPacket implements Serializable {
     private SocketAction action;
     private boolean success;
     private String message;
-    private Long tableId;       // Định danh bàn gửi hoặc nhận
-    private Object data;        // Chứa OrderDTO, List<FoodDTO>, List<OrderItemDTO>...
-    private Object extraData;   // Chứa dữ liệu phụ (VD: List<CategoryDTO> hoặc mã Voucher)
+    private Long tableId;
+    private Object data;
+    private Object extraData;
 
     public SocketPacket() {}
 

@@ -1,12 +1,14 @@
 package api;
 
 import dto.*;
-import bus.ServerOrderBUS;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.*;
 import java.util.concurrent.*;
+import security.RSAKeyManager;
+
+import java.nio.file.Path;
 
 /** Co che PUSH real-time: 1 phien ban -> nhieu ket noi; khong du callback/Consumer. */
 public class SocketServer {
@@ -17,6 +19,8 @@ public class SocketServer {
     private static final Map<Long, Set<ClientHandler>> sessionClients = new ConcurrentHashMap<>();
     private static final Set<ClientHandler> kitchenClients = ConcurrentHashMap.newKeySet();
     private static final Set<ClientHandler> staffClients = ConcurrentHashMap.newKeySet();
+
+    private RSAKeyManager rsaKeyManager;
 
     public SocketServer() { }
     public SocketServer(Object ignored) { this(); } // Tuong thich Main cu.
@@ -50,7 +54,7 @@ public class SocketServer {
     /** POS cuc bo thay doi phien ban: tat ca iPad STAFF cap nhat so do ban. */
     public static void broadcastTablesChanged() {
         emit(staffClients, new SocketPacket(SocketAction.LIST_TABLES, true,
-                "So do ban da thay doi", new ServerOrderBUS().getAllRestaurantTables(), null));
+                "So do ban da thay doi", dao.TableDAO.getAllTables(), null));
     }
 
     public static void broadcastOrderCreated(OrderDTO order) {
@@ -82,6 +86,17 @@ public class SocketServer {
         if (running) return;
         // Bind dong bo: neu port 8888 ban, giao dien trung tam khong bao sai "Dang chay".
         try {
+            rsaKeyManager = new RSAKeyManager(Path.of("data", "keys"));
+            System.out.println("RSA Key Pair đã sẵn sàng!");
+
+        } catch (Exception e) {
+
+            throw new IllegalStateException(
+                    "Không thể khởi tạo RSA Key Pair",
+                    e
+            );
+        }
+        try {
             serverSocket = new ServerSocket(PORT);
             running = true;
         } catch (IOException ex) {
@@ -91,7 +106,7 @@ public class SocketServer {
             try {
                 while (running) {
                     Socket s = serverSocket.accept();
-                    workers.execute(new ClientHandler(s));
+                    workers.execute(new ClientHandler(s, rsaKeyManager));
                 }
             } catch (IOException ex) {
                 if (running) System.err.println("Server TCP: " + ex.getMessage());

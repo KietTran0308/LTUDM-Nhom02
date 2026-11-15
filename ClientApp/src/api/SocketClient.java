@@ -5,15 +5,23 @@ import dto.*;
 import java.io.*;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.security.PublicKey;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import security.AESGCMUtil;
+import security.RSAKeyExchange;
+
+
+import javax.crypto.SecretKey;
 
 public class SocketClient {
 
     private Socket socket;
-    private PrintWriter out;
-    private BufferedReader in;
+    private DataOutputStream out;
+    private DataInputStream in;
 
+
+    private SecretKey sessionKey;
     private volatile boolean connected;
     private Long tableId;
     private final BlockingQueue<SocketPacket> packetQueue = new LinkedBlockingQueue<>();
@@ -22,51 +30,128 @@ public class SocketClient {
     private final BlockingQueue<SocketPacket> responseQueue = new LinkedBlockingQueue<>();
     private volatile SocketAction pendingAction;
 
+
+    private static final int MAX_PACKET_SIZE = 1024 * 1024;
+    private void writeFrame(DataOutputStream output, byte[] data)
+            throws IOException {
+
+        if (data == null || data.length <= 0 || data.length > MAX_PACKET_SIZE) {
+            throw new IOException("Kích thước gói tin gửi đi không hợp lệ");
+        }
+
+        output.writeInt(data.length);
+        output.write(data);
+        output.flush();
+    }
+    private byte[] readFrame(DataInputStream input) throws IOException {
+        int length = input.readInt();
+
+        if (length <= 0 || length > MAX_PACKET_SIZE) {
+            throw new IOException("Kích thước gói tin không hợp lệ");
+        }
+        byte[] data = new byte[length];
+        input.readFully(data);
+        return data;
+    }
+    private void writeFrame(DataOutputStream output, String data) throws IOException {
+        writeFrame(output, data.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private String readFrameAsString(DataInputStream input) throws IOException {
+        return new String(readFrame(input), StandardCharsets.UTF_8);
+    }
+
+
+
+
     public synchronized boolean connect(String host, int port, Long tableId) {
         if (connected && socket != null && !socket.isClosed()) return true;
-        if (socket != null) close();
-
+        if (socket != null) close(); // Dọn kết nối cũ trước khi kết nối lại.
         this.tableId = tableId;
+        Socket newSocket = new Socket();
         try {
-            Socket s = new Socket();
-            s.connect(new java.net.InetSocketAddress(host, port), 3000);
-            s.setKeepAlive(true);
-            socket = s;
-            out = new PrintWriter(new OutputStreamWriter(s.getOutputStream(), StandardCharsets.UTF_8), true);
-            in = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.UTF_8));
-            connected = true;
-            BufferedReader activeInput = in;
+            newSocket.connect(new java.net.InetSocketAddress(host, port), 3000);
+            newSocket.setKeepAlive(true);
+            newSocket.setSoTimeout(5000);
+            socket = newSocket;
 
-            Thread reader = new Thread(() -> listenFromServer(s, activeInput), "client-socket-reader");
+            DataInputStream input = new DataInputStream(new BufferedInputStream(newSocket.getInputStream()));
+            DataOutputStream output = new DataOutputStream(new BufferedOutputStream(newSocket.getOutputStream()));
+
+            // 1/ Nhận Public key RSA từ Server
+            String publicKeyString = readFrameAsString(input);
+            // 2. Chuyển chuỗi Base64 thành PublicKey
+            PublicKey serverPublicKey = RSAKeyExchange.stringToPublicKey(publicKeyString);
+            // 3. Tạo khóa AES
+            SecretKey aesKey = RSAKeyExchange.generateAESKey();
+            // 4. Mã hóa khóa AES bằng Public Key RSA
+            String encryptedAESKey = RSAKeyExchange.encryptAESKey(aesKey, serverPublicKey);
+
+            // 5. Gửi khóa AES đã mã hóa cho Server
+            writeFrame(output, encryptedAESKey);
+            // Chờ Server xác nhận handshake
+            String handshakeResponse = readFrameAsString(input);
+
+            if (!"OK".equals(handshakeResponse)) {
+                throw new IOException("Server xác nhận handshake thất bại");
+            }
+
+            // Handshake thành công, bỏ giới hạn thời gian chờ
+            newSocket.setSoTimeout(0);
+
+            // 6. Lưu thông tin kết nối
+            socket = newSocket;
+            in = input;
+            out = output;
+            sessionKey = aesKey;
+
+            connected = true;
+            Thread reader = new Thread(
+                    () -> listenFromServer(newSocket, input, aesKey), "client-socket-reader");
             reader.setDaemon(true);
             reader.start();
             return true;
-        } catch (IOException e) {
-            System.err.println("Khong ket noi TCP " + host + ":" + port + " - " + e.getMessage());
+        } catch (Exception e) {
+            System.err.println("Lỗi kết nối hoặc trao đổi khóa RSA: " + e.getMessage());
+
             close();
+
             return false;
         }
     }
 
-    private void listenFromServer(Socket activeSocket, BufferedReader activeInput) {
+    private void listenFromServer(Socket activeSocket, DataInputStream activeInput,  SecretKey activeSessionKey) {
         try {
-            String line;
-            while (connected && socket == activeSocket
-                    && (line = activeInput.readLine()) != null) {
-                try {
-                    SocketPacket packet = SocketJsonMapper.fromJsonString(line);
-                    SocketAction pending = pendingAction;
-                    if (pending != null && packet.getAction() == pending) responseQueue.offer(packet);
-                    else packetQueue.offer(packet);
-                } catch (RuntimeException badPacket) {
-                    System.err.println("Goi tin JSON khong hop le: " + badPacket.getMessage());
+            while (connected && socket == activeSocket) {
+                // 1. Nhận dữ liệu đã mã hóa
+                byte[] encryptedData = readFrame(activeInput);
+
+                // 2. Giải mã AES-GCM
+                byte[] decryptedData = AESGCMUtil.decrypt(encryptedData, activeSessionKey);
+
+                // 3. Chuyển byte thành JSON
+                String json = new String( decryptedData,StandardCharsets.UTF_8);
+
+                // 4. Chuyển JSON thành SocketPacket
+                SocketPacket packet = SocketJsonMapper.fromJsonString(json);
+
+                // 5. Giữ nguyên cơ chế phân loại response và realtime
+                SocketAction pending = pendingAction;
+
+                if (pending != null && packet.getAction() == pending) {
+                    responseQueue.offer(packet);
+                } else {
+                    packetQueue.offer(packet);
                 }
             }
-        } catch (IOException e) {
-            if (connected) System.err.println("Mat ket noi Server: " + e.getMessage());
+        } catch (Exception e) {
+            if (connected) {
+                System.err.println("Lỗi nhận hoặc giải mã dữ liệu từ Server: " + e.getMessage());
+            }
         } finally {
             if (socket == activeSocket) {
-                connected = false;
+                close();
+            } else {
                 try {
                     activeSocket.close();
                 } catch (IOException ignored) {
@@ -78,15 +163,17 @@ public class SocketClient {
     public synchronized boolean sendRequest(SocketPacket packet) {
         if (!connected || out == null || packet == null) return false;
         try {
-            out.println(SocketJsonMapper.toJsonString(packet));
-            if (out.checkError()) {
-                connected = false;
-                System.err.println("Gui yeu cau that bai: " + packet.getAction());
-                return false;
-            }
-            return true;
-        } catch (RuntimeException e) {
-            System.err.println("Khong the ma hoa yeu cau " + packet.getAction() + ": " + e.getMessage());
+            // Tuyet doi khong log JSON thuc: LOGIN chua mat khau, REGISTER_TABLE chua token.
+            String json = SocketJsonMapper.toJsonString(packet);
+
+            byte[] encryptedData = AESGCMUtil.encrypt( json.getBytes(StandardCharsets.UTF_8),sessionKey);
+
+            writeFrame(out, encryptedData);
+            return  true;
+
+        } catch (Exception e) {
+            System.err.println("Không thể mã háo/ gửi yêu cầu " + packet.getAction() + ": " + e.getMessage());
+            close();
             return false;
         }
     }
@@ -99,10 +186,16 @@ public class SocketClient {
         return connected;
     }
 
+    /**
+     * Goi SAU khi Server phan hoi ENTER_CUSTOMER_MODE thanh cong.
+     */
     public void bindCustomerTable(Long tableId) {
         this.tableId = tableId;
     }
 
+    /**
+     * Tra ve false neu request khong duoc gui (ket noi da dong / loi Socket).
+     */
     public boolean requestMenuAndCategories() {
         return sendRequest(new SocketPacket(SocketAction.GET_MENU_AND_CATEGORIES, tableId, null, null));
     }
@@ -164,18 +257,16 @@ public class SocketClient {
 
     public synchronized void close() {
         connected = false;
-        if (socket != null) try {
-            socket.close();
-        } catch (IOException ignored) {
-        }
-        if (out != null) out.close();
-        if (in != null) try {
-            in.close();
-        } catch (IOException ignored) {
+        if (socket != null) {
+            try {
+                socket.close();
+            } catch (IOException ignored) {
+            }
         }
         socket = null;
         in = null;
         out = null;
+        sessionKey = null;
         tableId = null;
         packetQueue.clear();
         responseQueue.clear();
