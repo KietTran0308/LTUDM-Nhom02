@@ -16,12 +16,6 @@ public class AESGCMUtil {
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
-    /**
-     * Mã hóa dữ liệu bằng AES-GCM.
-     *
-     * Kết quả trả về:
-     * [12 bytes nonce] + [ciphertext + authentication tag]
-     */
     public static byte[] encrypt(byte[] plainText, SecretKey key)
             throws Exception {
 
@@ -51,11 +45,6 @@ public class AESGCMUtil {
         return result;
     }
 
-    /**
-     * Giải mã dữ liệu AES-GCM.
-     *
-     * Tách nonce và ciphertext từ dữ liệu nhận được.
-     */
     public static byte[] decrypt(byte[] encryptedData, SecretKey key)
             throws Exception {
 
@@ -81,8 +70,6 @@ public class AESGCMUtil {
 
         cipher.init(Cipher.DECRYPT_MODE, key, parameterSpec);
 
-        // Nếu dữ liệu bị chỉnh sửa hoặc sai khóa,
-        // quá trình giải mã sẽ thất bại.
         return cipher.doFinal(cipherText);
     }
 }

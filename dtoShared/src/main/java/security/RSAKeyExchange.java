@@ -19,11 +19,8 @@ import java.util.Base64;
 
 public class RSAKeyExchange {
 
-    // Tạo AES Session Key
     public static SecretKey generateAESKey() throws Exception {
-
         KeyGenerator keyGenerator = KeyGenerator.getInstance("AES");
-
         keyGenerator.init(256, new SecureRandom());
 
         return keyGenerator.generateKey();
