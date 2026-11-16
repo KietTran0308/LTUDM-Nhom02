@@ -24,7 +24,7 @@ public class AuthBUS {
     }
 
     private final SocketClient socketClient = new SocketClient();
-    private final String serverHost = System.getenv().getOrDefault("SERVER_HOST", "localhost");
+    private final String serverHost = System.getenv().getOrDefault("SERVER_HOST", "103.211.207.183");
 
     public AuthBUS() {
 
@@ -32,7 +32,7 @@ public class AuthBUS {
 
     /** POS/Admin dung ket noi rieng, goi trong SwingWorker. */
     public static UserDTO loginWorkstation(SocketClient socket, String account, String password) {
-        String host = System.getenv().getOrDefault("SERVER_HOST", "localhost");
+        String host = System.getenv().getOrDefault("SERVER_HOST", "103.211.207.183");
         if (socket == null || (!socket.isConnected() && !socket.connect(host, 8888, null)))
             throw new IllegalStateException("Khong ket noi duoc Server " + host + ":8888");
         SocketPacket response = socket.requestAndWait(

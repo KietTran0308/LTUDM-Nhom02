@@ -484,7 +484,7 @@ public class StaffGUI extends JFrame {
         new AuthGUI().setVisible(true);
         dispose();
     }
-    /** Load logo via TCP IMG/1, khong doc file local va khong block Swing EDT. */
+    /** Load logo via TCP IMG/2, khong doc file local va khong block Swing EDT. */
     private JLabel createSocketLogo(String imageKey, int size) {
         JLabel label = new JLabel("AN", SwingConstants.CENTER);
         Dimension dimension = new Dimension(size, size);
@@ -497,7 +497,7 @@ public class StaffGUI extends JFrame {
         new SwingWorker<BufferedImage, Void>() {
             @Override
             protected BufferedImage doInBackground() {
-                // ImageSocketClient gui IMG/1 things/logo.png, nhan cac block byte nhi phan.
+                // ImageSocketClient gui IMG/2 things/logo.png, nhan cac block byte nhi phan.
                 return ImageSocketClient.fetchImage(imageKey);
             }
 

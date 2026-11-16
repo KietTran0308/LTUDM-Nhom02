@@ -5,11 +5,9 @@ import dto.*;
 import java.io.*;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.security.PublicKey;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import security.AESGCMUtil;
-import security.RSAKeyExchange;
 
 
 import javax.crypto.SecretKey;
@@ -31,38 +29,14 @@ public class SocketClient {
     private volatile SocketAction pendingAction;
 
 
-    private static final int MAX_PACKET_SIZE = 1024 * 1024;
-    private void writeFrame(DataOutputStream output, byte[] data)
-            throws IOException {
-
-        if (data == null || data.length <= 0 || data.length > MAX_PACKET_SIZE) {
-            throw new IOException("Kích thước gói tin gửi đi không hợp lệ");
-        }
-
-        output.writeInt(data.length);
-        output.write(data);
-        output.flush();
+    // Dung chung dung dinh dang frame voi IMG/2 va handshake.
+    private void writeFrame(DataOutputStream output, byte[] data) throws IOException {
+        HybridClientHandshake.writeFrame(output, data);
     }
+
     private byte[] readFrame(DataInputStream input) throws IOException {
-        int length = input.readInt();
-
-        if (length <= 0 || length > MAX_PACKET_SIZE) {
-            throw new IOException("Kích thước gói tin không hợp lệ");
-        }
-        byte[] data = new byte[length];
-        input.readFully(data);
-        return data;
+        return HybridClientHandshake.readFrame(input);
     }
-    private void writeFrame(DataOutputStream output, String data) throws IOException {
-        writeFrame(output, data.getBytes(StandardCharsets.UTF_8));
-    }
-
-    private String readFrameAsString(DataInputStream input) throws IOException {
-        return new String(readFrame(input), StandardCharsets.UTF_8);
-    }
-
-
-
 
     public synchronized boolean connect(String host, int port, Long tableId) {
         if (connected && socket != null && !socket.isClosed()) return true;
@@ -75,26 +49,12 @@ public class SocketClient {
             newSocket.setSoTimeout(5000);
             socket = newSocket;
 
-            DataInputStream input = new DataInputStream(new BufferedInputStream(newSocket.getInputStream()));
-            DataOutputStream output = new DataOutputStream(new BufferedOutputStream(newSocket.getOutputStream()));
-
-            // 1/ Nhận Public key RSA từ Server
-            String publicKeyString = readFrameAsString(input);
-            // 2. Chuyển chuỗi Base64 thành PublicKey
-            PublicKey serverPublicKey = RSAKeyExchange.stringToPublicKey(publicKeyString);
-            // 3. Tạo khóa AES
-            SecretKey aesKey = RSAKeyExchange.generateAESKey();
-            // 4. Mã hóa khóa AES bằng Public Key RSA
-            String encryptedAESKey = RSAKeyExchange.encryptAESKey(aesKey, serverPublicKey);
-
-            // 5. Gửi khóa AES đã mã hóa cho Server
-            writeFrame(output, encryptedAESKey);
-            // Chờ Server xác nhận handshake
-            String handshakeResponse = readFrameAsString(input);
-
-            if (!"OK".equals(handshakeResponse)) {
-                throw new IOException("Server xác nhận handshake thất bại");
-            }
+            // Xac thuc RSA fingerprint TRUOC KHI gui AES key.
+            // ACK duoc ma hoa AES-GCM de chung minh server giu private key.
+            HybridClientHandshake.Session handshake = HybridClientHandshake.start(newSocket);
+            DataInputStream input = handshake.in;
+            DataOutputStream output = handshake.out;
+            SecretKey aesKey = handshake.key;
 
             // Handshake thành công, bỏ giới hạn thời gian chờ
             newSocket.setSoTimeout(0);
@@ -172,7 +132,7 @@ public class SocketClient {
             return  true;
 
         } catch (Exception e) {
-            System.err.println("Không thể mã háo/ gửi yêu cầu " + packet.getAction() + ": " + e.getMessage());
+            System.err.println("Không thể mã hóa/gửi yêu cầu " + packet.getAction() + ": " + e.getMessage());
             close();
             return false;
         }

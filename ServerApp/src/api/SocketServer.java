@@ -86,8 +86,13 @@ public class SocketServer {
         if (running) return;
         // Bind dong bo: neu port 8888 ban, giao dien trung tam khong bao sai "Dang chay".
         try {
-            rsaKeyManager = new RSAKeyManager(Path.of("data", "keys"));
+            String customDir = System.getenv("SERVER_KEY_DIR");
+            Path keyDir = (customDir == null || customDir.isBlank())
+                    ? Path.of("data", "keys") : Path.of(customDir);
+            rsaKeyManager = new RSAKeyManager(keyDir);
             System.out.println("RSA Key Pair đã sẵn sàng!");
+            System.out.println("[SERVER_RSA_SHA256] " + rsaKeyManager.getFingerprint());
+            System.out.println("Cung cap fingerprint nay cho cac Client qua kenh tin cay; KHONG chia se private.key.");
 
         } catch (Exception e) {
 

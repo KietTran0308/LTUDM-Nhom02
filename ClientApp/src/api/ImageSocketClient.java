@@ -1,15 +1,17 @@
 package api;
 
-import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
-import java.io.*;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import javax.imageio.ImageIO;
 
 public final class ImageSocketClient {
-
-    private static final String HOST = System.getenv().getOrDefault("SERVER_HOST", "localhost");
+    private static final String HOST = System.getenv().getOrDefault("SERVER_HOST", "103.211.207.183");
     private static final int PORT = 8888;
     private static final int CHUNK_BYTES = 8192;
     private static final long MAX_IMAGE_BYTES = 10_000_000L;
@@ -26,39 +28,37 @@ public final class ImageSocketClient {
             System.err.println("[IMG-CLIENT] Duong dan anh khong hop le: " + imageName);
             return null;
         }
-        final String safeName = requested;
         try (Socket socket = new Socket()) {
             socket.connect(new InetSocketAddress(HOST, PORT), 2500);
             socket.setSoTimeout(8000);
+            HybridClientHandshake.Session session = HybridClientHandshake.start(socket);
+            HybridClientHandshake.sendEncrypted(session,
+                    ("IMG/2 " + requested).getBytes(StandardCharsets.UTF_8));
 
-            try (DataOutputStream output = new DataOutputStream(socket.getOutputStream());
-                 DataInputStream input = new DataInputStream(socket.getInputStream())) {
-
-                output.write(("IMG/1 " + safeName + "\n").getBytes(StandardCharsets.US_ASCII));
-                output.flush();
-
-                long fileSize = input.readLong();
-                if (fileSize <= 0L || fileSize > MAX_IMAGE_BYTES) {
-                    System.err.println("[IMG-CLIENT] Server khong co anh hoac anh vuot gioi han: " + safeName
-                            + " (size=" + fileSize + ")");
-                    return null;
-                }
-
-                ByteArrayOutputStream bytes = new ByteArrayOutputStream((int) fileSize);
-                byte[] chunk = new byte[CHUNK_BYTES];
-                long remaining = fileSize;
-                while (remaining > 0L) {
-                    int count = input.read(chunk, 0, (int) Math.min(chunk.length, remaining));
-                    if (count < 0) throw new IOException("Anh chua nhan du byte: " + imageName);
-                    bytes.write(chunk, 0, count);
-                    remaining -= count;
-                }
-
-                BufferedImage decoded = ImageIO.read(new ByteArrayInputStream(bytes.toByteArray()));
-                return decoded;
+            byte[] encryptedLength = HybridClientHandshake.receiveDecrypted(session);
+            if (encryptedLength.length != Long.BYTES) throw new IOException("IMG/2 sai metadata");
+            long size = ByteBuffer.wrap(encryptedLength).getLong();
+            if (size <= 0 || size > MAX_IMAGE_BYTES) {
+                if (size != 0) throw new IOException("IMG/2 kich thuoc anh khong hop le: " + size);
+                return null;
             }
-        } catch (IOException ex) {
-            System.err.println("[IMG-CLIENT] Loi TCP " + safeName + " @ " + HOST + ":" + PORT + ": " + ex.getMessage());
+
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream((int) size);
+            long remaining = size;
+            while (remaining > 0) {
+                // Frame thuc su chua ciphertext, nonce va tag. Gia tri giai ma la byte anh.
+                byte[] chunk = HybridClientHandshake.receiveDecrypted(session);
+                if (chunk.length == 0 || chunk.length > CHUNK_BYTES || chunk.length > remaining) {
+                    throw new IOException("IMG/2 block anh khong hop le");
+                }
+                bytes.write(chunk);
+                remaining -= chunk.length;
+            }
+            BufferedImage image = ImageIO.read(new ByteArrayInputStream(bytes.toByteArray()));
+            if (image == null) throw new IOException("Noi dung anh khong hop le");
+            return image;
+        } catch (Exception ex) {
+            System.err.println("[IMG-CLIENT] Khong tai duoc " + requested + ": " + ex.getMessage());
             return null;
         }
     }

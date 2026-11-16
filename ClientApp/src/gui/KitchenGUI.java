@@ -72,7 +72,7 @@ public class KitchenGUI extends JFrame {
         CButton logout = new CButton("Đăng xuất", 120, 42);
         logout.addActionListener(e -> logout());
         headerRight.add(logout);
-        // Tai logo tu ServerApp qua TCP/IMG/1 tren luong nen, khong doc getResource cua ClientApp.
+        // Tai logo tu ServerApp qua TCP/IMG/2 tren luong nen, khong doc getResource cua ClientApp.
         JPanel brand = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
         brand.setOpaque(false);
         brand.add(createSocketLogo(LOGO_IMAGE_KEY, 46));
@@ -293,7 +293,7 @@ public class KitchenGUI extends JFrame {
         dispose();
         new AuthGUI().setVisible(true);
     }
-    /** Load logo via TCP IMG/1, khong doc file local va khong block Swing EDT. */
+    /** Load logo via TCP IMG/2, khong doc file local va khong block Swing EDT. */
     private JLabel createSocketLogo(String imageKey, int size) {
         JLabel label = new JLabel("AN", SwingConstants.CENTER);
         Dimension dimension = new Dimension(size, size);
@@ -306,7 +306,7 @@ public class KitchenGUI extends JFrame {
         new SwingWorker<BufferedImage, Void>() {
             @Override
             protected BufferedImage doInBackground() {
-                // ImageSocketClient gui IMG/1 things/logo.png, nhan cac block byte nhi phan.
+                // ImageSocketClient gui IMG/2 things/logo.png, nhan cac block byte nhi phan.
                 return ImageSocketClient.fetchImage(imageKey);
             }
 

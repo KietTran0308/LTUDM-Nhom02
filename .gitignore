@@ -29,3 +29,6 @@ target/
 # Cấu hình IntelliJ trên máy cá nhân
 .idea/
 *.iml
+# RSA private keys / runtime secrets (khong commit len Git)
+**/data/keys/
+**/private.key

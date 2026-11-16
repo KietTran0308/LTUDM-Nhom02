@@ -5,36 +5,25 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.Socket;
 import java.net.URL;
 import java.net.URLConnection;
+import java.nio.ByteBuffer;
+import javax.crypto.SecretKey;
+import security.AESGCMUtil;
 
+/** Phuc vu anh IMG/2: moi block byte duoc ma hoa AES-GCM theo khoa phien. */
 public final class ImageSocketServer {
     private static final int CHUNK_BYTES = 8192;
     private static final long MAX_IMAGE_BYTES = 10_000_000L;
-    private static final int READ_TIMEOUT_MS = 8000;
     private ImageSocketServer() { }
 
-    public static void sendImage(Socket client, String imageName) throws IOException {
-        if (client == null) throw new IllegalArgumentException("Missing image socket");
-
-        client.setSoTimeout(READ_TIMEOUT_MS);
-        DataOutputStream output = new DataOutputStream(client.getOutputStream());
-        // Khong nhan duong dan he dieu hanh, chi chap nhan foods/ hoac things/.
-        if (imageName != null && imageName.regionMatches(true, 0, "img/", 0, 4)) {
-            imageName = imageName.substring(4); // Chap nhan client cu gui img/things/logo.png
-        }
-        if (imageName == null || !imageName.matches("(?i)(?:(?:foods|things)/)?[a-z0-9_-]+\\.(png|jpg|jpeg|webp)")) {
-            output.writeLong(0L);
-            output.flush();
+    public static void sendImage(String imageName, DataOutputStream out, SecretKey key) throws Exception {
+        // Khong chap nhan URL, duong dan tuy y, '..' hay thu muc khac foods/things.
+        if (imageName == null || !imageName.matches(
+                "(?i)(?:(?:foods|things)/)?[a-z0-9_-]+\\.(png|jpg|jpeg|webp)")) {
+            writeEncrypted(out, key, ByteBuffer.allocate(Long.BYTES).putLong(0).array());
             return;
         }
-        sendResourceBytes(imageName, output);
-    }
-
-    private static void sendResourceBytes(String imageName, DataOutputStream output) throws IOException {
-        // IMG/1 ten-file.png: tuong thich anh mon cu, mac dinh folder foods.
-        // IMG/1 things/logo.png: anh logo UI duoc gui tu ServerApp qua TCP.
         String folder = "foods";
         String filename = imageName;
         int slash = imageName.indexOf('/');
@@ -47,57 +36,60 @@ public final class ImageSocketServer {
             resource = ImageSocketServer.class.getResource("/gui/img/" + folder + "/" + filename);
         }
         if (resource == null) {
-            System.err.println("[IMG-SERVER] Khong tim thay /img/" + folder + "/" + filename
-                    + " trong ServerApp classpath (kiem tra Clean & Build)");
-            output.writeLong(0L);
-            output.flush();
+            writeEncrypted(out, key, ByteBuffer.allocate(Long.BYTES).putLong(0).array());
             return;
         }
-        URLConnection connection = resource.openConnection();
-        connection.setUseCaches(false);
-        long size = connection.getContentLengthLong();
-        if (size == 0L || size > MAX_IMAGE_BYTES) {
-            System.err.println("[IMG-SERVER] Anh rong/qua gioi han: " + imageName + " (" + size + " bytes)");
-            output.writeLong(0L);
-            output.flush();
+        URLConnection conn = resource.openConnection();
+        conn.setUseCaches(false);
+        long length = conn.getContentLengthLong();
+        if (length == 0 || length > MAX_IMAGE_BYTES) {
+            writeEncrypted(out, key, ByteBuffer.allocate(Long.BYTES).putLong(0).array());
             return;
         }
-        try (InputStream input = new BufferedInputStream(connection.getInputStream())) {
-            if (size < 0L) {
-                // Resource trong JAR khong luon tra duoc Content-Length: doc gioi han.
-                byte[] bytes = readBounded(input);
-                if (bytes == null || bytes.length == 0) {
-                    output.writeLong(0L);
-                } else {
-                    output.writeLong(bytes.length);
-                    for (int offset = 0; offset < bytes.length; offset += CHUNK_BYTES) {
-                        output.write(bytes, offset, Math.min(CHUNK_BYTES, bytes.length - offset));
-                    }
+        try (InputStream input = new BufferedInputStream(conn.getInputStream())) {
+            if (length < 0) {
+                // JAR co the khong tra Content-Length. Gioi han bo nho 10 MB.
+                byte[] data = readBounded(input);
+                if (data == null || data.length == 0) {
+                    writeEncrypted(out, key, ByteBuffer.allocate(Long.BYTES).putLong(0).array());
+                    return;
+                }
+                writeEncrypted(out, key, ByteBuffer.allocate(Long.BYTES).putLong(data.length).array());
+                for (int i = 0; i < data.length; i += CHUNK_BYTES) {
+                    int n = Math.min(CHUNK_BYTES, data.length - i);
+                    writeEncrypted(out, key, java.util.Arrays.copyOfRange(data, i, i + n));
                 }
             } else {
-                // Truyen streaming that su theo tung khoi nho, khong ma hoa Base64.
-                output.writeLong(size);
+                writeEncrypted(out, key, ByteBuffer.allocate(Long.BYTES).putLong(length).array());
                 byte[] chunk = new byte[CHUNK_BYTES];
-                long remaining = size;
-                while (remaining > 0L) {
-                    int read = input.read(chunk, 0, (int) Math.min(chunk.length, remaining));
-                    if (read < 0) throw new IOException("Image file cut short");
-                    output.write(chunk, 0, read);
-                    remaining -= read;
+                long remaining = length;
+                while (remaining > 0) {
+                    int n = input.read(chunk, 0, (int) Math.min(remaining, chunk.length));
+                    if (n < 0) throw new IOException("Image resource bi cat ngang");
+                    if (n == 0) continue;
+                    writeEncrypted(out, key, java.util.Arrays.copyOf(chunk, n));
+                    remaining -= n;
                 }
             }
-            output.flush();
         }
     }
 
-    private static byte[] readBounded(InputStream source) throws IOException {
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        byte[] chunk = new byte[CHUNK_BYTES];
-        int count;
-        while ((count = source.read(chunk)) != -1) {
-            if (output.size() + (long) count > MAX_IMAGE_BYTES) return null;
-            output.write(chunk, 0, count);
+    private static void writeEncrypted(DataOutputStream out, SecretKey key, byte[] content) throws Exception {
+        byte[] ciphertext = AESGCMUtil.encrypt(content, key);
+        if (ciphertext.length > 1024 * 1024) throw new IOException("Frame qua lon");
+        out.writeInt(ciphertext.length);
+        out.write(ciphertext);
+        out.flush();
+    }
+
+    private static byte[] readBounded(InputStream input) throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        byte[] buffer = new byte[CHUNK_BYTES];
+        int n;
+        while ((n = input.read(buffer)) != -1) {
+            if (bytes.size() + (long) n > MAX_IMAGE_BYTES) return null;
+            bytes.write(buffer, 0, n);
         }
-        return output.toByteArray();
+        return bytes.toByteArray();
     }
 }

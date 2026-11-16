@@ -146,8 +146,8 @@ public class ClientHandler implements Runnable {
             sessionKey = RSAKeyExchange.decryptAESKey(encryptedAESKey, rsaKeyManager.getPrivateKey());
 
 
-            // 6. Xác nhận handshake thành công
-            writeFrame(out, "OK");
+            // ACK duoc ma hoa: client chi tiep tuc neu Server thuc su giai ma duoc khoa AES.
+            writeFrame(out, AESGCMUtil.encrypt("OK".getBytes(StandardCharsets.US_ASCII), sessionKey));
 
             System.out.println("[Server] Trao đổi khóa AES thành công!");
 
@@ -164,6 +164,13 @@ public class ClientHandler implements Runnable {
                         sessionKey);
 
                 String rawJson = new String(decryptedData, StandardCharsets.UTF_8);
+                // Anh IMG/2 duoc truyen tren ket noi RIENG da xac thuc RSA + AES.
+                // Khong chap nhan IMG/1 plaintext. Bao mat ca ten anh va byte anh.
+                if (rawJson.startsWith("IMG/2 ")) {
+                    ImageSocketServer.sendImage(rawJson.substring(6), out, sessionKey);
+                    break;  // Mot ket noi/anh; finally dong socket.
+                }
+
 
                 SocketPacket request = SocketJsonMapper.fromJsonString(rawJson);
 
