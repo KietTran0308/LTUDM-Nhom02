@@ -228,11 +228,6 @@ public class ClientHandler implements Runnable {
                     sendPacket(result);
                     break;
                 }
-                case REGISTER_TABLE: {
-                    // Giao thuc ma ghep cu da bo: khong the tu gan ban bang ma/token.
-                    throw new SecurityException("Hay dung ENTER_CUSTOMER_MODE tu nhan vien");
-                }
-
                 case GET_MENU_AND_CATEGORIES: {
                     requireCurrentTable(req.getTableId());
                     try {

@@ -64,9 +64,6 @@ public class SocketJsonMapper {
             case ENTER_CUSTOMER_MODE:
                 if (root.has("data") && !root.isNull("data")) data = root.getLong("data");
                 break;
-            case REGISTER_TABLE:
-                data = root.optString("data", ""); // staff pairing code
-                break;
 
             case UPDATE_ITEM_STATUS:
             case MARK_ITEM_SERVED:

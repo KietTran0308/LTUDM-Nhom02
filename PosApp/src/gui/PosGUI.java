@@ -490,8 +490,6 @@ public final class PosGUI extends JFrame {
                             ? "Không thực hiện được thao tác"
                             : cause.getMessage();
 
-                    lblStatus.setText("Lỗi: " + msg);
-                    CToast.error(PosGUI.this, msg);
                 } finally {
                     updateButtons();
                 }
@@ -634,7 +632,6 @@ public final class PosGUI extends JFrame {
         new SwingWorker<BufferedImage, Void>() {
             @Override
             protected BufferedImage doInBackground() {
-                // ImageSocketClient gui IMG/2 things/logo.png, nhan cac block byte nhi phan.
                 return ImageSocketClient.fetchImage(imageKey);
             }
 

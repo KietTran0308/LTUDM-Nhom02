@@ -76,10 +76,6 @@ public class SocketJsonMapper {
                 if (data instanceof Long) root.put("data", data);
                 break;
 
-            case REGISTER_TABLE:
-                if (data != null) root.put("data", data.toString()); // session token
-                break;
-
             case UPDATE_ITEM_STATUS, MARK_ITEM_SERVED:
                 if (data != null) root.put("data", data);  // itemId
                 if (extraData instanceof OrderStatus) root.put("extraData", ((OrderStatus) extraData).name());
