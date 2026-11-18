@@ -19,7 +19,6 @@ import java.util.stream.Collectors;
 
 public class ClientTabletBUS {
 
-    /** Su kien nghiep vu tra ve cho giao dien, khong de GUI xu ly SocketAction. */
     public enum Type {
         MENU, MENU_ERROR, ORDER_SENT, ORDER_ERROR, TRACKING, ITEM_STATUS,
         STAFF_CALLED, ORDER_COMPLETED, BILL, MEMBER_LOGIN, MEMBER_PROFILE,
@@ -83,49 +82,83 @@ public class ClientTabletBUS {
     /**
      * Doc hang doi va chuyen phan hoi TCP thanh su kien nghiep vu cho GUI.
      */
+
     public Event pollEvent() {
         SocketPacket packet;
+
         while ((packet = socketClient.pollPacket()) != null) {
-            handleServerResponse(packet); // Cap nhat snapshot o BUS truoc khi GUI ve lai.
+            handleServerResponse(packet);
 
             if (!packet.isSuccess()) {
-                Type failure = packet.getAction() == SocketAction.GET_MENU_AND_CATEGORIES
-                        ? Type.MENU_ERROR
-                        : packet.getAction() == SocketAction.ORDER_SUBMIT || packet.getAction() == SocketAction.PLACE_ORDER
-                        ? Type.ORDER_ERROR : Type.ERROR;
+                Type failure = switch (packet.getAction()) {
+                    case GET_MENU_AND_CATEGORIES -> Type.MENU_ERROR;
+                    case ORDER_SUBMIT -> Type.ORDER_ERROR;
+                    default -> Type.ERROR;
+                };
+
                 return new Event(failure, packet);
             }
 
             Type type;
+
             switch (packet.getAction()) {
-                case GET_MENU_AND_CATEGORIES: type = Type.MENU; break;
-                case ORDER_SUBMIT:
-                case PLACE_ORDER: type = Type.ORDER_SENT; break;
-                case GET_TABLE_TRACKING: type = Type.TRACKING; break;
-                case ITEM_STATUS_CHANGED:
-                case KITCHEN_UPDATE_STATUS: type = Type.ITEM_STATUS; break;
-                case CALL_STAFF: type = Type.STAFF_CALLED; break;
-                case ORDER_COMPLETED: type = Type.ORDER_COMPLETED; break;
-                case VIEW_SESSION_BILL: type = Type.BILL; break;
-                case MEMBER_LOGIN: type = Type.MEMBER_LOGIN; break;
-                case MEMBER_PROFILE: type = Type.MEMBER_PROFILE; break;
-                case MEMBER_HISTORY: type = Type.MEMBER_HISTORY; break;
-                case MEMBER_LOGOUT: type = Type.MEMBER_LOGOUT; break;
-                case SESSION_CLOSED:
-                case TABLE_CLEARED_RESET: type = Type.SESSION_CLOSED; break;
-                case REGISTER_TABLE: type = Type.TRACKING; break;
-                case ORDER_CREATED: continue;
-                default: continue;
+                case GET_MENU_AND_CATEGORIES ->
+                        type = Type.MENU;
+
+                case ORDER_SUBMIT ->
+                        type = Type.ORDER_SENT;
+
+                case GET_TABLE_TRACKING ->
+                        type = Type.TRACKING;
+
+                case ITEM_STATUS_CHANGED ->
+                        type = Type.ITEM_STATUS;
+
+                case CALL_STAFF ->
+                        type = Type.STAFF_CALLED;
+
+                case ORDER_COMPLETED ->
+                        type = Type.ORDER_COMPLETED;
+
+                case VIEW_SESSION_BILL ->
+                        type = Type.BILL;
+
+                case MEMBER_LOGIN ->
+                        type = Type.MEMBER_LOGIN;
+
+                case MEMBER_PROFILE ->
+                        type = Type.MEMBER_PROFILE;
+
+                case MEMBER_HISTORY ->
+                        type = Type.MEMBER_HISTORY;
+
+                case MEMBER_LOGOUT ->
+                        type = Type.MEMBER_LOGOUT;
+
+                case SESSION_CLOSED ->
+                        type = Type.SESSION_CLOSED;
+
+                // Chỉ đồng bộ dữ liệu tại BUS,
+                // không tạo sự kiện GUI riêng.
+                case ORDER_CREATED -> {
+                    continue;
+                }
+
+                default -> {
+                    continue;
+                }
             }
+
             return new Event(type, packet);
         }
+
         return null;
     }
+
 
     @SuppressWarnings("unchecked")
     private void handleServerResponse(SocketPacket packet) {
         if (!packet.isSuccess()) {
-            if (packet.getAction() == SocketAction.REGISTER_TABLE) tableRegistered = false;
             if (packet.getAction() == SocketAction.GET_MENU_AND_CATEGORIES) {
                 menuResponseReceived = true;
                 menuLoadError = packet.getMessage() == null || packet.getMessage().isBlank()
@@ -145,7 +178,6 @@ public class ClientTabletBUS {
                 break;
 
             case ORDER_SUBMIT:
-            case PLACE_ORDER:
                 this.currentCart.clear();
                 if (packet.getExtraData() instanceof List<?>) {
                     this.trackedItems = new ArrayList<>((List<OrderItemDTO>) packet.getExtraData());
@@ -158,7 +190,6 @@ public class ClientTabletBUS {
                 break;
 
             case ITEM_STATUS_CHANGED:
-            case KITCHEN_UPDATE_STATUS:
                 if (packet.getData() instanceof Long && packet.getExtraData() instanceof OrderStatus) {
                     Long updatedItemId = (Long) packet.getData();
                     OrderStatus newStatus = (OrderStatus) packet.getExtraData();
@@ -169,7 +200,6 @@ public class ClientTabletBUS {
                 break;
 
             case SESSION_CLOSED:
-            case TABLE_CLEARED_RESET:
                 tableRegistered = false;
                 this.currentCart.clear();
                 this.trackedItems.clear();
@@ -178,11 +208,6 @@ public class ClientTabletBUS {
                 stopImageLoading();
                 menuResponseReceived = false;
                 menuLoadError = null;
-                break;
-
-            case REGISTER_TABLE:
-                tableRegistered = true;
-                reloadMenu();
                 break;
 
             case ORDER_CREATED:

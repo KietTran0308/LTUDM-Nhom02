@@ -11,8 +11,10 @@ import java.nio.charset.StandardCharsets;
 import javax.imageio.ImageIO;
 
 public final class ImageSocketClient {
-    private static final String HOST = System.getenv().getOrDefault("SERVER_HOST", "103.211.207.183");
-    private static final int PORT = 8888;
+
+    private static final String HOST = ServerConfig.HOST;
+    private static final int PORT = ServerConfig.PORT;
+
     private static final int CHUNK_BYTES = 8192;
     private static final long MAX_IMAGE_BYTES = 10_000_000L;
 

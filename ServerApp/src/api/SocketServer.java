@@ -12,6 +12,7 @@ import java.nio.file.Path;
 
 /** Co che PUSH real-time: 1 phien ban -> nhieu ket noi; khong du callback/Consumer. */
 public class SocketServer {
+
     private static final int PORT = 8888;
     private ServerSocket serverSocket;
     private volatile boolean running;

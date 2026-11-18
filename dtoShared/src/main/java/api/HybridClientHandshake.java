@@ -54,9 +54,9 @@ public final class HybridClientHandshake {
     }
 
     public static void verifyServerKey(PublicKey key) throws Exception {
-        String configured = System.getProperty("server.rsa.sha256");
-        if (configured == null || configured.isBlank()) configured = System.getenv("SERVER_RSA_SHA256");
+        String configured = ServerConfig.SERVER_RSA_SHA256;
         if (configured == null || configured.isBlank()) {
+
             throw new SecurityException("Chua cau hinh SERVER_RSA_SHA256 (64 ky tu hex); "
                     + "lay fingerprint tu man hinh Server, kiem tra qua kenh tin cay truoc khi ket noi");
         }

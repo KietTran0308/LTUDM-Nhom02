@@ -11,6 +11,8 @@
         <module>dtoShared</module>
         <module>ServerApp</module>
         <module>ClientApp</module>
+        <module>AdminApp</module>
+        <module>PosApp</module>
     </modules>
     <properties>
         <maven.compiler.release>21</maven.compiler.release>

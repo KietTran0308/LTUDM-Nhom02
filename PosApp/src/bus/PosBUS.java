@@ -44,6 +44,55 @@ public final class PosBUS {
                 null, null, null).getData();
     }
 
+
+    public static PosBUS loginPos(
+            String account, String password) {
+
+        if (account == null || account.isBlank()
+                || password == null || password.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Vui lòng nhập tài khoản và mật khẩu");
+        }
+
+        SocketClient connection = new SocketClient();
+
+        try {
+            // Kết nối TCP theo ServerConfig
+            if (!connection.connect(null)) {
+                throw new IllegalStateException(
+                        "Không kết nối được Server");
+            }
+
+            // Gửi thông tin đăng nhập
+            SocketPacket response = connection.requestAndWait(
+                    new SocketPacket(
+                            SocketAction.LOGIN,
+                            null,
+                            account.trim(),
+                            password
+                    ),
+                    7000
+            );
+
+            if (!(response.getData() instanceof UserDTO user)) {
+                throw new IllegalStateException(
+                        "Phản hồi đăng nhập không hợp lệ");
+            }
+
+            // Constructor PosBUS kiểm tra role ADMIN
+            PosBUS pos = new PosBUS(user, connection);
+
+            // Yêu cầu Server kiểm tra quyền truy cập POS
+            pos.listTables();
+
+            return pos;
+
+        } catch (RuntimeException ex) {
+            connection.close();
+            throw ex;
+        }
+    }
+
     public long openTable(long tableId) {
         return (Long) request(
                 SocketAction.OPEN_TABLE_SESSION,

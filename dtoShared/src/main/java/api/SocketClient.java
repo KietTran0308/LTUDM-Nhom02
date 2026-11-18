@@ -18,7 +18,6 @@ public class SocketClient {
     private DataOutputStream out;
     private DataInputStream in;
 
-
     private SecretKey sessionKey;
     private volatile boolean connected;
     private Long tableId;
@@ -27,6 +26,7 @@ public class SocketClient {
     private final Object requestLock = new Object();
     private final BlockingQueue<SocketPacket> responseQueue = new LinkedBlockingQueue<>();
     private volatile SocketAction pendingAction;
+    private volatile String lastReaderFailure;
 
 
     // Dung chung dung dinh dang frame voi IMG/2 va handshake.
@@ -38,10 +38,15 @@ public class SocketClient {
         return HybridClientHandshake.readFrame(input);
     }
 
+    public boolean connect(Long tableId) {
+        return connect(ServerConfig.HOST, ServerConfig.PORT, tableId);
+    }
+
     public synchronized boolean connect(String host, int port, Long tableId) {
         if (connected && socket != null && !socket.isClosed()) return true;
         if (socket != null) close(); // Dọn kết nối cũ trước khi kết nối lại.
         this.tableId = tableId;
+        lastReaderFailure = null;
         Socket newSocket = new Socket();
         try {
             newSocket.connect(new java.net.InetSocketAddress(host, port), 3000);
@@ -52,6 +57,7 @@ public class SocketClient {
             // Xac thuc RSA fingerprint TRUOC KHI gui AES key.
             // ACK duoc ma hoa AES-GCM de chung minh server giu private key.
             HybridClientHandshake.Session handshake = HybridClientHandshake.start(newSocket);
+            System.out.println("[TCP] Handshake RSA/AES hoàn tất | " + host + ":" + port);
             DataInputStream input = handshake.in;
             DataOutputStream output = handshake.out;
             SecretKey aesKey = handshake.key;
@@ -94,6 +100,9 @@ public class SocketClient {
 
                 // 4. Chuyển JSON thành SocketPacket
                 SocketPacket packet = SocketJsonMapper.fromJsonString(json);
+                System.out.println("[Server -> Client] action=" + packet.getAction()
+                        + " success=" + packet.isSuccess()
+                        + " pending=" + pendingAction);
 
                 // 5. Giữ nguyên cơ chế phân loại response và realtime
                 SocketAction pending = pendingAction;
@@ -106,7 +115,9 @@ public class SocketClient {
             }
         } catch (Exception e) {
             if (connected) {
-                System.err.println("Lỗi nhận hoặc giải mã dữ liệu từ Server: " + e.getMessage());
+                lastReaderFailure = e.getClass().getSimpleName() + ": " + e.getMessage();
+                System.err.println("Lỗi nhận hoặc giải mã dữ liệu từ Server: " + lastReaderFailure);
+                e.printStackTrace();
             }
         } finally {
             if (socket == activeSocket) {
@@ -161,7 +172,7 @@ public class SocketClient {
     }
 
     public boolean sendOrderToServer(OrderDTO order, String voucherCode) {
-        return sendRequest(new SocketPacket(SocketAction.PLACE_ORDER, tableId, order, voucherCode));
+        return sendRequest(new SocketPacket(SocketAction.ORDER_SUBMIT, tableId, order, voucherCode));
     }
 
     public void requestTableTracking() {
@@ -170,12 +181,6 @@ public class SocketClient {
 
     public boolean callStaff(String note) {
         return sendRequest(new SocketPacket(SocketAction.CALL_STAFF, tableId, note, null));
-    }
-
-    public boolean registerTable(Long tableId, String token) {
-        if (tableId == null || tableId <= 0 || token == null || token.isBlank()) return false;
-        this.tableId = tableId;
-        return sendRequest(new SocketPacket(SocketAction.REGISTER_TABLE, tableId, token, null));
     }
 
     /** Chỉ dành cho các kết nối POS/Admin có một request đồng bộ tại một thời điểm. */
@@ -187,6 +192,7 @@ public class SocketClient {
             responseQueue.clear();
             pendingAction = request.getAction();
             try {
+                System.out.println("[Client -> Server] action=" + request.getAction());
                 if (!sendRequest(request))
                     throw new IllegalStateException("Không gửi được yêu cầu đến server");
                 SocketPacket response = responseQueue.poll(timeoutMs,
@@ -229,7 +235,16 @@ public class SocketClient {
         sessionKey = null;
         tableId = null;
         packetQueue.clear();
-        responseQueue.clear();
+        // Nếu luồng đọc bị đóng trong lúc requestAndWait đang đợi, đánh thức nó ngay.
+        // Không xóa phản hồi thật đã nhận được.
+        SocketAction waiting = pendingAction;
+        if (waiting == null) {
+            responseQueue.clear();
+        } else if (responseQueue.isEmpty()) {
+            String reason = lastReaderFailure == null ? "Mất kết nối tới Server"
+                    : "Mất kết nối tới Server: " + lastReaderFailure;
+            responseQueue.offer(new SocketPacket(waiting, false, reason, null, null));
+        }
         pendingAction = null;
     }
 }

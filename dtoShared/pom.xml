@@ -12,4 +12,12 @@
     <artifactId>dtoShared</artifactId>
     <packaging>jar</packaging>
     <name>dtoShared</name>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.json</groupId>
+            <artifactId>json</artifactId>
+            <version>20240303</version>
+        </dependency>
+    </dependencies>
 </project>

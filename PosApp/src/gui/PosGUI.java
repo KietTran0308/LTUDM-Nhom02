@@ -1,11 +1,10 @@
 package gui;
 
 import api.ImageSocketClient;
+import api.SocketClient;
 import java.awt.image.BufferedImage;
 
 import bus.PosBUS;
-import bus.AuthBUS;
-import api.SocketClient;
 import components.CButton;
 import components.CScrollBar;
 import components.CToast;
@@ -98,20 +97,7 @@ public final class PosGUI extends JFrame {
             new SwingWorker<PosBUS, Void>() {
                 @Override
                 protected PosBUS doInBackground() {
-                    SocketClient connection = new SocketClient();
-                    try {
-                        UserDTO user = AuthBUS.loginWorkstation(connection, account, secret);
-                        if (!"ADMIN".equalsIgnoreCase(user.getRoleName()))
-                            throw new SecurityException("Chỉ ADMIN mới có quyền mở POS");
-                        PosBUS pos = new PosBUS(user, connection);
-                        // Xác thực với SERVER trước khi hiện giao diện:
-                        // đăng nhập ADMIN trên iPad không tự biến iPad thành máy thu ngân.
-                        pos.listTables(); // Server kiểm tra cả role và POS_ALLOWED_IPS.
-                        return pos;
-                    } catch (RuntimeException ex) {
-                        connection.close();
-                        throw ex;
-                    }
+                    return PosBUS.loginPos(account, secret);
                 }
 
                 @Override
@@ -445,6 +431,7 @@ public final class PosGUI extends JFrame {
 
     private void renderMergedBillPreview(OrderDTO order) {
         clearInvoicePanel();
+        if (order == null) lblStatus.setText("Phiên bàn chưa có hóa đơn để hiển thị");
 
         billPreview = order;
         shownItems = order.getItems() == null ? Collections.emptyList() : new ArrayList<>(order.getItems());
@@ -496,8 +483,15 @@ public final class PosGUI extends JFrame {
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
                 } catch (Exception ex) {
-                    Throwable cause = ex instanceof ExecutionException ? ex.getCause() : ex;
-                    String msg = cause == null ? ex.getMessage() : cause.getMessage();
+                    Throwable cause = ex instanceof ExecutionException
+                            && ex.getCause() != null ? ex.getCause() : ex;
+
+                    String msg = cause.getMessage() == null
+                            ? "Không thực hiện được thao tác"
+                            : cause.getMessage();
+
+                    lblStatus.setText("Lỗi: " + msg);
+                    CToast.error(PosGUI.this, msg);
                 } finally {
                     updateButtons();
                 }
@@ -545,6 +539,11 @@ public final class PosGUI extends JFrame {
                     renderTableMap(lastTables);
                     if (selectedTable != null && selectedTable.getActiveSessionId() != null) loadPreview();
                 } catch (Exception ex) {
+                    Throwable cause = ex instanceof ExecutionException
+                            && ex.getCause() != null ? ex.getCause() : ex;
+
+                    lblStatus.setText("Không thể cập nhật danh sách bàn");
+                    System.err.println("[POS] Lỗi tải bàn: " + cause);
                 } finally {
                     updateButtons();
                 }

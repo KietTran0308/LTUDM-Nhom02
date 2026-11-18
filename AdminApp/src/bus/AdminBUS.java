@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 import java.util.List;
 
 public final class AdminBUS {
+
     private final SocketClient socket;
 
     public AdminBUS(SocketClient socket) {
@@ -119,6 +120,50 @@ public final class AdminBUS {
         u.setEmail(email);
         request(SocketAction.ADMIN_UPDATE_ACCOUNT, u);
         return true;
+    }
+
+    public static UserDTO loginAdmin(
+            SocketClient socket,
+            String account,
+            String password) {
+
+        if (socket == null) {
+            throw new IllegalArgumentException("Socket không hợp lệ");
+        }
+
+        if (account == null || account.isBlank()
+                || password == null || password.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Vui lòng nhập tài khoản và mật khẩu");
+        }
+
+        // Host và Port lấy từ ServerConfig.
+        if (!socket.isConnected() && !socket.connect(null)) {
+            throw new IllegalStateException(
+                    "Không kết nối được Server");
+        }
+
+        SocketPacket response = socket.requestAndWait(
+                new SocketPacket(
+                        SocketAction.LOGIN,
+                        null,
+                        account.trim(),
+                        password
+                ),
+                7000
+        );
+
+        if (!(response.getData() instanceof UserDTO admin)) {
+            throw new IllegalStateException(
+                    "Server trả về tài khoản không hợp lệ");
+        }
+
+        if (!"ADMIN".equalsIgnoreCase(admin.getRoleName())) {
+            throw new SecurityException(
+                    "Tài khoản không có quyền ADMIN");
+        }
+
+        return admin;
     }
 
     public boolean lockAccount(Long id) {

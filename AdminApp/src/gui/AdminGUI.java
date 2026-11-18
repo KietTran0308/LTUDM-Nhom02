@@ -4,8 +4,8 @@ import api.ImageSocketClient;
 import java.awt.image.BufferedImage;
 
 import api.SocketClient;
-import bus.AuthBUS;
 import bus.AdminBUS;
+
 import components.CToast;
 import components.CButton;
 import components.CCheckBox;
@@ -2194,7 +2194,7 @@ public class AdminGUI extends JFrame {
                 protected Object[] doInBackground() {
                     SocketClient socket = new SocketClient();
                     try {
-                        UserDTO admin = AuthBUS.loginWorkstation(socket, user, secret);
+                        UserDTO admin = AdminBUS.loginAdmin(socket, user, secret);
                         if (!"ADMIN".equalsIgnoreCase(admin.getRoleName()))
                             throw new SecurityException("Tài khoản không có quyền ADMIN");
                         return new Object[]{admin, socket};

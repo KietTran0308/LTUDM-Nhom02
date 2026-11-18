@@ -40,7 +40,7 @@ public class SocketJsonMapper {
                 if (extraData != null) root.put("extraData", extraData.toString()); // password
                 break;
 
-            case ORDER_SUBMIT, PLACE_ORDER:
+            case ORDER_SUBMIT:
                 if (data instanceof OrderDTO o) {
                     JSONObject obj = new JSONObject();
                     if (o.getUserId() != null) obj.put("userId", o.getUserId());
@@ -80,7 +80,7 @@ public class SocketJsonMapper {
                 if (data != null) root.put("data", data.toString()); // session token
                 break;
 
-            case UPDATE_ITEM_STATUS, MARK_ITEM_SERVED, SET_KITCHEN_ITEM_STATUS:
+            case UPDATE_ITEM_STATUS, MARK_ITEM_SERVED:
                 if (data != null) root.put("data", data);  // itemId
                 if (extraData instanceof OrderStatus) root.put("extraData", ((OrderStatus) extraData).name());
                 break;
@@ -154,9 +154,27 @@ public class SocketJsonMapper {
                 }
                 break;
 
+            case REGISTER:
+                if (data instanceof UserDTO user) {
+                    root.put("data", userToJson(user));
+                }
+                break;
+
+            case MEMBER_LOGIN:
+                if (data instanceof Map<?, ?> credentials) {
+                    JSONObject body = new JSONObject();
+                    body.put("email", credentials.get("email"));
+                    body.put("password", credentials.get("password"));
+                    root.put("data", body);
+                }
+                break;
+
+            case CALL_STAFF:
+                if (data != null) {
+                    root.put("data", data.toString());
+                }
+                break;
             default:
-                // REGISTER_TABLE, GET_MENU_AND_CATEGORIES, GET_TABLE_TRACKING,
-                // GET_ALL_TABLES, GET_TABLE_BILL_PREVIEW chỉ cần action và tableId
                 break;
         }
         return root.toString();
@@ -195,7 +213,7 @@ public class SocketJsonMapper {
                     }
                     break;
 
-                case ORDER_SUBMIT, ORDER_CREATED, PLACE_ORDER:
+                case ORDER_SUBMIT, ORDER_CREATED:
                     if (root.has("data") && !root.isNull("data")) {
                         data = jsonToOrder(root.getJSONObject("data"));
                     }
@@ -210,7 +228,7 @@ public class SocketJsonMapper {
                     }
                     break;
 
-                case ITEM_STATUS_CHANGED, KITCHEN_UPDATE_STATUS:
+                case ITEM_STATUS_CHANGED:
                     if (root.has("data") && !root.isNull("data")) {
                         data = root.getLong("data"); // orderItemId
                     }
@@ -219,7 +237,7 @@ public class SocketJsonMapper {
                     }
                     break;
 
-                case UPDATE_ITEM_STATUS, MARK_ITEM_SERVED, SET_KITCHEN_ITEM_STATUS:
+                case UPDATE_ITEM_STATUS, MARK_ITEM_SERVED:
                     if (root.has("data") && !root.isNull("data")) data = root.getLong("data");
                     if (root.has("extraData") && !root.isNull("extraData"))
                         extraData = OrderStatus.valueOf(root.getString("extraData"));

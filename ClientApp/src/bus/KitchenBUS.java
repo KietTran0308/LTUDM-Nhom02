@@ -64,14 +64,12 @@ public class KitchenBUS {
                     queue = new ArrayList<>((List<OrderDTO>) p.getData());
                     return new Event(Type.QUEUE_UPDATED, p.getMessage(), null);
                 case UPDATE_ITEM_STATUS:
-                case SET_KITCHEN_ITEM_STATUS:
                     // ACK da xu ly. Lay lai snapshot tu Server de tranh du lieu cu.
                     refreshQueue();
                     return new Event(Type.ITEM_UPDATED, p.getMessage(),
                             p.getData() instanceof Long ? (Long) p.getData() : null);
                 case ORDER_CREATED:
                 case ITEM_STATUS_CHANGED:
-                case KITCHEN_UPDATE_STATUS:
                 case ORDER_COMPLETED:
                     // PUSH real-time: du lieu moi duoc lay qua hang doi nhu cu.
                     refreshQueue();

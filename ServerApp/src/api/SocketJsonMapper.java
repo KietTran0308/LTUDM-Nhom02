@@ -53,7 +53,6 @@ public class SocketJsonMapper {
                 break;
 
             case ORDER_SUBMIT:
-            case PLACE_ORDER:
                 if (root.has("data") && !root.isNull("data")) {
                     data = jsonToOrder(root.getJSONObject("data"));
                 }
@@ -71,7 +70,6 @@ public class SocketJsonMapper {
 
             case UPDATE_ITEM_STATUS:
             case MARK_ITEM_SERVED:
-            case SET_KITCHEN_ITEM_STATUS:
                 if (root.has("data") && !root.isNull("data")) data = root.getLong("data");
                 if (root.has("extraData") && !root.isNull("extraData"))
                     extraData = OrderStatus.valueOf(root.getString("extraData"));
@@ -157,7 +155,6 @@ public class SocketJsonMapper {
 
                 case ORDER_SUBMIT:
                 case ORDER_CREATED:
-                case PLACE_ORDER:
                     if (data instanceof OrderDTO) {
                         root.put("data", orderToJson((OrderDTO) data));
                     }
@@ -173,7 +170,6 @@ public class SocketJsonMapper {
                     break;
 
                 case ITEM_STATUS_CHANGED:
-                case KITCHEN_UPDATE_STATUS:
                     if (data != null) root.put("data", data); // Long orderItemId
                     if (extraData instanceof OrderStatus) {
                         root.put("extraData", ((OrderStatus) extraData).name());
@@ -196,7 +192,6 @@ public class SocketJsonMapper {
 
                 case UPDATE_ITEM_STATUS:
                 case MARK_ITEM_SERVED:
-                case SET_KITCHEN_ITEM_STATUS:
                     if (data != null) root.put("data", data);
                     if (extraData instanceof OrderStatus) root.put("extraData", ((OrderStatus) extraData).name());
                     break;

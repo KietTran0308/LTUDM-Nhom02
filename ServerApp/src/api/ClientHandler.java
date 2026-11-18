@@ -174,14 +174,17 @@ public class ClientHandler implements Runnable {
 
                 SocketPacket request = SocketJsonMapper.fromJsonString(rawJson);
 
-                System.out.println("[Server] Nhận action: " + request.getAction());
+                System.out.println("[Server] Nhận action: " + request.getAction()
+                        + " | peer=" + socket.getRemoteSocketAddress());
 
                 // Giữ nguyên xử lý BUS/DAO hiện tại
                 handleClientRequest(request);
             }
 
         } catch (Exception e) {
-            System.out.println("[ClientHandler] Kết nối bàn " + currentTableId + " đã đóng: " + e.getMessage());
+            System.err.println("[ClientHandler] Kết nối " + socket.getRemoteSocketAddress()
+                    + " đã đóng: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+            e.printStackTrace();
 
         } finally {
             SocketServer.removeConnection(this);
@@ -254,7 +257,6 @@ public class ClientHandler implements Runnable {
                 }
 
                 case ORDER_SUBMIT:
-                case PLACE_ORDER: {
                     requireCurrentTable(req.getTableId());
                     OrderDTO incomingOrder = (OrderDTO) req.getData();
                     String voucherCode = (String) req.getExtraData();
@@ -287,7 +289,6 @@ public class ClientHandler implements Runnable {
                     SocketServer.broadcastOrderCreated(savedOrder);
                     SocketServer.broadcastKitchenQueue(orderDAO.getKitchenQueue());
                     break;
-                }
 
                 case GET_TABLE_TRACKING: {
                     requireCurrentTable(req.getTableId());
@@ -429,7 +430,6 @@ public class ClientHandler implements Runnable {
                 }
 
                 case UPDATE_ITEM_STATUS:
-                case SET_KITCHEN_ITEM_STATUS: {
                     requireRole("KITCHEN");
                     Long itemId = (Long) req.getData();
                     OrderStatus next = (OrderStatus) req.getExtraData();
@@ -452,7 +452,6 @@ public class ClientHandler implements Runnable {
                     }
                     SocketServer.broadcastKitchenQueue(orderDAO.getKitchenQueue());
                     break;
-                }
 
                 case ADMIN_GET_FOODS: {
                     requireWorkstationRole("ADMIN");
@@ -656,7 +655,16 @@ public class ClientHandler implements Runnable {
                     String emailOrPhone = (String) req.getData();
                     String password = (String) req.getExtraData();
                     if (customerMode) throw new SecurityException("Phien CUSTOMER da khoa; can tao ket noi moi");
-                    UserDTO loggedUser = authBUS.login(emailOrPhone, password);
+                    long loginStarted = System.nanoTime();
+                    System.out.println("[LOGIN] Bắt đầu xác thực | peer="
+                            + socket.getRemoteSocketAddress());
+                    UserDTO loggedUser;
+                    try {
+                        loggedUser = authBUS.login(emailOrPhone, password);
+                    } finally {
+                        long elapsedMs = (System.nanoTime() - loginStarted) / 1_000_000L;
+                        System.out.println("[LOGIN] Kết thúc xác thực sau " + elapsedMs + "ms");
+                    }
                     if (req.getAction() == SocketAction.LOGIN_STAFF &&
                             !("STAFF".equalsIgnoreCase(loggedUser.getRoleName()) ||
                                     "KITCHEN".equalsIgnoreCase(loggedUser.getRoleName()))) {
@@ -719,9 +727,13 @@ public class ClientHandler implements Runnable {
 
             // 4. Gửi dữ liệu đã mã hóa qua TCP
             writeFrame(out, encryptedData);
+            System.out.println("[Server -> Client] action=" + packet.getAction()
+                    + " success=" + packet.isSuccess());
 
         } catch (Exception e) {
-            System.err.println("[ClientHandler] Lỗi gửi dữ liệu: " + e.getMessage());
+            System.err.println("[ClientHandler] Lỗi gửi action=" + packet.getAction()
+                    + ": " + e.getMessage());
+            e.printStackTrace();
         }
     }
     private void closeResources() {

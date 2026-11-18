@@ -85,6 +85,7 @@ public class UserDAO {
         ) {
             ps.setString(1, emailOrPhone.trim());
             ps.setString(2, emailOrPhone.trim());
+            ps.setQueryTimeout(5); // Gioi han thoi gian chay SQL; khong thay the JDBC connectTimeout.
 
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next() &&
@@ -96,7 +97,8 @@ public class UserDAO {
             }
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            // Không nhầm lỗi database với sai email/mật khẩu.
+            throw new IllegalStateException("Lỗi kết nối hoặc truy vấn cơ sở dữ liệu", e);
         }
 
         return null;
