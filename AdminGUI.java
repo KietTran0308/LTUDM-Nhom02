@@ -2469,6 +2469,4 @@ public class AdminGUI extends JFrame {
         }.execute();
         return label;
     }
-
-
 }
