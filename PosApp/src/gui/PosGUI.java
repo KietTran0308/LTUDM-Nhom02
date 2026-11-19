@@ -50,6 +50,7 @@ public final class PosGUI extends JFrame {
     private final JLabel lblStatus = new JLabel("POS trung tâm — sẵn sàng");
     private final JComboBox<PaymentMethod> cboPaymentMethod = new JComboBox<>(PaymentMethod.values());
     private final CButton btnOpenSession = new CButton("Mở phiên bàn", 154, 42);
+    private final CButton btnCreateCustomer = new CButton("Tạo tài khoản khách", 178, 42);
 
     private final CButton btnCheckout = new CButton("Xuất hóa đơn", 490, 52);
     private final JButton btnServed = new JButton("Đã phục vụ món được chọn");
@@ -206,6 +207,7 @@ public final class PosGUI extends JFrame {
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 4));
         actions.setOpaque(false);
         btnOpenSession.addActionListener(e -> openSelectedTable());
+        btnCreateCustomer.addActionListener(e -> showCreateCustomerDialog());
         JButton btnLogout = new JButton("Đăng xuất");
         btnLogout.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 13));
         btnLogout.setForeground(Color.WHITE);
@@ -216,11 +218,113 @@ public final class PosGUI extends JFrame {
         btnLogout.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         btnLogout.addActionListener(e -> dispose());
         actions.add(btnOpenSession);
+        actions.add(btnCreateCustomer);
         actions.add(btnLogout);
 
         header.add(leftBrand, BorderLayout.WEST);
         header.add(actions, BorderLayout.EAST);
         add(header, BorderLayout.NORTH);
+    }
+
+    private void showCreateCustomerDialog() {
+        JDialog dialog = new JDialog(this, "Tạo tài khoản khách hàng", true);
+        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+
+        JTextField nameField = new JTextField(23);
+        JTextField phoneField = new JTextField(23);
+        JTextField emailField = new JTextField(23);
+        JPanel form = new JPanel(new GridLayout(3, 2, 12, 10));
+        form.add(new JLabel("Họ và tên"));
+        form.add(nameField);
+        form.add(new JLabel("Số điện thoại"));
+        form.add(phoneField);
+        form.add(new JLabel("Email (tùy chọn)"));
+        form.add(emailField);
+
+        JLabel feedback = new JLabel("Mật khẩu ban đầu là số điện thoại của khách.");
+        JButton submit = new JButton("Tạo tài khoản");
+        JButton cancel = new JButton("Hủy");
+        JPanel footer = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        footer.add(cancel);
+        footer.add(submit);
+        cancel.addActionListener(e -> dialog.dispose());
+        submit.addActionListener(e -> {
+            if (!submit.isEnabled()) return;
+            String name = nameField.getText().trim();
+            String phone = phoneField.getText().trim();
+            String email = emailField.getText().trim();
+            if (name.isEmpty() || name.length() > 150) {
+                feedback.setText("Nhập họ tên, tối đa 150 ký tự.");
+                return;
+            }
+            if (!phone.matches("(0|\\+84)\\d{9}")) {
+                feedback.setText("Số điện thoại không hợp lệ. Ví dụ 0901234567.");
+                return;
+            }
+            if (!email.isEmpty() && (email.length() > 255 || !email.matches("[^\\s@]+@[^\\s@]+\\.[^\\s@]+"))) {
+                feedback.setText("Email không hợp lệ.");
+                return;
+            }
+
+            feedback.setText("Đang tạo tài khoản...");
+            submit.setEnabled(false);
+            cancel.setEnabled(false);
+            nameField.setEditable(false);
+            phoneField.setEditable(false);
+            emailField.setEditable(false);
+            dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+            new SwingWorker<Void, Void>() {
+                @Override
+                protected Void doInBackground() {
+                    pos.createCustomerAccount(name, phone, email);
+                    return null;
+                }
+
+                @Override
+                protected void done() {
+                    if (!dialog.isDisplayable()) return;
+                    submit.setEnabled(true);
+                    cancel.setEnabled(true);
+                    nameField.setEditable(true);
+                    phoneField.setEditable(true);
+                    emailField.setEditable(true);
+                    dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+                    try {
+                        get();
+                        dialog.dispose();
+                        lblStatus.setText("Đã tạo tài khoản khách hàng");
+                        CToast.success(PosGUI.this, "Đã tạo tài khoản cho " + name);
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                        feedback.setText("Thao tác bị gián đoạn.");
+                    } catch (ExecutionException ex) {
+                        feedback.setText("Kiểm tra thông tin và thử lại.");
+                        JOptionPane.showMessageDialog(dialog, ex.getCause().getMessage(),
+                                "Không tạo được tài khoản", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            }.execute();
+        });
+
+        JPanel content = new JPanel(new BorderLayout(12, 12));
+        content.setBorder(new EmptyBorder(18, 22, 18, 22));
+        content.add(feedback, BorderLayout.NORTH);
+        content.add(form, BorderLayout.CENTER);
+        content.add(footer, BorderLayout.SOUTH);
+        dialog.setContentPane(content);
+        dialog.getRootPane().setDefaultButton(submit);
+        dialog.pack();
+        dialog.setResizable(false);
+        dialog.setLocationRelativeTo(this);
+
+        busy = true;
+        updateButtons();
+        try {
+            dialog.setVisible(true);
+        } finally {
+            busy = false;
+            updateButtons();
+        }
     }
 
     /**
@@ -354,6 +458,7 @@ public final class PosGUI extends JFrame {
     private void updateButtons() {
         boolean hasTable = selectedTable != null;
         boolean active = hasTable && selectedTable.getActiveSessionId() != null;
+        btnCreateCustomer.setEnabled(!busy);
         btnOpenSession.setEnabled(!busy && hasTable && !active);
         btnCheckout.setEnabled(!busy && active && billPreview != null &&
                 Objects.equals(selectedTable.getActiveSessionId(), billPreview.getTableSessionId()));

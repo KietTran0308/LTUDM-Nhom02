@@ -99,6 +99,15 @@ public final class PosBUS {
                 tableId, null, null).getData();
     }
 
+    public void createCustomerAccount(String fullName, String phone, String email) {
+        UserDTO customer = new UserDTO();
+        customer.setFullName(fullName);
+        customer.setPhone(phone);
+        customer.setEmail(email);
+        customer.setRoleName("CUSTOMER");
+        request(SocketAction.ADMIN_CREATE_ACCOUNT, null, customer, null);
+    }
+
     public OrderDTO preview(long tableId) {
         return (OrderDTO) request(
                 SocketAction.GET_TABLE_BILL_PREVIEW,
