@@ -163,7 +163,6 @@ public class KitchenGUI extends JFrame {
         nextAction.setEnabled(false);
         nextAction.addActionListener(e -> advanceSelectedItem());
         actions.add(nextAction);
-        actions.add(new JLabel("Nấu xong → nhân viên mang món → xác nhận đã phục vụ"));
         add(actions, BorderLayout.SOUTH);
 
         responseTimer = new javax.swing.Timer(QUEUE_POLL_MS, e -> {
@@ -196,10 +195,14 @@ public class KitchenGUI extends JFrame {
         OrderItemDTO item = selectedItemAt(table.getSelectedRow());
         OrderStatus next = kitchenBUS.nextStatus(item);
         boolean pending = item != null && pendingUpdates.containsKey(item.getId());
-        nextAction.setText(pending ? "Đang cập nhật..." : next == OrderStatus.RECEIVED ? "Nhận món"
-                : next == OrderStatus.COOKING ? "Bắt đầu chế biến"
-                : next == OrderStatus.COMPLETED ? "Nấu xong — chờ phục vụ"
-                : item == null ? "Chọn món để thao tác" : "Đang chờ nhân viên mang món");
+        nextAction.setText(pending ? "Đang cập nhật..." : next == null ? "Chọn món để thao tác"
+                : switch (next) {
+                    case RECEIVED -> "Nhận món";
+                    case COOKING -> "Bắt đầu chế biến";
+                    case COMPLETED -> "Nấu xong";
+                    case SERVED -> "Đã phục vụ";
+                    default -> "Chọn món để thao tác";
+                });
         nextAction.setEnabled(next != null && !pending && kitchenBUS.isConnected());
     }
 

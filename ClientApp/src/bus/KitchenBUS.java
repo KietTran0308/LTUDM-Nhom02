@@ -37,6 +37,7 @@ public class KitchenBUS {
             case PENDING: return OrderStatus.RECEIVED;
             case RECEIVED: return OrderStatus.COOKING;
             case COOKING: return OrderStatus.COMPLETED;
+            case COMPLETED: return OrderStatus.SERVED;
             default: return null;
         }
     }

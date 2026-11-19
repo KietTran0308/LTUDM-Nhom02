@@ -369,25 +369,8 @@ public class ClientHandler implements Runnable {
                     break;
                 }
 
-                case MARK_ITEM_SERVED: {
-                    requireWorkstationRole("STAFF", "ADMIN");
-
-                    Long itemId = (Long) req.getData();
-                    if (itemId == null || itemId <= 0) {
-                        throw new IllegalArgumentException(
-                                "Mã chi tiết món không hợp lệ");
-                    }
-
-                    PosBUS pos = new PosBUS(authenticatedUser);
-                    pos.markServed(itemId);
-
-                    sendPacket(ok(
-                            SocketAction.MARK_ITEM_SERVED,
-                            "Đã xác nhận phục vụ món",
-                            itemId,
-                            OrderStatus.SERVED));
-                    break;
-                }
+                case MARK_ITEM_SERVED:
+                    throw new IllegalStateException("Hãy xác nhận đã phục vụ trên màn hình bếp.");
 
                 case PAY_TABLE_BILL: {
                     requireWorkstationRole("STAFF", "ADMIN");
@@ -398,6 +381,7 @@ public class ClientHandler implements Runnable {
                     if (tableId == null || tableId <= 0 ||
                             bill == null ||
                             bill.getTableSessionId() == null ||
+                            bill.getTableSessionId() <= 0 ||
                             bill.getPaymentMethod() == null) {
                         throw new IllegalArgumentException(
                                 "Thông tin thanh toán không hợp lệ");
@@ -405,10 +389,7 @@ public class ClientHandler implements Runnable {
 
                     PosBUS pos = new PosBUS(authenticatedUser);
 
-                    pos.pay(
-                            tableId,
-                            bill.getTableSessionId(),
-                            bill.getPaymentMethod());
+                    pos.pay(tableId, bill, (String) req.getExtraData());
 
                     sendPacket(ok(
                             SocketAction.PAY_TABLE_BILL,
@@ -429,8 +410,9 @@ public class ClientHandler implements Runnable {
                     requireRole("KITCHEN");
                     Long itemId = (Long) req.getData();
                     OrderStatus next = (OrderStatus) req.getExtraData();
-                    if (itemId == null || next == null || (next != OrderStatus.RECEIVED &&
-                            next != OrderStatus.COOKING && next != OrderStatus.COMPLETED)) {
+                    if (itemId == null || itemId <= 0 || (next != OrderStatus.RECEIVED &&
+                            next != OrderStatus.COOKING && next != OrderStatus.COMPLETED &&
+                            next != OrderStatus.SERVED)) {
                         throw new IllegalArgumentException("Mon hoac trang thai khong hop le");
                     }
                     Long table = orderDAO.getTableIdByOrderItem(itemId);

@@ -76,7 +76,7 @@ public class SocketJsonMapper {
                 if (data instanceof Long) root.put("data", data);
                 break;
 
-            case UPDATE_ITEM_STATUS, MARK_ITEM_SERVED:
+            case UPDATE_ITEM_STATUS:
                 if (data != null) root.put("data", data);  // itemId
                 if (extraData instanceof OrderStatus) root.put("extraData", ((OrderStatus) extraData).name());
                 break;
@@ -91,6 +91,7 @@ public class SocketJsonMapper {
                     if (b.getPaymentMethod() != null) obj.put("paymentMethod", b.getPaymentMethod().name());
                     root.put("data", obj);
                 }
+                if (extraData instanceof String revision) root.put("extraData", revision);
                 break;
 
             case ADMIN_ADD_FOOD:
@@ -237,7 +238,7 @@ public class SocketJsonMapper {
                     }
                     break;
 
-                case UPDATE_ITEM_STATUS, MARK_ITEM_SERVED:
+                case UPDATE_ITEM_STATUS:
                     if (root.has("data") && !root.isNull("data")) data = root.getLong("data");
                     if (root.has("extraData") && !root.isNull("extraData"))
                         extraData = OrderStatus.valueOf(root.getString("extraData"));
@@ -421,6 +422,8 @@ public class SocketJsonMapper {
         o.setSubtotal(obj.optBigDecimal("subtotal", BigDecimal.ZERO));
         o.setDiscountAmount(obj.optBigDecimal("discountAmount", BigDecimal.ZERO));
         o.setTotalAmount(obj.optBigDecimal("totalAmount", BigDecimal.ZERO));
+        o.setCheckoutTax(obj.optBigDecimal("checkoutTax", null));
+        o.setCheckoutRevision(obj.optString("checkoutRevision", null));
         o.setNote(obj.optString("note", ""));
         if (obj.has("items") && !obj.isNull("items")) o.setItems(jsonArrayToOrderItemList(obj.getJSONArray("items")));
         return o;

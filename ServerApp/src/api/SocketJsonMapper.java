@@ -66,7 +66,6 @@ public class SocketJsonMapper {
                 break;
 
             case UPDATE_ITEM_STATUS:
-            case MARK_ITEM_SERVED:
                 if (root.has("data") && !root.isNull("data")) data = root.getLong("data");
                 if (root.has("extraData") && !root.isNull("extraData"))
                     extraData = OrderStatus.valueOf(root.getString("extraData"));
@@ -79,6 +78,7 @@ public class SocketJsonMapper {
             case PAY_TABLE_BILL:
                 if (root.has("data") && !root.isNull("data"))
                     data = jsonToBill(root.getJSONObject("data"));
+                extraData = root.optString("extraData", "");
                 break;
 
             case ADMIN_GET_BILLS:
@@ -192,7 +192,6 @@ public class SocketJsonMapper {
                     break;
 
                 case UPDATE_ITEM_STATUS:
-                case MARK_ITEM_SERVED:
                     if (data != null) root.put("data", data);
                     if (extraData instanceof OrderStatus) root.put("extraData", ((OrderStatus) extraData).name());
                     break;
@@ -315,6 +314,8 @@ public class SocketJsonMapper {
         if (o.getSubtotal() != null) obj.put("subtotal", o.getSubtotal());
         if (o.getDiscountAmount() != null) obj.put("discountAmount", o.getDiscountAmount());
         if (o.getTotalAmount() != null) obj.put("totalAmount", o.getTotalAmount());
+        if (o.getCheckoutTax() != null) obj.put("checkoutTax", o.getCheckoutTax());
+        if (o.getCheckoutRevision() != null) obj.put("checkoutRevision", o.getCheckoutRevision());
         if (o.getNote() != null) obj.put("note", o.getNote());
         if (o.getItems() != null) {
             obj.put("items", orderItemListToJsonArray(o.getItems()));

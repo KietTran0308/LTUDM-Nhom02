@@ -4,8 +4,6 @@ import api.SocketClient;
 import dto.*;
 
 import java.util.List;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 
 public final class PosBUS {
     private final SocketClient socket;
@@ -114,35 +112,12 @@ public final class PosBUS {
                 tableId, null, null).getData();
     }
 
-    public void markServed(long itemId) {
-        request(SocketAction.MARK_ITEM_SERVED,
-                null, itemId, null);
-    }
-
-    public void pay(
-            long tableId,
-            long sessionId,
-            PaymentMethod method) {
-
+    public void pay(long tableId, OrderDTO preview, PaymentMethod method) {
         BillDTO bill = new BillDTO();
-        bill.setTableSessionId(sessionId);
+        bill.setTableSessionId(preview.getTableSessionId());
         bill.setPaymentMethod(method);
-
         request(SocketAction.PAY_TABLE_BILL,
-                tableId, bill, null);
-    }
-
-    /** Chỉ dùng để hiển thị. Server/DAO tự tính lại tổng tiền khi thanh toán. */
-    public BigDecimal previewVat(OrderDTO order) {
-        if (order == null || order.getSubtotal() == null) return BigDecimal.ZERO;
-        BigDecimal discount = order.getDiscountAmount() == null ? BigDecimal.ZERO : order.getDiscountAmount();
-        return order.getSubtotal().subtract(discount).max(BigDecimal.ZERO)
-                .multiply(new BigDecimal("0.08")).setScale(0, RoundingMode.HALF_UP);
-    }
-
-    public BigDecimal previewTotal(OrderDTO order) {
-        if (order == null || order.getTotalAmount() == null) return BigDecimal.ZERO;
-        return order.getTotalAmount().add(previewVat(order));
+                tableId, bill, preview.getCheckoutRevision());
     }
 
     public void close() {

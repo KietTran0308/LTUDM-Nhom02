@@ -22,6 +22,8 @@ public class OrderDTO implements Serializable {
     private BigDecimal shippingFee;
     private BigDecimal discountAmount;
     private BigDecimal totalAmount;
+    private BigDecimal checkoutTax;
+    private String checkoutRevision;
     private String receiverName;
     private String receiverPhone;
     private String shippingAddress;
@@ -76,6 +78,14 @@ public class OrderDTO implements Serializable {
 
     public BigDecimal getTotalAmount() { return totalAmount; }
     public void setTotalAmount(BigDecimal totalAmount) { this.totalAmount = totalAmount; }
+
+    public BigDecimal getCheckoutTax() { return checkoutTax; }
+    public void setCheckoutTax(BigDecimal checkoutTax) { this.checkoutTax = checkoutTax; }
+
+    public BigDecimal getCheckoutTotal() { return totalAmount.add(checkoutTax); }
+
+    public String getCheckoutRevision() { return checkoutRevision; }
+    public void setCheckoutRevision(String checkoutRevision) { this.checkoutRevision = checkoutRevision; }
 
     public String getReceiverName() { return receiverName; }
     public void setReceiverName(String receiverName) { this.receiverName = receiverName; }

@@ -1,10 +1,10 @@
 package dao;
 
 import dto.BillDTO;
+import dto.OrderDTO;
 import dto.PaymentMethod;
 import dto.PaymentStatus;
 
-import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -16,104 +16,43 @@ import java.util.List;
 
 public class BillDAO {
 
-    public static boolean createBillAndReleaseTable(BillDTO bill, Long tableId) {
-        if (bill == null) {
-            throw new IllegalArgumentException("Thong tin hoa don khong duoc rong");
-        }
-        if (bill.getTableSessionId() == null && tableId == null) {
-            throw new IllegalArgumentException("Can tableSessionId hoac tableId de xac dinh phien ban");
-        }
-        if (bill.getPaymentMethod() == null) {
-            throw new IllegalArgumentException("Chua chon phuong thuc thanh toan");
-        }
-        if (bill.getTotalAmount() == null || bill.getTotalAmount().compareTo(BigDecimal.ZERO) < 0) {
-            throw new IllegalArgumentException("Tong thanh toan khong hop le");
-        }
-        if (bill.getDiscount() != null && bill.getDiscount().signum() < 0) {
-            throw new IllegalArgumentException("Tien giam gia khong hop le");
-        }
-        if (bill.getTax() != null && bill.getTax().signum() < 0) {
-            throw new IllegalArgumentException("Tien thue khong hop le");
-        }
-
+    public static void createBillAndReleaseTable(BillDTO bill, long tableId, String revision) {
         try (Connection conn = dbConnection.getConnection()) {
             conn.setAutoCommit(false);
             try {
-                // Khoa phien ban ACTIVE trong transaction de tranh thanh toan dong thoi.
-                final boolean hasSessionId = bill.getTableSessionId() != null;
-                final String findSql = hasSessionId
-                        ? "SELECT id, table_id FROM table_sessions WHERE id = ? AND status = 'ACTIVE' FOR UPDATE"
-                        : "SELECT id, table_id FROM table_sessions WHERE table_id = ? AND status = 'ACTIVE' FOR UPDATE";
-
-                long sessionId;
-                long actualTableId;
-                try (PreparedStatement ps = conn.prepareStatement(findSql)) {
-                    ps.setLong(1, hasSessionId ? bill.getTableSessionId() : tableId);
+                // Khóa bàn rồi khóa phiên, cùng thứ tự với thao tác mở bàn và gọi thêm món.
+                try (PreparedStatement ps = conn.prepareStatement("SELECT id FROM tables WHERE id = ? FOR UPDATE")) {
+                    ps.setLong(1, tableId);
                     try (ResultSet rs = ps.executeQuery()) {
-                        if (!rs.next()) {
-                            throw new SQLException("Khong tim thay phien ban ACTIVE de thanh toan");
-                        }
-                        sessionId = rs.getLong("id");
-                        actualTableId = rs.getLong("table_id");
+                        if (!rs.next()) throw new IllegalStateException("Bàn không tồn tại.");
                     }
                 }
-                if (tableId != null && tableId.longValue() != actualTableId) {
-                    throw new SQLException("tableId khong thuoc tableSessionId da chon");
-                }
-
-                // Neu bill.table_session_id UNIQUE thi DB cung tu choi khi thanh toan trung.
+                long sessionId = bill.getTableSessionId();
                 try (PreparedStatement ps = conn.prepareStatement(
-                        "SELECT id FROM bill WHERE table_session_id = ?")) {
+                        "SELECT id FROM table_sessions WHERE id = ? AND table_id = ? AND status = 'ACTIVE' FOR UPDATE")) {
                     ps.setLong(1, sessionId);
+                    ps.setLong(2, tableId);
                     try (ResultSet rs = ps.executeQuery()) {
-                        if (rs.next()) throw new SQLException("Phien ban da co hoa don");
+                        if (!rs.next()) throw new IllegalStateException("Phiên bàn đã đóng hoặc đã thay đổi.");
                     }
                 }
 
-                // Khong tu tao phien CLOSED de xuat hoa don cho ban chua co phien hoat dong.
-                try (PreparedStatement ps = conn.prepareStatement(
-                        "SELECT id FROM orders WHERE table_session_id = ? AND status <> 'CANCELLED' LIMIT 1")) {
-                    ps.setLong(1, sessionId);
-                    try (ResultSet rs = ps.executeQuery()) {
-                        if (!rs.next()) throw new SQLException("Phien ban chua co don hop le de thanh toan");
-                    }
-                }
+                OrderDTO current = OrderDAO.readCheckout(conn, tableId, sessionId, true);
+                if (current == null || !revision.equals(current.getCheckoutRevision()))
+                    throw new IllegalStateException("Hóa đơn đã thay đổi. Hãy xem lại trước khi thanh toán.");
 
-                // Luon tinh tien tren Server; khong tin totalAmount/discount/tax GUI gui len.
-                BigDecimal serverSubtotal = BigDecimal.ZERO;
-                BigDecimal serverDiscount = BigDecimal.ZERO;
-                try (PreparedStatement ps = conn.prepareStatement(
-                        "SELECT COALESCE(SUM(total_amount),0) AS subtotal, " +
-                                "COALESCE(SUM(discount_amount),0) AS discount_total FROM orders " +
-                                "WHERE table_session_id = ? AND status <> 'CANCELLED'")) {
-                    ps.setLong(1, sessionId);
-                    try (ResultSet rs = ps.executeQuery()) {
-                        if (rs.next()) {
-                            serverSubtotal = rs.getBigDecimal("subtotal");
-                            serverDiscount = rs.getBigDecimal("discount_total");
-                        }
-                    }
-                }
-                // VAT 8% phuc vu mo phong theo giao dien POS hien tai.
-                BigDecimal serverTax = serverSubtotal.multiply(new BigDecimal("0.08"))
-                        .setScale(0, java.math.RoundingMode.HALF_UP);
-                bill.setDiscount(serverDiscount);
-                bill.setTax(serverTax);
-                bill.setTotalAmount(serverSubtotal.add(serverTax));
-
+                // Giá trị ghi vào hóa đơn luôn lấy từ dữ liệu server vừa tính lại.
                 try (PreparedStatement ps = conn.prepareStatement(
                         "INSERT INTO bill (table_session_id, total_amount, discount, tax, " +
                                 "payment_method, paid_at, payment_status) " +
                                 "VALUES (?, ?, ?, ?, ?, NOW(3), 'PAID')")) {
                     ps.setLong(1, sessionId);
-                    ps.setBigDecimal(2, bill.getTotalAmount());
-                    ps.setBigDecimal(3, bill.getDiscount() == null ? BigDecimal.ZERO : bill.getDiscount());
-                    ps.setBigDecimal(4, bill.getTax() == null ? BigDecimal.ZERO : bill.getTax());
+                    ps.setBigDecimal(2, current.getCheckoutTotal());
+                    ps.setBigDecimal(3, current.getDiscountAmount());
+                    ps.setBigDecimal(4, current.getCheckoutTax());
                     ps.setString(5, bill.getPaymentMethod().name());
                     ps.executeUpdate();
                 }
-
-                // Cap nhat tat ca luot goi mon thuoc phien ban, khong dung parent_order_id.
                 try (PreparedStatement ps = conn.prepareStatement(
                         "UPDATE orders SET status = 'COMPLETED' " +
                                 "WHERE table_session_id = ? AND status <> 'CANCELLED'")) {
@@ -124,32 +63,23 @@ public class BillDAO {
                         "UPDATE table_sessions SET status = 'CLOSED', closed_at = NOW(3) " +
                                 "WHERE id = ? AND status = 'ACTIVE'")) {
                     ps.setLong(1, sessionId);
-                    if (ps.executeUpdate() != 1) {
-                        throw new SQLException("Dong phien ban that bai");
-                    }
+                    if (ps.executeUpdate() != 1) throw new SQLException("Không đóng được phiên bàn.");
                 }
-                try (PreparedStatement ps = conn.prepareStatement(
-                        "UPDATE tables SET status = 1 WHERE id = ?")) {
-                    ps.setLong(1, actualTableId);
-                    if (ps.executeUpdate() != 1) {
-                        throw new SQLException("Khong the giai phong ban");
-                    }
+                try (PreparedStatement ps = conn.prepareStatement("UPDATE tables SET status = 1 WHERE id = ?")) {
+                    ps.setLong(1, tableId);
+                    if (ps.executeUpdate() != 1) throw new SQLException("Không giải phóng được bàn.");
                 }
-
                 conn.commit();
-                return true;
-            } catch (SQLException e) {
+            } catch (SQLException | RuntimeException e) {
                 try {
                     conn.rollback();
                 } catch (SQLException rollbackError) {
                     e.addSuppressed(rollbackError);
                 }
-                e.printStackTrace();
-                return false;
+                throw e;
             }
         } catch (SQLException e) {
-            e.printStackTrace();
-            return false;
+            throw new IllegalStateException("Không lưu được hóa đơn. Hãy tải lại bàn và kiểm tra trước khi thử lại.", e);
         }
     }
 

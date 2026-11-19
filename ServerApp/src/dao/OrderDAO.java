@@ -4,8 +4,13 @@ import dto.OrderDTO;
 import dto.OrderItemDTO;
 import dto.OrderStatus;
 import dto.OrderType;
+import org.json.JSONArray;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.sql.*;
 import java.util.*;
 
@@ -556,6 +561,8 @@ public class OrderDAO {
      */
     public OrderDTO getMergedTableOrderForCheckout(Long tableId) {
         try (Connection conn = dbConnection.getConnection()) {
+            conn.setTransactionIsolation(Connection.TRANSACTION_REPEATABLE_READ);
+            conn.setAutoCommit(false);
             Long sessionId = null;
             try (PreparedStatement ps = conn.prepareStatement(
                     "SELECT id FROM table_sessions WHERE table_id = ? AND status = 'ACTIVE'")) {
@@ -564,49 +571,76 @@ public class OrderDAO {
                     if (rs.next()) sessionId = rs.getLong(1);
                 }
             }
-            if (sessionId == null) return null;
-            OrderDTO merged = null;
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT * FROM orders WHERE table_session_id = ? " +
-                            "AND parent_order_id IS NULL AND status <> 'CANCELLED' " +
-                            "ORDER BY created_at ASC LIMIT 1")) {
-                ps.setLong(1, sessionId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    if (rs.next()) merged = mapOrder(rs);
-                }
-            }
-            if (merged == null) return null;
-            merged.setTableId(tableId);
-            merged.setTableSessionId(sessionId);
-
-            List<OrderItemDTO> allItems = new ArrayList<>();
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT oi.* FROM order_items oi JOIN orders o ON oi.order_id = o.id " +
-                            "WHERE o.table_session_id = ? AND o.status <> 'CANCELLED' " +
-                            "AND oi.status <> 'CANCELLED' ORDER BY oi.id")) {
-                ps.setLong(1, sessionId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) allItems.add(mapItem(rs));
-                }
-            }
-            merged.setItems(allItems);
-            BigDecimal subtotal = BigDecimal.ZERO;
-            for (OrderItemDTO item : allItems) subtotal = subtotal.add(item.getLineTotal());
-            BigDecimal discount = BigDecimal.ZERO;
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT COALESCE(SUM(discount_amount),0) AS discount " +
-                            "FROM orders WHERE table_session_id = ? AND status <> 'CANCELLED'")) {
-                ps.setLong(1, sessionId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    if (rs.next()) discount = rs.getBigDecimal("discount");
-                }
-            }
-            merged.setSubtotal(subtotal);
-            merged.setDiscountAmount(discount);
-            merged.setTotalAmount(subtotal.subtract(discount).max(BigDecimal.ZERO));
-            return merged;
+            OrderDTO preview = sessionId == null ? null : readCheckout(conn, tableId, sessionId, false);
+            conn.commit();
+            return preview;
         } catch (SQLException e) {
             throw new IllegalStateException("Lỗi tổng hợp đơn để thanh toán", e);
+        }
+    }
+
+    // Khi thanh toán, đọc và khóa dữ liệu trong chính giao dịch ghi hóa đơn.
+    static OrderDTO readCheckout(Connection conn, long tableId, long sessionId, boolean lock)
+            throws SQLException {
+        String rowLock = lock ? " FOR UPDATE" : "";
+        OrderDTO merged = null;
+        BigDecimal discount = BigDecimal.ZERO;
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT * FROM orders WHERE table_session_id = ? AND status <> 'CANCELLED' ORDER BY id"
+                        + rowLock)) {
+            ps.setLong(1, sessionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    if (merged == null && rs.getObject("parent_order_id") == null) merged = mapOrder(rs);
+                    discount = discount.add(rs.getBigDecimal("discount_amount"));
+                }
+            }
+        }
+        if (merged == null) return null;
+
+        List<OrderItemDTO> items = new ArrayList<>();
+        BigDecimal subtotal = BigDecimal.ZERO;
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT oi.* FROM order_items oi JOIN orders o ON oi.order_id = o.id " +
+                        "WHERE o.table_session_id = ? AND o.status <> 'CANCELLED' " +
+                        "AND oi.status <> 'CANCELLED' ORDER BY oi.id" + rowLock)) {
+            ps.setLong(1, sessionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    OrderItemDTO item = mapItem(rs);
+                    items.add(item);
+                    subtotal = subtotal.add(item.getLineTotal());
+                }
+            }
+        }
+        if (items.isEmpty()) return null;
+
+        BigDecimal net = subtotal.subtract(discount).max(BigDecimal.ZERO);
+        BigDecimal tax = net.multiply(new BigDecimal("0.08")).setScale(0, RoundingMode.HALF_UP);
+        merged.setTableId(tableId);
+        merged.setTableSessionId(sessionId);
+        merged.setItems(items);
+        merged.setSubtotal(subtotal);
+        merged.setDiscountAmount(discount);
+        merged.setTotalAmount(net);
+        merged.setCheckoutTax(tax);
+        merged.setCheckoutRevision(checkoutRevision(merged));
+        return merged;
+    }
+
+    private static String checkoutRevision(OrderDTO preview) {
+        JSONArray snapshot = new JSONArray().put(preview.getTableSessionId()).put(preview.getId())
+                .put(preview.getSubtotal()).put(preview.getDiscountAmount()).put(preview.getCheckoutTax());
+        for (OrderItemDTO item : preview.getItems()) {
+            snapshot.put(new JSONArray().put(item.getId()).put(item.getOrderId()).put(item.getFoodsName())
+                    .put(item.getQuantity()).put(item.getUnitPrice()).put(item.getLineTotal()).put(item.getStatus()));
+        }
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(snapshot.toString().getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
         }
     }
 

@@ -69,7 +69,7 @@ public class ServerOrderBUS {
         return orderDAO.getMergedTableOrderForCheckout(tableId);
     }
 
-    public boolean processTablePayment(BillDTO bill, Long tableId) {
-        return BillDAO.createBillAndReleaseTable(bill, tableId);
+    public void processTablePayment(BillDTO bill, long tableId, String revision) {
+        BillDAO.createBillAndReleaseTable(bill, tableId, revision);
     }
 }
