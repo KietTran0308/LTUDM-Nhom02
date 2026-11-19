@@ -56,6 +56,7 @@ public final class CToast extends JPanel {
         body.setEditable(false);
         body.setFocusable(false);
         body.setOpaque(false);
+
         body.setBorder(null);
         // Layout gom 390px, tru phan icon/nut dong/le => khoang 270px cho noi dung.
         body.setSize(new Dimension(270, Short.MAX_VALUE));

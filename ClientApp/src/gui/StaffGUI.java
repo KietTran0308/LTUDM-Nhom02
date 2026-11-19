@@ -14,6 +14,7 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
 import java.awt.*;
 import java.awt.event.KeyEvent;
+import java.awt.geom.RoundRectangle2D;
 import java.util.List;
 import java.util.Objects;
 import java.util.TreeSet;
@@ -57,7 +58,6 @@ public class StaffGUI extends JFrame {
         setLayout(new BorderLayout());
         buildUI();
 
-        // Timer chi rut packet trong bo nho tren EDT, KHONG goi SQL/socket lay lai ban.
         responseTimer = new Timer(120, e -> {
             StaffBUS.Event event;
             while ((event = bus.pollEvent()) != null) onStaffEvent(event);
@@ -374,70 +374,191 @@ public class StaffGUI extends JFrame {
         }
     }
 
-    /** Hop xac nhan thiet ke rieng, khong su dung JOptionPane. */
+    /** Hộp xác nhận riêng: phủ xám giao diện StaffGUI và hiển thị dialog ở giữa. */
     private boolean confirmHandoff(TableDTO table) {
+        final boolean[] confirmed = {false};
+
+        // GlassPane chỉ phủ lên StaffGUI, không phủ lên cửa sổ xác nhận.
+        // Giữ lại glass pane cũ để khôi phục đúng trạng thái khi đóng dialog.
+        Component oldGlassPane = getGlassPane();
+        boolean oldGlassPaneVisible = oldGlassPane.isVisible();
+        JPanel dimOverlay = new JPanel() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setColor(new Color(45, 45, 45, 155)); // Xám trong suốt
+                g2.fillRect(0, 0, getWidth(), getHeight());
+                g2.dispose();
+            }
+        };
+        dimOverlay.setOpaque(false);
+
         JDialog dialog = new JDialog(this, "Xác nhận bàn giao thiết bị", true);
-        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+        dialog.setUndecorated(true);
         dialog.setResizable(false);
-        JPanel content = new JPanel(new BorderLayout(0, 20));
-        content.setBackground(Color.WHITE);
-        content.setBorder(new EmptyBorder(24, 28, 24, 28));
+        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 
-        JLabel title = new JLabel("XÁC NHẬN BÀN GIAO CHO KHÁCH");
-        title.setFont(Utils.getCustomFont("Inter", Font.BOLD, 18));
-        title.setForeground(Utils.FOREST_BG);
-        content.add(title, BorderLayout.NORTH);
+        Color darkText = new Color(39, 54, 44);
+        Color lineColor = new Color(226, 231, 225);
 
-        JPanel details = new JPanel(new GridLayout(0, 1, 0, 10));
-        details.setBackground(Color.WHITE);
-        details.add(detailLine("Bàn", table.getTableName()));
-        details.add(detailLine("Tầng", floorName(table.getFloorNumber())));
-        details.add(detailLine("Sức chứa", table.getCapacity() + " người"));
-        details.add(detailLine("Phiên đang mở", "#" + table.getActiveSessionId() + " (ACTIVE)"));
-        details.add(detailLine("Nhân viên bàn giao", staff.getFullName()));
-        JLabel note = new JLabel("<html><div style='width:380px'>Sau khi xác nhận, thiết bị chuyển sang chế độ khách hàng. "
-                + "Quyền nhân viên trên kết nối này sẽ được thu hồi.</div></html>");
-        note.setForeground(new Color(158, 75, 48));
-        note.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 13));
-        details.add(note);
-        content.add(details, BorderLayout.CENTER);
+        // Panel chính được bo góc 28px, bao gồm cả header và footer.
+        final int cornerRadius = 28;
+        JPanel content = new JPanel(new BorderLayout()) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(Color.WHITE);
+                g2.fill(new RoundRectangle2D.Double(0, 0, getWidth(), getHeight(),
+                        cornerRadius, cornerRadius));
+                g2.dispose();
+            }
 
-        boolean[] confirmed = {false};
-        JPanel controls = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
-        controls.setBackground(Color.WHITE);
-        JButton cancel = new JButton("Hủy");
-        cancel.setPreferredSize(new Dimension(105, 40));
+            @Override
+            protected void paintChildren(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                // Cắt toàn bộ nội dung con theo khung bo góc, tránh header bị vuông ở hai góc trên.
+                g2.setClip(new RoundRectangle2D.Double(0, 0, getWidth(), getHeight(),
+                        cornerRadius, cornerRadius));
+                super.paintChildren(g2);
+                g2.setClip(null);
+                g2.setColor(lineColor);
+                g2.setStroke(new BasicStroke(1f));
+                g2.draw(new RoundRectangle2D.Double(0.5, 0.5,
+                        getWidth() - 1.0, getHeight() - 1.0, cornerRadius, cornerRadius));
+                g2.dispose();
+            }
+        };
+        content.setOpaque(false);
+        content.setBorder(BorderFactory.createEmptyBorder());
+
+        // Phần đầu: màu xanh theo nhận diện nhà hàng.
+        JPanel header = new JPanel(new BorderLayout(16, 0));
+        header.setBackground(Utils.FOREST_BG);
+        header.setBorder(new EmptyBorder(23, 28, 23, 24));
+
+        JPanel titleBox = new JPanel();
+        titleBox.setOpaque(false);
+        titleBox.setLayout(new BoxLayout(titleBox, BoxLayout.Y_AXIS));
+
+        JLabel brand = new JLabel("AN NHIÊN  /  BÀN GIAO THIẾT BỊ");
+        brand.setFont(Utils.getCustomFont("Inter", Font.BOLD, 11));
+        brand.setForeground(new Color(201, 222, 207));
+
+        JLabel title = new JLabel("Xác nhận bàn giao cho khách");
+        title.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 21));
+        title.setForeground(Color.WHITE);
+
+        JLabel subtitle = new JLabel("Kiểm tra lại thông tin bàn trước khi tiếp tục.");
+        subtitle.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 13));
+        subtitle.setForeground(new Color(224, 235, 226));
+
+        titleBox.add(brand);
+        titleBox.add(Box.createVerticalStrut(10));
+        titleBox.add(title);
+        titleBox.add(Box.createVerticalStrut(6));
+        titleBox.add(subtitle);
+        header.add(titleBox, BorderLayout.CENTER);
+        content.add(header, BorderLayout.NORTH);
+
+        // Thông tin bàn đang được bàn giao.
+        JPanel body = new JPanel(new BorderLayout(0, 17));
+        body.setBackground(Color.WHITE);
+        body.setBorder(new EmptyBorder(23, 28, 18, 28));
+
+        JLabel detailsTitle = new JLabel("THÔNG TIN BÀN ĐƯỢC CHỌN");
+        detailsTitle.setFont(Utils.getCustomFont("Inter", Font.BOLD, 13));
+        detailsTitle.setForeground(darkText);
+
+        JPanel details = new JPanel(new GridLayout(0, 1, 0, 12));
+        details.setOpaque(false);
+        details.add(handoffInfoRow("Bàn", table.getTableName()));
+        details.add(handoffInfoRow("Tầng", floorName(table.getFloorNumber())));
+        details.add(handoffInfoRow("Sức chứa", table.getCapacity() + " người"));
+        details.add(handoffInfoRow("Phiên đang mở", "#" + table.getActiveSessionId() + "  •  Đang phục vụ"));
+        details.add(handoffInfoRow("Nhân viên bàn giao", staff.getFullName()));
+
+        JPanel infoBlock = new JPanel(new BorderLayout(0, 16));
+        infoBlock.setOpaque(false);
+        infoBlock.add(detailsTitle, BorderLayout.NORTH);
+        infoBlock.add(details, BorderLayout.CENTER);
+        body.add(infoBlock, BorderLayout.CENTER);
+        content.add(body, BorderLayout.CENTER);
+
+        JPanel footer = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 16));
+        footer.setBackground(new Color(249, 250, 249));
+        footer.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 0, 0, 0, lineColor),
+                new EmptyBorder(0, 20, 0, 20)));
+
+        CButton cancel = new CButton("Hủy bỏ", 122, 44);
+        cancel.setForeground(darkText);
+        cancel.setBackground(Color.WHITE);
+        cancel.setFocusPainted(false);
+        cancel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        cancel.setBorder(new LineBorder(lineColor, 1, true));
         cancel.addActionListener(e -> dialog.dispose());
-        JButton accept = new JButton("Xác nhận bàn giao");
-        accept.setPreferredSize(new Dimension(185, 40));
-        accept.setBackground(SELECT_COLOR);
-        accept.setForeground(Color.WHITE);
-        accept.setOpaque(true);
-        accept.setFocusPainted(false);
+
+        CButton accept = new CButton("Xác nhận bàn giao", 212, 44);
         accept.addActionListener(e -> {
             confirmed[0] = true;
             dialog.dispose();
         });
-        controls.add(cancel);
-        controls.add(accept);
-        content.add(controls, BorderLayout.SOUTH);
 
+        footer.add(cancel);
+        footer.add(accept);
+        content.add(footer, BorderLayout.SOUTH);
+
+        // Cửa sổ trong suốt tại bốn góc để phần bo góc không có nền vuông.
+        dialog.getRootPane().setOpaque(false);
+        dialog.getLayeredPane().setOpaque(false);
         dialog.setContentPane(content);
         dialog.getRootPane().setDefaultButton(accept);
         dialog.getRootPane().registerKeyboardAction(e -> dialog.dispose(),
-                KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), JComponent.WHEN_IN_FOCUSED_WINDOW);
+                KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
+                JComponent.WHEN_IN_FOCUSED_WINDOW);
         dialog.pack();
-        dialog.setMinimumSize(new Dimension(510, 340));
+        dialog.setSize(Math.max(580, dialog.getWidth()), Math.max(490, dialog.getHeight()));
         dialog.setLocationRelativeTo(this);
-        dialog.setVisible(true);
+
+        // Một số nền tảng không hỗ trợ cửa sổ trong suốt; khi đó vẫn giữ panel bo góc.
+        try {
+            dialog.setBackground(new Color(0, 0, 0, 0));
+            dialog.setShape(new RoundRectangle2D.Double(0, 0,
+                    dialog.getWidth(), dialog.getHeight(), cornerRadius, cornerRadius));
+        } catch (UnsupportedOperationException ex) {
+            System.err.println("[StaffGUI] He dieu hanh khong ho tro dialog bo goc: " + ex.getMessage());
+        }
+
+        try {
+            setGlassPane(dimOverlay);
+            dimOverlay.setVisible(true);
+            dimOverlay.repaint();
+            dialog.setVisible(true); // Modal: chờ người dùng xác nhận hoặc hủy.
+        } finally {
+            dialog.dispose();
+            dimOverlay.setVisible(false);
+            setGlassPane(oldGlassPane);
+            oldGlassPane.setVisible(oldGlassPaneVisible);
+        }
         return confirmed[0];
     }
 
-    private JLabel detailLine(String field, String value) {
-        JLabel label = new JLabel(field + ":  " + value);
-        label.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 15));
-        label.setForeground(new Color(40, 54, 44));
-        return label;
+    private JPanel handoffInfoRow(String field, String value) {
+        JPanel row = new JPanel(new BorderLayout(16, 0));
+        row.setOpaque(false);
+        JLabel name = new JLabel(field);
+        name.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 14));
+        name.setForeground(new Color(107, 117, 110));
+
+        JLabel text = new JLabel(value == null ? "—" : ": " + value);
+        text.setFont(Utils.getCustomFont("Inter", Font.BOLD, 18));
+        text.setForeground(new Color(39, 54, 44));
+
+        row.add(name, BorderLayout.WEST);
+        row.add(text, BorderLayout.CENTER);
+        return row;
     }
 
     private void onStaffEvent(StaffBUS.Event event) {
@@ -484,7 +605,8 @@ public class StaffGUI extends JFrame {
         new AuthGUI().setVisible(true);
         dispose();
     }
-    /** Load logo via TCP IMG/2, khong doc file local va khong block Swing EDT. */
+
+
     private JLabel createSocketLogo(String imageKey, int size) {
         JLabel label = new JLabel("AN", SwingConstants.CENTER);
         Dimension dimension = new Dimension(size, size);
@@ -497,7 +619,6 @@ public class StaffGUI extends JFrame {
         new SwingWorker<BufferedImage, Void>() {
             @Override
             protected BufferedImage doInBackground() {
-                // ImageSocketClient gui IMG/2 things/logo.png, nhan cac block byte nhi phan.
                 return ImageSocketClient.fetchImage(imageKey);
             }
 

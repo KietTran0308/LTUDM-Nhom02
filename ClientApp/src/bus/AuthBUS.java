@@ -51,16 +51,6 @@ public class AuthBUS {
                 new SocketPacket(SocketAction.LOGIN_STAFF, null, account, password));
     }
 
-    public boolean register(String fullName, String email, String phone, String password) {
-        if (!ready()) return false;
-        UserDTO user = new UserDTO();
-        user.setFullName(fullName);
-        user.setEmail(email);
-        user.setPhone(phone);
-        user.setPasswordHash(password); // Server hash, khong ghi password thuan xuong DB.
-        return socketClient.sendRequest(new SocketPacket(SocketAction.REGISTER, null, user, null));
-    }
-
     public boolean requestPasswordReset(String email) {
         return ready() && socketClient.sendRequest(
                 new SocketPacket(SocketAction.REQUEST_PASSWORD_RESET, null, email.trim(), null));
@@ -95,6 +85,5 @@ public class AuthBUS {
     }
 
     public SocketClient getSocketClient() { return socketClient; }
-    public boolean isServerConnected() { return socketClient.isConnected(); }
     public void close() { socketClient.close(); }
 }

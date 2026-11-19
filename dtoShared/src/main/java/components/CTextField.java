@@ -5,6 +5,7 @@ import java.awt.*;
 import java.awt.event.*;
 
 public class CTextField extends JTextField {
+
     private String placeholder;
 
     // Thuộc tính mặc định
@@ -61,6 +62,10 @@ public class CTextField extends JTextField {
             FontMetrics fm = g2.getFontMetrics();
             g2.drawString(placeholder, getInsets().left, (getHeight() - fm.getHeight()) / 2 + fm.getAscent());
         }
+    }
+
+    public void setBackgroundColor(Color name){
+        setBackground(name);
     }
 
     @Override
