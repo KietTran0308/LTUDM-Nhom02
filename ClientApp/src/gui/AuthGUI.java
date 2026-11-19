@@ -16,6 +16,9 @@ import java.util.Locale;
 
 import api.SocketClient;
 
+import static java.awt.Color.GRAY;
+
+
 public class AuthGUI extends JFrame {
 
     private static final String CARD_LOGIN = "LOGIN";
@@ -51,7 +54,6 @@ public class AuthGUI extends JFrame {
         rightCardPanel.add(createForgotPasswordPanel(), CARD_FORGOT);
         add(rightCardPanel);
 
-        // Tải hai icon một lần cho cả ba ô mật khẩu, không tải từ dtoShared.
         loadPasswordIconsViaSocket();
 
         addWindowFocusListener(new WindowAdapter() {
@@ -64,7 +66,14 @@ public class AuthGUI extends JFrame {
         });
 
         authBUS = new AuthBUS();
-        startResponseTimer();
+
+        responseTimer = new Timer(100, e -> {
+            AuthBUS.Event event = authBUS.pollEvent();
+            if (event != null) onAuthEvent(event);
+        });
+
+        responseTimer.start();
+
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosed(WindowEvent e) {
@@ -153,17 +162,17 @@ public class AuthGUI extends JFrame {
         formContainer.setOpaque(false);
 
         JPanel titleWrapper = createTitleHeader("Chào mừng trở lại");
-        JLabel lblSubtitle = createLabel("Đăng nhập để tiếp tục vào hệ thống Bếp Nhà", "Inter", Font.PLAIN, 22, Color.GRAY, Component.LEFT_ALIGNMENT);
+        JLabel lblSubtitle = createLabel("Đăng nhập để tiếp tục vào hệ thống nhà hàng An Nhiên", "Inter", Font.PLAIN, 22, GRAY, Component.LEFT_ALIGNMENT);
 
-        txtLoginEmail = new CTextField("name@bepnha.vn", 470, 50);
+        txtLoginEmail = new CTextField("name@bepnha.vn", 600, 50);
         txtLoginEmail.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        txtLoginPassword = new CPasswordField("••••••••", 470, 50);
+        txtLoginPassword = new CPasswordField("••••••••", 600, 50);
         txtLoginPassword.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         JPanel pnlOptions = new JPanel(new BorderLayout());
         pnlOptions.setBackground(Color.WHITE);
-        pnlOptions.setMaximumSize(new Dimension(470, 50));
+        pnlOptions.setMaximumSize(new Dimension(600, 50));
         pnlOptions.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         JLabel lblForgot = createLabel("Quên mật khẩu?", "Be Vietnam Pro Black", Font.BOLD, 14, BRAND_ORANGE, Component.LEFT_ALIGNMENT);
@@ -179,7 +188,7 @@ public class AuthGUI extends JFrame {
 
         pnlOptions.add(lblForgot, BorderLayout.EAST);
 
-        btnLogin = new CButton("Đăng nhập", 470, 50);
+        btnLogin = new CButton("Đăng nhập", 600, 50);
         btnLogin.setAlignmentX(Component.LEFT_ALIGNMENT);
         btnLogin.addActionListener(e -> handleLogin());
 
@@ -189,11 +198,11 @@ public class AuthGUI extends JFrame {
         formContainer.add(Box.createVerticalStrut(26));
         formContainer.add(createSeparator());
         formContainer.add(Box.createVerticalStrut(25));
-        formContainer.add(createFieldLabel("Email hoặc số điện thoại"));
+        formContainer.add(createLabel("Email hoặc số điện thoại", "Be Vietnam Pro Black", Font.BOLD, 15, Color.BLACK, Component.LEFT_ALIGNMENT));
         formContainer.add(Box.createVerticalStrut(8));
         formContainer.add(txtLoginEmail);
         formContainer.add(Box.createVerticalStrut(20));
-        formContainer.add(createFieldLabel("Mật khẩu"));
+        formContainer.add(createLabel("Mật khẩu", "Be Vietnam Pro Black", Font.BOLD, 15, Color.BLACK, Component.LEFT_ALIGNMENT));
         formContainer.add(Box.createVerticalStrut(8));
         formContainer.add(txtLoginPassword);
         formContainer.add(Box.createVerticalStrut(15));
@@ -220,48 +229,48 @@ public class AuthGUI extends JFrame {
         form.add(createTitleHeader("Quên mật khẩu?"));
         form.add(Box.createVerticalStrut(12));
         JLabel help = createLabel("Nhập email đã đăng ký để nhận mã OTP qua email.",
-                "Inter", Font.PLAIN, 15, Color.GRAY, Component.LEFT_ALIGNMENT);
+                "Inter", Font.PLAIN, 22, GRAY, Component.LEFT_ALIGNMENT);
         form.add(help);
         form.add(Box.createVerticalStrut(24));
 
-        form.add(createFieldLabel("Email đã đăng ký"));
+        form.add(createLabel("Email đã đăng ký", "Be Vietnam Pro Black", Font.BOLD, 15, Color.BLACK, Component.LEFT_ALIGNMENT));
         form.add(Box.createVerticalStrut(8));
-        txtForgotEmail = new CTextField("Email nhận mã", 470, 48);
+        txtForgotEmail = new CTextField("Email nhận mã", 600, 48);
         txtForgotEmail.setAlignmentX(Component.LEFT_ALIGNMENT);
         form.add(txtForgotEmail);
         form.add(Box.createVerticalStrut(12));
 
-        btnSendResetCode = new CButton("Gửi mã xác minh", 470, 48);
+        btnSendResetCode = new CButton("Gửi mã xác minh", 600, 48);
         btnSendResetCode.setAlignmentX(Component.LEFT_ALIGNMENT);
         btnSendResetCode.addActionListener(e -> requestResetCode());
         form.add(btnSendResetCode);
         form.add(Box.createVerticalStrut(18));
 
-        form.add(createFieldLabel("Mã OTP (6 chữ số)"));
+        form.add(createLabel("Mã OTP 6 chữ số", "Be Vietnam Pro Black", Font.BOLD, 15, Color.BLACK, Component.LEFT_ALIGNMENT));
         form.add(Box.createVerticalStrut(8));
-        txtForgotOtp = new CTextField("Nhập mã 6 chữ số", 470, 48);
+        txtForgotOtp = new CTextField("Nhập mã 6 chữ số", 600, 48);
         txtForgotOtp.setAlignmentX(Component.LEFT_ALIGNMENT);
         txtForgotOtp.setEnabled(false);
         form.add(txtForgotOtp);
         form.add(Box.createVerticalStrut(14));
 
-        form.add(createFieldLabel("Mật khẩu mới (8–72 ký tự)"));
+        form.add(createLabel("Mật khẩu mới", "Be Vietnam Pro Black", Font.BOLD, 15, Color.BLACK, Component.LEFT_ALIGNMENT));
         form.add(Box.createVerticalStrut(8));
-        txtForgotNewPassword = new CPasswordField("Mật khẩu mới", 470, 48);
+        txtForgotNewPassword = new CPasswordField("Mật khẩu mới", 600, 48);
         txtForgotNewPassword.setAlignmentX(Component.LEFT_ALIGNMENT);
         txtForgotNewPassword.setEnabled(false);
         form.add(txtForgotNewPassword);
         form.add(Box.createVerticalStrut(14));
 
-        form.add(createFieldLabel("Xác nhận mật khẩu mới"));
+        form.add(createLabel("Xác nhận mật khẩu mới", "Be Vietnam Pro Black", Font.BOLD, 15, Color.BLACK, Component.LEFT_ALIGNMENT));
         form.add(Box.createVerticalStrut(8));
-        txtForgotConfirmPassword = new CPasswordField("Nhập lại mật khẩu", 470, 48);
+        txtForgotConfirmPassword = new CPasswordField("Nhập lại mật khẩu", 600, 48);
         txtForgotConfirmPassword.setAlignmentX(Component.LEFT_ALIGNMENT);
         txtForgotConfirmPassword.setEnabled(false);
         form.add(txtForgotConfirmPassword);
         form.add(Box.createVerticalStrut(22));
 
-        btnConfirmReset = new CButton("Đặt lại mật khẩu", 470, 48);
+        btnConfirmReset = new CButton("Đặt lại mật khẩu", 600, 48);
         btnConfirmReset.setAlignmentX(Component.LEFT_ALIGNMENT);
         btnConfirmReset.setEnabled(false);
         btnConfirmReset.addActionListener(e -> confirmResetPassword());
@@ -274,7 +283,7 @@ public class AuthGUI extends JFrame {
 
     private void requestResetCode() {
         String email = txtForgotEmail.getText().trim();
-        if (email.isEmpty() || !email.contains("@")) {
+        if (!email.contains("@")) {
             CToast.warning(this, "Vui lòng nhập địa chỉ email hợp lệ.");
             return;
         }
@@ -384,7 +393,6 @@ public class AuthGUI extends JFrame {
     private void openRoleScreen(UserDTO user) {
         String role = user.getRoleName().toUpperCase(Locale.ROOT);
         SocketClient session = authBUS.getSocketClient();
-        // Dung Timer cua man hinh cu, de man hinh moi doc queue ma khong bi tranh packet.
         responseTimer.stop();
         JFrame next;
         switch (role) {
@@ -427,10 +435,6 @@ public class AuthGUI extends JFrame {
         return wrapper;
     }
 
-    private JLabel createFieldLabel(String text) {
-        return createLabel(text, "Be Vietnam Pro Black", Font.BOLD, 15, Color.BLACK, Component.LEFT_ALIGNMENT);
-    }
-
     private JLabel createLabel(String text, String fontName, int style, int size, Color color, float alignmentX) {
         JLabel label = new JLabel(text);
         label.setFont(Utils.getCustomFont(fontName, style, size));
@@ -451,7 +455,7 @@ public class AuthGUI extends JFrame {
         panel.setBackground(Color.WHITE);
         panel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JLabel lblPrompt = createLabel(promptText, "Be Vietnam Pro Black", Font.PLAIN, 14, Color.GRAY, Component.LEFT_ALIGNMENT);
+        JLabel lblPrompt = createLabel(promptText, "Be Vietnam Pro Black", Font.PLAIN, 14, GRAY, Component.LEFT_ALIGNMENT);
         JLabel lblLink = createLabel(linkText, "Be Vietnam Pro Black", Font.BOLD, 14, BRAND_ORANGE, Component.LEFT_ALIGNMENT);
         lblLink.setCursor(new Cursor(Cursor.HAND_CURSOR));
         lblLink.addMouseListener(new MouseAdapter() {
@@ -464,19 +468,6 @@ public class AuthGUI extends JFrame {
         panel.add(lblPrompt);
         panel.add(lblLink);
         return panel;
-    }
-
-    private void startResponseTimer() {
-        responseTimer = new Timer(100, e -> {
-            AuthBUS.Event event = authBUS.pollEvent();
-            if (event != null) onAuthEvent(event);
-        });
-
-        responseTimer.start();
-    }
-
-    public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> new AuthGUI().setVisible(true));
     }
 
     private void loadPasswordIconsViaSocket() {

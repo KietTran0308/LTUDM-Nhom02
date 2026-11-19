@@ -2,7 +2,8 @@ package api;
 
 public final class ServerConfig {
 
-    private static final String DEFAULT_HOST = "103.211.207.183";
+    //103.211.207.183
+    private static final String DEFAULT_HOST = "localhost";
     private static final int DEFAULT_PORT = 8888;
     public static final String SERVER_RSA_SHA256 = "C61F903F299F92F9506940F632D40AD3255C31345970FAF0389D45010B25A604";
 

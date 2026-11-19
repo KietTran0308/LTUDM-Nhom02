@@ -463,8 +463,8 @@ public class AdminGUI extends JFrame {
         page.add(kpis, BorderLayout.NORTH);
 
         txtFoodSearch = createSearchField("Tìm theo tên món hoặc SKU...", 300);
-        cboFoodCat = createFilterCombo("Tất cả danh mục");
-        cboFoodStatus = createFilterCombo("Tất cả trạng thái", "Đang mở bán", "Tạm ngưng");
+        cboFoodCat = createFilterCombo("Danh mục", "Tất cả danh mục");
+        cboFoodStatus = createFilterCombo("Trạng thái", "Tất cả trạng thái", "Đang mở bán", "Tạm ngưng");
         onTextChange(txtFoodSearch, () -> applyFoodFilter(true));
         cboFoodCat.addActionListener(e -> {
             if (!adjusting) applyFoodFilter(true);
@@ -486,9 +486,10 @@ public class AdminGUI extends JFrame {
             if (row < 0 || row >= pageFoods.size()) return;
             FoodDTO f = pageFoods.get(row);
             if (idx == 0) openFoodDialog(f);
+            else if (idx == 1) toggleFoodStatus(f);
             else confirmDeleteFood(f);
         });
-        setColumnWidths(foodTable, 70, 110, 260, 170, 150, 150, 130);
+        setColumnWidths(foodTable, 70, 110, 220, 150, 140, 140, 250);
 
         foodPaging = new Paging<>(8, this::renderFoodPage);
         page.add(createTableCard(createToolbar(
@@ -524,19 +525,43 @@ public class AdminGUI extends JFrame {
 
     private void applyFoodFilter(boolean resetPage) {
         String q = txtFoodSearch.getText().trim().toLowerCase();
+
         String cat = (String) cboFoodCat.getSelectedItem();
         String st = (String) cboFoodStatus.getSelectedItem();
+
         List<FoodDTO> res = new ArrayList<>();
+
         for (FoodDTO f : allFoods) {
-            String catN = f.getCategoryName() != null ? f.getCategoryName() : "Chưa phân loại";
+            String catN = f.getCategoryName() != null
+                    ? f.getCategoryName()
+                    : "Chưa phân loại";
+
+            // Lọc theo tên món hoặc SKU
             if (!q.isEmpty()
                     && !String.valueOf(f.getName()).toLowerCase().contains(q)
-                    && !String.valueOf(f.getSku()).toLowerCase().contains(q)) continue;
-            if (cat != null && !cat.startsWith("Tất cả") && !cat.equals(catN)) continue;
-            if ("Đang mở bán".equals(st) && !isOpen(f)) continue;
-            if ("Tạm ngưng".equals(st) && isOpen(f)) continue;
+                    && !String.valueOf(f.getSku()).toLowerCase().contains(q)) {
+                continue;
+            }
+
+            // Chỉ lọc danh mục khi người dùng chọn danh mục cụ thể
+            if (cat != null
+                    && !cat.startsWith("Tất cả")
+                    && !cat.equals(catN)) {
+                continue;
+            }
+
+            // Chỉ lọc trạng thái khi người dùng chọn trạng thái cụ thể
+            if ("Đang mở bán".equals(st) && !isOpen(f)) {
+                continue;
+            }
+
+            if ("Tạm ngưng".equals(st) && isOpen(f)) {
+                continue;
+            }
+
             res.add(f);
         }
+
         foodPaging.setAll(res, resetPage);
         renderFoodPage();
     }
@@ -550,7 +575,7 @@ public class AdminGUI extends JFrame {
                     f.getCategoryName() != null ? f.getCategoryName() : "Chưa phân loại",
                     MONEY_FMT.format(f.getPrice()),
                     isOpen(f) ? "Đang mở bán" : "Tạm ngưng",
-                    "Sửa|Xóa"
+                    isOpen(f) ? "Sửa|Tạm ngưng|Xóa" : "Sửa|Mở bán|Xóa"
             });
         }
         foodPaging.refreshBar();
@@ -632,6 +657,27 @@ public class AdminGUI extends JFrame {
                 }
             }
         }.execute();
+    }
+
+    /** Đổi nhanh trạng thái bán: đang mở bán <-> tạm ngưng. */
+    private void toggleFoodStatus(FoodDTO f) {
+        boolean pause = isOpen(f);
+        String msg = pause
+                ? "Tạm ngưng bán món '" + f.getName() + "'?\nMón sẽ không hiển thị trên Tablet của khách."
+                : "Mở bán lại món '" + f.getName() + "'?\nMón sẽ hiển thị trên Tablet của khách.";
+        if (!confirmAction(pause ? "Xác nhận tạm ngưng" : "Xác nhận mở bán", msg)) return;
+        performUpdate(pause ? "Tạm ngưng món" : "Mở bán món", () -> {
+            Long catId = null;
+            if (f.getCategoryName() != null) {
+                for (CategoryDTO c : adminBUS.getAllCategories()) {
+                    if (String.valueOf(c).equals(f.getCategoryName())) {
+                        catId = c.getId();
+                        break;
+                    }
+                }
+            }
+            return adminBUS.updateFood(f.getId(), f.getName(), f.getPrice(), catId, !pause);
+        }, this::loadFoods);
     }
 
     private void confirmDeleteFood(FoodDTO f) {
@@ -1342,13 +1388,99 @@ public class AdminGUI extends JFrame {
         }
     }
 
+    /**
+     * Combo lọc: items[0] là nhãn hiển thị trong khung ("Danh mục", "Trạng thái"),
+     * các item còn lại là lựa chọn. Khung đóng hiển thị "Nhãn: giá trị".
+     * Nếu chỉ truyền 1 item (không có nhãn riêng) thì hiển thị như combo thường.
+     */
     private JComboBox<String> createFilterCombo(String... items) {
-        JComboBox<String> c = new JComboBox<>(items);
+        boolean hasPrefix = items.length > 1 && items[1].startsWith("Tất cả");
+        String prefix = hasPrefix ? items[0] : null;
+        String[] options = hasPrefix ? Arrays.copyOfRange(items, 1, items.length) : items;
+        JComboBox<String> c = new JComboBox<>(options);
         c.setFont(font(Font.PLAIN, 13));
         c.setBackground(Color.WHITE);
-        c.setPreferredSize(new Dimension(180, 40));
+        c.setPreferredSize(new Dimension(hasPrefix ? 210 : 180, 40));
         c.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        c.setOpaque(false);
+        c.setUI(new FilterComboUI());
+        c.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                          boolean sel, boolean focus) {
+                JLabel l = (JLabel) super.getListCellRendererComponent(list, value, index, sel, false);
+                l.setFont(font(Font.PLAIN, 13));
+                l.setBorder(new EmptyBorder(0, 14, 0, 10));
+                l.setPreferredSize(new Dimension(l.getPreferredSize().width, 34));
+                if (index < 0) {
+                    // Khung đang đóng
+                    String v = String.valueOf(value);
+                    boolean isAll = c.getSelectedIndex() <= 0;
+                    if (prefix != null) {
+                        l.setText(prefix + ":  " + (isAll ? "Tất cả" : v));
+                    }
+                    l.setForeground(isAll ? Utils.TEXT_MUTED : Utils.TEXT_DARK);
+                    l.setOpaque(false);
+                } else {
+                    l.setOpaque(true);
+                    l.setBackground(sel ? SELECT_BG : Color.WHITE);
+                    l.setForeground(Utils.TEXT_DARK);
+                }
+                return l;
+            }
+        });
         return c;
+    }
+
+    /** Giao diện combo lọc: nền trắng bo góc, viền mảnh, mũi tên chevron. */
+    private static class FilterComboUI extends javax.swing.plaf.basic.BasicComboBoxUI {
+        @Override
+        protected JButton createArrowButton() {
+            JButton b = new JButton() {
+                @Override
+                protected void paintComponent(Graphics g) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(Utils.TEXT_MUTED);
+                    g2.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    int cx = getWidth() / 2, cy = getHeight() / 2;
+                    g2.drawLine(cx - 4, cy - 2, cx, cy + 2);
+                    g2.drawLine(cx, cy + 2, cx + 4, cy - 2);
+                    g2.dispose();
+                }
+            };
+            b.setBorder(BorderFactory.createEmptyBorder());
+            b.setContentAreaFilled(false);
+            b.setFocusPainted(false);
+            b.setOpaque(false);
+            b.setPreferredSize(new Dimension(30, 30));
+            return b;
+        }
+
+        @Override
+        public void paint(Graphics g, JComponent c) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            boolean hot = comboBox.isPopupVisible() || comboBox.hasFocus();
+            g2.setColor(Color.WHITE);
+            g2.fillRoundRect(0, 0, c.getWidth() - 1, c.getHeight() - 1, 12, 12);
+            g2.setColor(hot ? Utils.TERRACOTTA : new Color(214, 219, 214));
+            g2.drawRoundRect(0, 0, c.getWidth() - 1, c.getHeight() - 1, 12, 12);
+            g2.dispose();
+            super.paint(g, c);
+        }
+
+        @Override
+        public void paintCurrentValueBackground(Graphics g, Rectangle bounds, boolean hasFocus) {
+            // nền đã được vẽ bo góc ở paint()
+        }
+
+        @Override
+        protected javax.swing.plaf.basic.ComboPopup createPopup() {
+            javax.swing.plaf.basic.BasicComboPopup p = new javax.swing.plaf.basic.BasicComboPopup(comboBox);
+            p.setBorder(new LineBorder(new Color(214, 219, 214), 1));
+            return p;
+        }
     }
 
     private void styleCombo(JComboBox<?> c) {
@@ -1391,14 +1523,23 @@ public class AdminGUI extends JFrame {
         if (Utils.TERRACOTTA.equals(bg) && Color.WHITE.equals(fg)) {
             return new CButton(text, w, h, font(Font.BOLD, 13));
         }
+        boolean neutral = NEUTRAL_BTN.equals(bg);
         JButton btn = new JButton(text) {
             @Override
             protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                Color c = !isEnabled() ? new Color(225, 228, 226) : getModel().isRollover() ? bg.brighter() : bg;
+                Color c;
+                if (!isEnabled()) c = new Color(232, 235, 233);
+                else if (getModel().isPressed()) c = neutral ? bg.darker() : bg.darker();
+                else if (getModel().isRollover()) c = neutral ? new Color(228, 232, 228) : bg.brighter();
+                else c = bg;
                 g2.setColor(c);
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
+                g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 12, 12);
+                if (neutral) {
+                    g2.setColor(new Color(214, 219, 214));
+                    g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 12, 12);
+                }
                 g2.dispose();
                 super.paintComponent(g);
             }
@@ -1671,7 +1812,7 @@ public class AdminGUI extends JFrame {
             case ST_LOCKED:
                 return new Color[]{new Color(252, 230, 230), Utils.DANGER_RED};
             case "Tạm ngưng":
-                return new Color[]{new Color(238, 240, 238), new Color(105, 116, 108)};
+                return new Color[]{new Color(252, 230, 230),Utils.DANGER_RED};
             case ROLE_STAFF:
                 return new Color[]{new Color(222, 232, 226), Utils.FOREST_BG};
             default:
@@ -1715,18 +1856,34 @@ public class AdminGUI extends JFrame {
     }
 
     private static final Font ACTION_FONT = font(Font.BOLD, 12);
-    private static final int ACTION_GAP = 18;
+    private static final int ACTION_GAP = 8;
     private static final int ACTION_PAD = 12;
+    private static final int ACTION_PAD_X = 12;   // đệm ngang trong mỗi nút
+    private static final int ACTION_H = 28;       // chiều cao mỗi nút
 
     private static Color actionColor(String label) {
-        if ("Xóa".equals(label) || "Khóa".equals(label)) return Utils.DANGER_RED;
-        if ("Mở khóa".equals(label)) return Utils.SAFE_GREEN;
-        return Utils.TERRACOTTA;
+        switch (label) {
+            case "Xóa":
+            case "Khóa":
+                return Utils.DANGER_RED;
+            case "Mở khóa":
+            case "Mở bán":
+                return Utils.SAFE_GREEN;
+            case "Tạm ngưng":
+                return new Color(176, 112, 40);
+            default:
+                return Utils.TERRACOTTA;
+        }
+    }
+
+    private static Color withAlpha(Color c, int a) {
+        return new Color(c.getRed(), c.getGreen(), c.getBlue(), a);
     }
 
     private class ActionRenderer extends JPanel implements TableCellRenderer {
         private String labels = "";
         private Color cellBg = Color.WHITE;
+        private int hoverIdx = -1;
 
         ActionRenderer() {
             setOpaque(false);
@@ -1737,6 +1894,8 @@ public class AdminGUI extends JFrame {
                                                        boolean selected, boolean focused, int row, int column) {
             labels = value == null ? "" : value.toString();
             cellBg = rowBackground(table, selected, row);
+            Object h = table.getClientProperty("hoverAction");
+            hoverIdx = (h instanceof int[] && ((int[]) h)[0] == row && ((int[]) h)[1] == column) ? ((int[]) h)[2] : -1;
             return this;
         }
 
@@ -1744,22 +1903,45 @@ public class AdminGUI extends JFrame {
         protected void paintComponent(Graphics graphics) {
             Graphics2D g = (Graphics2D) graphics.create();
             try {
-                g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
-                        RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
                 g.setColor(cellBg);
                 g.fillRect(0, 0, getWidth(), getHeight());
                 g.setFont(ACTION_FONT);
                 FontMetrics fm = g.getFontMetrics();
                 int x = ACTION_PAD;
-                for (String label : labels.split("\\|")) {
-                    g.setColor(actionColor(label));
-                    g.drawString(label, x, (getHeight() + fm.getAscent() - fm.getDescent()) / 2);
-                    x += fm.stringWidth(label) + ACTION_GAP;
+                int y = (getHeight() - ACTION_H) / 2;
+                String[] parts = labels.split("\\|");
+                for (int i = 0; i < parts.length; i++) {
+                    String label = parts[i];
+                    Color col = actionColor(label);
+                    int w = fm.stringWidth(label) + ACTION_PAD_X * 2;
+                    boolean hot = i == hoverIdx;
+                    g.setColor(hot ? col : withAlpha(col, 28));
+                    g.fillRoundRect(x, y, w, ACTION_H, 10, 10);
+                    g.setColor(hot ? col : withAlpha(col, 90));
+                    g.drawRoundRect(x, y, w - 1, ACTION_H - 1, 10, 10);
+                    g.setColor(hot ? Color.WHITE : col);
+                    g.drawString(label, x + ACTION_PAD_X, y + (ACTION_H + fm.getAscent() - fm.getDescent()) / 2);
+                    x += w + ACTION_GAP;
                 }
             } finally {
                 g.dispose();
             }
         }
+    }
+
+    /** Trả về chỉ số nút tại điểm chuột trong ô thao tác, hoặc -1. */
+    private static int actionIndexAt(JTable table, int r, int c, int mouseX) {
+        String[] labels = String.valueOf(table.getValueAt(r, c)).split("\\|");
+        FontMetrics fm = table.getFontMetrics(ACTION_FONT);
+        int x = table.getCellRect(r, c, false).x + ACTION_PAD;
+        for (int i = 0; i < labels.length; i++) {
+            int w = fm.stringWidth(labels[i]) + ACTION_PAD_X * 2;
+            if (mouseX >= x && mouseX <= x + w) return i;
+            x += w + ACTION_GAP;
+        }
+        return -1;
     }
 
     private void installActionColumn(JTable table, int col, java.util.function.BiConsumer<Integer, Integer> handler) {
@@ -1770,24 +1952,32 @@ public class AdminGUI extends JFrame {
                 int r = table.rowAtPoint(e.getPoint());
                 int c = table.columnAtPoint(e.getPoint());
                 if (r < 0 || c < 0 || table.convertColumnIndexToModel(c) != col) return;
-                String[] labels = String.valueOf(table.getValueAt(r, c)).split("\\|");
-                FontMetrics fm = table.getFontMetrics(ACTION_FONT);
-                int x = table.getCellRect(r, c, false).x + ACTION_PAD;
-                for (int i = 0; i < labels.length; i++) {
-                    int w = fm.stringWidth(labels[i]);
-                    if (e.getX() >= x - 6 && e.getX() <= x + w + 6) {
-                        handler.accept(table.convertRowIndexToModel(r), i);
-                        return;
-                    }
-                    x += w + ACTION_GAP;
-                }
+                int idx = actionIndexAt(table, r, c, e.getX());
+                if (idx >= 0) handler.accept(table.convertRowIndexToModel(r), idx);
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                table.putClientProperty("hoverAction", null);
+                table.repaint();
             }
         });
         table.addMouseMotionListener(new MouseMotionAdapter() {
             @Override
             public void mouseMoved(MouseEvent e) {
-                table.setCursor(Cursor.getPredefinedCursor((table.columnAtPoint(e.getPoint()) >= 0 && table.convertColumnIndexToModel(table.columnAtPoint(e.getPoint())) == col)
-                        ? Cursor.HAND_CURSOR : Cursor.DEFAULT_CURSOR));
+                int r = table.rowAtPoint(e.getPoint());
+                int c = table.columnAtPoint(e.getPoint());
+                boolean inCol = r >= 0 && c >= 0 && table.convertColumnIndexToModel(c) == col;
+                int idx = inCol ? actionIndexAt(table, r, c, e.getX()) : -1;
+                table.setCursor(Cursor.getPredefinedCursor(idx >= 0 ? Cursor.HAND_CURSOR : Cursor.DEFAULT_CURSOR));
+                Object old = table.getClientProperty("hoverAction");
+                int[] now = idx >= 0 ? new int[]{r, c, idx} : null;
+                boolean same = (old == null && now == null)
+                        || (old instanceof int[] && now != null && java.util.Arrays.equals((int[]) old, now));
+                if (!same && (now != null || old != null)) {
+                    table.putClientProperty("hoverAction", now);
+                    table.repaint();
+                }
             }
         });
     }
@@ -2313,6 +2503,4 @@ public class AdminGUI extends JFrame {
         }.execute();
         return label;
     }
-
-
 }
