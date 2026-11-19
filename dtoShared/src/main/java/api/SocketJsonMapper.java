@@ -121,6 +121,10 @@ public class SocketJsonMapper {
                 }
                 break;
 
+            case ADMIN_GET_BILLS:
+                if (data instanceof JSONObject) root.put("data", data);
+                break;
+
             case ADMIN_DELETE_FOOD:
                 if (data instanceof Long) root.put("data", data);
                 break;
@@ -316,6 +320,7 @@ public class SocketJsonMapper {
                     break;
 
                 case ADMIN_GET_BILLS:
+                    extraData = root.optJSONObject("extraData");
                     if (root.has("data") && !root.isNull("data")) {
                         JSONArray arr = root.getJSONArray("data");
                         List<BillDTO> bills = new ArrayList<>();

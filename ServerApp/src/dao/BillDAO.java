@@ -10,6 +10,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -152,14 +153,79 @@ public class BillDAO {
         }
     }
 
+    public record TopFood(String name, long quantity) {}
+
+    public record ReportRows(List<BillDTO> bills, List<TopFood> topFoods) {}
+
+    public ReportRows getReportRows(LocalDate from, LocalDate to, PaymentMethod payment, String billNumber)
+            throws SQLException {
+        StringBuilder where = new StringBuilder(" WHERE 1=1");
+        List<String> params = new ArrayList<>();
+        if (from != null && to != null) {
+            where.append(" AND b.paid_at BETWEEN ? AND ?");
+            params.add(from + " 00:00:00");
+            params.add(to + " 23:59:59.999"); // paid_at có độ chính xác đến mili giây.
+        }
+        if (payment != null) {
+            where.append(" AND b.payment_method = ?");
+            params.add(payment.name());
+        }
+        if (!billNumber.isEmpty()) {
+            where.append(" AND LOCATE(?, CAST(b.id AS CHAR)) > 0");
+            params.add(billNumber);
+        }
+
+        String billSql = "SELECT b.* FROM bill b" + where + " ORDER BY b.created_at DESC";
+        String topSql = """
+                SELECT f.name, SUM(i.quantity) AS quantity
+                FROM bill b
+                JOIN orders o ON o.table_session_id = b.table_session_id AND o.status <> 'CANCELLED'
+                JOIN order_items i ON i.order_id = o.id AND i.status <> 'CANCELLED'
+                JOIN foods f ON f.id = i.foods_id
+                """ + where + """
+                 AND b.payment_status = 'PAID' AND b.paid_at IS NOT NULL
+                 GROUP BY f.id, f.name
+                 ORDER BY quantity DESC, f.id
+                 LIMIT 10
+                """;
+        try (Connection conn = dbConnection.getConnection()) {
+            // Hai truy vấn cùng nhìn một trạng thái CSDL khi POS đang chốt hóa đơn.
+            conn.setTransactionIsolation(Connection.TRANSACTION_REPEATABLE_READ);
+            conn.setReadOnly(true);
+            conn.setAutoCommit(false);
+            try (PreparedStatement bills = conn.prepareStatement(billSql);
+                 PreparedStatement top = conn.prepareStatement(topSql)) {
+                for (int i = 0; i < params.size(); i++) {
+                    bills.setString(i + 1, params.get(i));
+                    top.setString(i + 1, params.get(i));
+                }
+                List<BillDTO> billRows = readBills(bills);
+                List<TopFood> topFoods = new ArrayList<>();
+                try (ResultSet rows = top.executeQuery()) {
+                    while (rows.next()) {
+                        topFoods.add(new TopFood(rows.getString("name"), rows.getLong("quantity")));
+                    }
+                }
+                conn.commit();
+                return new ReportRows(billRows, topFoods);
+            }
+        }
+    }
+
     public List<BillDTO> getAllBills() {
-        List<BillDTO> list = new ArrayList<>();
         String sql = "SELECT * FROM bill ORDER BY created_at DESC";
-
         try (Connection conn = dbConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            return readBills(ps);
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return new ArrayList<>();
+        }
+    }
 
+    private List<BillDTO> readBills(PreparedStatement ps) throws SQLException {
+        List<BillDTO> list = new ArrayList<>();
+        try (ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
                 String pmStr = rs.getString("payment_method");
                 PaymentMethod pm = pmStr == null ? null : PaymentMethod.valueOf(pmStr);
@@ -180,8 +246,6 @@ public class BillDAO {
                         createdAt == null ? null : createdAt.toLocalDateTime()
                 ));
             }
-        } catch (SQLException e) {
-            e.printStackTrace();
         }
         return list;
     }

@@ -4,11 +4,16 @@ import dao.BillDAO;
 import dao.CategoryDAO;
 import dao.IngredientDAO;
 import dto.*;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.math.BigDecimal;
 import java.sql.SQLException;
 import java.text.Normalizer;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.List;
+import java.util.TreeMap;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -97,6 +102,52 @@ public class AdminBUS {
     // --- 3. NGHIỆP VỤ THỐNG KÊ DOANH THU (BẢNG BILL) ---
     public List<BillDTO> getAllBills() {
         return billDAO.getAllBills();
+    }
+
+    public record RevenueReport(List<BillDTO> bills, JSONObject summary) {}
+
+    public RevenueReport getRevenueReport(JSONObject filters) throws SQLException {
+        LocalDate from = null;
+        LocalDate to = null;
+        if (filters.has("from") || filters.has("to")) {
+            try {
+                from = LocalDate.parse(filters.optString("from"));
+                to = LocalDate.parse(filters.optString("to"));
+            } catch (DateTimeParseException ex) {
+                throw new IllegalArgumentException("Ngày thống kê phải có dạng yyyy-MM-dd");
+            }
+            if (from.isAfter(to) || from.getYear() < 1000 || to.getYear() > 9999) {
+                throw new IllegalArgumentException("Khoảng ngày thống kê không hợp lệ");
+            }
+        }
+
+        String method = filters.optString("paymentMethod");
+        PaymentMethod payment = method.isEmpty() ? null : PaymentMethod.valueOf(method);
+        BillDAO.ReportRows rows = billDAO.getReportRows(from, to, payment, filters.optString("billNumber"));
+        List<BillDTO> paidBills = rows.bills().stream()
+                .filter(bill -> bill.getPaymentStatus() == PaymentStatus.PAID && bill.getPaidAt() != null)
+                .toList();
+
+        TreeMap<LocalDate, BigDecimal> revenueByDay = new TreeMap<>();
+        for (BillDTO bill : paidBills) {
+            revenueByDay.merge(bill.getPaidAt().toLocalDate(), bill.getTotalAmount(), BigDecimal::add);
+        }
+        JSONArray days = new JSONArray();
+        revenueByDay.forEach((day, total) -> days.put(new JSONObject()
+                .put("day", day.toString()).put("total", total)));
+
+        JSONArray foods = new JSONArray();
+        for (BillDAO.TopFood food : rows.topFoods()) {
+            foods.put(new JSONObject().put("name", food.name()).put("quantity", food.quantity()));
+        }
+        JSONObject summary = new JSONObject()
+                .put("revenue", calculateTotalRevenue(paidBills))
+                .put("discount", calculateTotalDiscount(paidBills))
+                .put("tax", calculateTotalTax(paidBills))
+                .put("paidBillCount", paidBills.size())
+                .put("days", days)
+                .put("topFoods", foods);
+        return new RevenueReport(rows.bills(), summary);
     }
 
     public BigDecimal calculateTotalRevenue(List<BillDTO> bills) {

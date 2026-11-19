@@ -81,6 +81,10 @@ public class SocketJsonMapper {
                     data = jsonToBill(root.getJSONObject("data"));
                 break;
 
+            case ADMIN_GET_BILLS:
+                if (!root.isNull("data")) data = root.get("data");
+                break;
+
             case ADMIN_ADD_FOOD:
             case ADMIN_UPDATE_FOOD:
                 if (root.has("data") && !root.isNull("data"))
@@ -212,18 +216,19 @@ public class SocketJsonMapper {
                     break;
                 case ADMIN_GET_BILLS:
                     if (data instanceof List<?>) root.put("data", billListToJsonArray((List<BillDTO>) data));
+                    if (extraData instanceof JSONObject) root.put("extraData", extraData);
                     break;
                 case ADMIN_GET_ACCOUNTS:
-                if (data instanceof List) {
-                    JSONArray arr = new JSONArray();
-                    for (Object item : (List<?>) data) {
-                        if (item instanceof UserDTO) {
-                            arr.put(userToJson((UserDTO) item));
+                    if (data instanceof List) {
+                        JSONArray arr = new JSONArray();
+                        for (Object item : (List<?>) data) {
+                            if (item instanceof UserDTO) {
+                                arr.put(userToJson((UserDTO) item));
+                            }
                         }
+                        root.put("data", arr);
                     }
-                    root.put("data", arr);
-                }
-                break;
+                    break;
 
                 case VIEW_SESSION_BILL:
                 case GET_TABLE_BILL_PREVIEW:

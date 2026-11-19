@@ -14,6 +14,8 @@ import components.CTable;
 import components.CTextField;
 import components.CToggleButton;
 import dto.*;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import javax.swing.*;
 import javax.swing.border.*;
@@ -52,6 +54,7 @@ public class AdminGUI extends JFrame {
     private static final Color SELECT_BG = new Color(253, 237, 232);
     private static final Color NEUTRAL_BTN = new Color(238, 241, 238);
 
+    private static final DecimalFormat SALES_MONEY_FMT = new DecimalFormat("#,##0.## 'VNĐ'");
     private static final DecimalFormat MONEY_FMT = new DecimalFormat("#,### VNĐ");
     private static final DecimalFormat QTY_FMT = new DecimalFormat("#,##0.00");
     private static final DecimalFormat INT_FMT = new DecimalFormat("#,###");
@@ -116,8 +119,9 @@ public class AdminGUI extends JFrame {
     private Color bannerBorder = Utils.SAFE_GREEN;
 
     // Trang 3: Doanh thu
-    private List<BillDTO> allBills = new ArrayList<>();
-    private DefaultTableModel billModel;
+    private DefaultTableModel billModel, topFoodsModel;
+    private JButton btnFilterRevenue;
+    private JLabel lblRevenueStatus;
     private JTextField txtBillSearch;
     private JComboBox<String> cboBillTime, cboBillPay;
     private JLabel kpiRevenue, kpiBills, kpiDiscount, kpiTax;
@@ -427,7 +431,7 @@ public class AdminGUI extends JFrame {
                 break;
             case PAGE_REVENUE:
                 lblPageTitle.setText("Thống kê doanh thu");
-                lblPageSubtitle.setText("Doanh thu thực thu, giảm giá, VAT và lịch sử hóa đơn.");
+                lblPageSubtitle.setText("Doanh thu theo ngày, món bán chạy và lịch sử hóa đơn.");
                 loadRevenue();
                 break;
             case PAGE_ACCOUNTS:
@@ -861,7 +865,7 @@ public class AdminGUI extends JFrame {
         kpiTax = kpiLabel("0 VNĐ");
         JPanel kpis = kpiRow(4);
         kpis.add(createKpiCard("THỰC THU", kpiRevenue, Utils.TERRACOTTA, NavIcon.COIN));
-        kpis.add(createKpiCard("SỐ HÓA ĐƠN", kpiBills, Utils.FOREST_BG, NavIcon.RECEIPT));
+        kpis.add(createKpiCard("HÓA ĐƠN ĐÃ THU", kpiBills, Utils.FOREST_BG, NavIcon.RECEIPT));
         kpis.add(createKpiCard("GIẢM GIÁ", kpiDiscount, Utils.GOLD_ACCENT, NavIcon.PERCENT));
         kpis.add(createKpiCard("VAT", kpiTax, Utils.SAFE_GREEN, NavIcon.CHART));
 
@@ -877,6 +881,7 @@ public class AdminGUI extends JFrame {
         chartHead.setOpaque(false);
         JLabel chartTitle = new JLabel("Doanh thu theo ngày");
         chartTitle.setFont(font(Font.BOLD, 16));
+        chartTitle.setToolTipText("Biểu đồ hiển thị tối đa 30 ngày gần nhất có trong kết quả");
         chartTitle.setForeground(Utils.TEXT_DARK);
         chartHead.add(chartTitle, BorderLayout.WEST);
         chartHead.add(flow(FlowLayout.RIGHT, segLine, segBar), BorderLayout.EAST);
@@ -884,87 +889,110 @@ public class AdminGUI extends JFrame {
         chartCard.setLayout(new BorderLayout(0, 8));
         chartCard.add(chartHead, BorderLayout.NORTH);
         chartCard.add(revenueChart, BorderLayout.CENTER);
-        chartCard.setPreferredSize(new Dimension(0, 270));
+        topFoodsModel = readOnlyModel("Món", "Số phần");
+        CTable topTable = createStyledTable(topFoodsModel, 26);
+        setColumnWidths(topTable.getTable(), 280, 72);
+        JLabel topTitle = new JLabel("Top 10 món bán chạy");
+        topTitle.setFont(font(Font.BOLD, 16));
+        lblRevenueStatus = new JLabel(" ");
+        lblRevenueStatus.setForeground(Utils.TEXT_MUTED);
+
+        JPanel charts = new JPanel(new GridLayout(1, 2, 16, 0));
+        charts.setOpaque(false);
+        charts.add(chartCard);
+        charts.add(createTableCard(topTitle, topTable, lblRevenueStatus));
+        charts.setPreferredSize(new Dimension(0, 245));
+        charts.setMaximumSize(new Dimension(Integer.MAX_VALUE, 245));
 
         JPanel north = new JPanel();
         north.setLayout(new BoxLayout(north, BoxLayout.Y_AXIS));
         north.setOpaque(false);
         kpis.setAlignmentX(Component.LEFT_ALIGNMENT);
-        chartCard.setAlignmentX(Component.LEFT_ALIGNMENT);
-        chartCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 270));
+        charts.setAlignmentX(Component.LEFT_ALIGNMENT);
         north.add(kpis);
         north.add(Box.createVerticalStrut(18));
-        north.add(chartCard);
+        north.add(charts);
         page.add(north, BorderLayout.NORTH);
 
         txtBillSearch = createSearchField("Tìm theo mã hóa đơn...", 260);
         cboBillTime = createFilterCombo("Tất cả thời gian", "Hôm nay", "7 ngày qua", "30 ngày qua");
         cboBillPay = createFilterCombo("Tất cả thanh toán");
-        onTextChange(txtBillSearch, () -> applyRevenueFilter(true));
-        cboBillTime.addActionListener(e -> {
-            if (!adjusting) applyRevenueFilter(true);
-        });
-        cboBillPay.addActionListener(e -> {
-            if (!adjusting) applyRevenueFilter(true);
-        });
+        for (PaymentMethod payment : PaymentMethod.values()) cboBillPay.addItem(payment.name());
+        btnFilterRevenue = createRoundedButton("Lọc", Utils.FOREST_BG, Color.WHITE, 84, 40);
+        btnFilterRevenue.addActionListener(e -> loadRevenue());
+        txtBillSearch.addActionListener(e -> loadRevenue());
 
-        billModel = readOnlyModel("Mã HĐ", "Phiên bàn", "Giảm giá", "VAT", "Tổng thanh toán", "Thanh toán", "Thời gian");
+        billModel = readOnlyModel("Mã HĐ", "Phiên bàn", "Giảm giá", "VAT", "Tổng thanh toán",
+                "Thanh toán", "Trạng thái", "Thời gian");
         CTable billTableComponent = createStyledTable(billModel, 40);
         JTable billTable = billTableComponent.getTable();
         billTable.getColumnModel().getColumn(4).setCellRenderer(new RowRenderer(true));
         billTable.getColumnModel().getColumn(5).setCellRenderer(new BadgeRenderer());
-        setColumnWidths(billTable, 100, 110, 140, 130, 180, 140, 190);
+        setColumnWidths(billTable, 80, 90, 100, 100, 155, 125, 100, 160);
 
         billPaging = new Paging<>(6, this::renderBillPage);
         page.add(createTableCard(createToolbar(flow(FlowLayout.LEFT, txtBillSearch, cboBillTime, cboBillPay),
-                flow(FlowLayout.RIGHT)), billTableComponent, billPaging.bar), BorderLayout.CENTER);
+                flow(FlowLayout.RIGHT, btnFilterRevenue)), billTableComponent, billPaging.bar), BorderLayout.CENTER);
         return page;
     }
 
     private void loadRevenue() {
-        new PageLoadWorker<List<BillDTO>>() {
+        if (!btnFilterRevenue.isEnabled()) return;
+        LocalDate today = LocalDate.now();
+        LocalDate from = switch (cboBillTime.getSelectedIndex()) {
+            case 1 -> today;
+            case 2 -> today.minusDays(6);
+            case 3 -> today.minusDays(29);
+            default -> null;
+        };
+        LocalDate to = from == null ? null : today;
+        String billNumber = txtBillSearch.getText().replace("#", "").trim();
+        String payment = cboBillPay.getSelectedIndex() > 0 ? (String) cboBillPay.getSelectedItem() : "";
+
+        setRevenueFiltersEnabled(false);
+        lblRevenueStatus.setText("Đang tải thống kê…");
+        new SwingWorker<AdminBUS.RevenueReport, Void>() {
             @Override
-            protected List<BillDTO> doInBackground() {
-                return adminBUS.getAllBills();
+            protected AdminBUS.RevenueReport doInBackground() {
+                return adminBUS.getRevenueReport(from, to, billNumber, payment);
             }
 
             @Override
-            protected void onLoaded(List<BillDTO> result) {
-                allBills = copyOrEmpty(result);
-                updateComboItems(cboBillPay, "Tất cả thanh toán",
-                        allBills.stream()
-                                .map(b -> b.getPaymentMethod() != null ? b.getPaymentMethod().name() : "---")
-                                .distinct().sorted().toList());
-                applyRevenueFilter(false);
+            protected void done() {
+                setRevenueFiltersEnabled(true);
+                if (!isDisplayable()) return;
+                try {
+                    renderRevenue(get());
+                } catch (Exception ex) {
+                    lblRevenueStatus.setText("Không tải được. Bảng đang hiển thị kết quả lần trước.");
+                    showNetworkError(ex);
+                }
             }
         }.execute();
     }
 
-    private void applyRevenueFilter(boolean resetPage) {
-        String q = txtBillSearch.getText().trim().replace("#", "").toLowerCase();
-        String timeSel = (String) cboBillTime.getSelectedItem();
-        String paySel = (String) cboBillPay.getSelectedItem();
-        LocalDate today = LocalDate.now();
-        LocalDate from = null;
-        if ("Hôm nay".equals(timeSel)) from = today;
-        else if ("7 ngày qua".equals(timeSel)) from = today.minusDays(6);
-        else if ("30 ngày qua".equals(timeSel)) from = today.minusDays(29);
+    private void setRevenueFiltersEnabled(boolean enabled) {
+        btnFilterRevenue.setEnabled(enabled);
+        txtBillSearch.setEnabled(enabled);
+        cboBillTime.setEnabled(enabled);
+        cboBillPay.setEnabled(enabled);
+    }
 
-        List<BillDTO> res = new ArrayList<>();
-        for (BillDTO b : allBills) {
-            String pName = b.getPaymentMethod() != null ? b.getPaymentMethod().name() : "---";
-            if (!q.isEmpty() && !String.valueOf(b.getId()).toLowerCase().contains(q)) continue;
-            if (from != null && (b.getPaidAt() == null || b.getPaidAt().toLocalDate().isBefore(from))) continue;
-            if (paySel != null && !paySel.startsWith("Tất cả") && !paySel.equals(pName)) continue;
-            res.add(b);
+    private void renderRevenue(AdminBUS.RevenueReport report) {
+        JSONObject summary = report.summary();
+        kpiRevenue.setText(SALES_MONEY_FMT.format(summary.getBigDecimal("revenue")));
+        kpiBills.setText(INT_FMT.format(summary.getInt("paidBillCount")));
+        kpiDiscount.setText(SALES_MONEY_FMT.format(summary.getBigDecimal("discount")));
+        kpiTax.setText(SALES_MONEY_FMT.format(summary.getBigDecimal("tax")));
+        updateChart(summary.getJSONArray("days"));
+
+        topFoodsModel.setRowCount(0);
+        for (Object value : summary.getJSONArray("topFoods")) {
+            JSONObject food = (JSONObject) value;
+            topFoodsModel.addRow(new Object[]{food.getString("name"), INT_FMT.format(food.getLong("quantity"))});
         }
-        kpiRevenue.setText(MONEY_FMT.format(adminBUS.calculateTotalRevenue(res)));
-        kpiBills.setText(INT_FMT.format(res.size()));
-        kpiDiscount.setText(MONEY_FMT.format(adminBUS.calculateTotalDiscount(res)));
-        kpiTax.setText(MONEY_FMT.format(adminBUS.calculateTotalTax(res)));
-        updateChart(res);
-
-        billPaging.setAll(res, resetPage);
+        lblRevenueStatus.setText(topFoodsModel.getRowCount() == 0 ? "Không có món đã bán trong kỳ" : " ");
+        billPaging.setAll(report.bills(), true);
         renderBillPage();
     }
 
@@ -974,30 +1002,36 @@ public class AdminGUI extends JFrame {
         for (BillDTO b : currentPage) {
             billModel.addRow(new Object[]{
                     "#" + b.getId(), "Phiên #" + b.getTableSessionId(),
-                    MONEY_FMT.format(b.getDiscount()), MONEY_FMT.format(b.getTax()),
-                    MONEY_FMT.format(b.getTotalAmount()),
+                    SALES_MONEY_FMT.format(b.getDiscount()), SALES_MONEY_FMT.format(b.getTax()),
+                    SALES_MONEY_FMT.format(b.getTotalAmount()),
                     b.getPaymentMethod() != null ? b.getPaymentMethod().name() : "---",
+                    switch (b.getPaymentStatus()) {
+                        case PAID -> "Đã thu";
+                        case UNPAID -> "Chưa thu";
+                        case CANCELLED -> "Đã hủy";
+                        case null -> "---";
+                    },
                     b.getPaidAt() != null ? b.getPaidAt().format(TIME_FMT) : "---"
             });
         }
         billPaging.refreshBar();
     }
 
-    private void updateChart(List<BillDTO> bills) {
-        TreeMap<LocalDate, Double> perDay = new TreeMap<>();
-        for (BillDTO b : bills) {
-            if (b.getPaidAt() == null) continue;
-            perDay.merge(b.getPaidAt().toLocalDate(), b.getTotalAmount() instanceof Number ? ((Number) b.getTotalAmount()).doubleValue() : 0, Double::sum);
+    private void updateChart(JSONArray dailyRevenue) {
+        TreeMap<LocalDate, BigDecimal> perDay = new TreeMap<>();
+        for (Object value : dailyRevenue) {
+            JSONObject day = (JSONObject) value;
+            perDay.put(LocalDate.parse(day.getString("day")), day.getBigDecimal("total"));
         }
         List<LocalDate> days = new ArrayList<>();
-        List<Double> values = new ArrayList<>();
+        List<BigDecimal> values = new ArrayList<>();
         if (!perDay.isEmpty()) {
             LocalDate last = perDay.lastKey();
             LocalDate first = perDay.firstKey();
             if (first.isBefore(last.minusDays(29))) first = last.minusDays(29);
             for (LocalDate d = first; !d.isAfter(last); d = d.plusDays(1)) {
                 days.add(d);
-                values.add(perDay.getOrDefault(d, 0.0));
+                values.add(perDay.getOrDefault(d, BigDecimal.ZERO));
             }
         }
         revenueChart.setData(days, values);
@@ -1822,7 +1856,7 @@ public class AdminGUI extends JFrame {
     // BIỂU ĐỒ DOANH THU
     private class RevenueChart extends JPanel {
         private List<LocalDate> days = new ArrayList<>();
-        private List<Double> values = new ArrayList<>();
+        private List<BigDecimal> values = new ArrayList<>();
         private boolean line = true;
         private int hover = -1;
 
@@ -1847,7 +1881,7 @@ public class AdminGUI extends JFrame {
             });
         }
 
-        void setData(List<LocalDate> d, List<Double> v) {
+        void setData(List<LocalDate> d, List<BigDecimal> v) {
             days = d;
             values = v;
             hover = -1;
@@ -1897,7 +1931,7 @@ public class AdminGUI extends JFrame {
             g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
             Rectangle p = plot();
             double max = 0;
-            for (double v : values) max = Math.max(max, v);
+            for (BigDecimal v : values) max = Math.max(max, v.doubleValue());
             double top = niceCeil(max <= 0 ? 1 : max);
             g2.setFont(font(Font.PLAIN, 11));
             FontMetrics fm = g2.getFontMetrics();
@@ -1924,7 +1958,7 @@ public class AdminGUI extends JFrame {
             int[] xs = new int[n], ys = new int[n];
             for (int i = 0; i < n; i++) {
                 xs[i] = (int) (p.x + step * (i + 0.5));
-                ys[i] = base - (int) (p.height * values.get(i) / top);
+                ys[i] = base - (int) (p.height * values.get(i).doubleValue() / top);
             }
 
             if (line) {
@@ -1965,7 +1999,7 @@ public class AdminGUI extends JFrame {
             }
 
             if (hover >= 0 && hover < n) {
-                String t1 = days.get(hover).format(DAY_FULL_FMT), t2 = MONEY_FMT.format(values.get(hover));
+                String t1 = days.get(hover).format(DAY_FULL_FMT), t2 = SALES_MONEY_FMT.format(values.get(hover));
                 g2.setFont(font(Font.BOLD, 12));
                 FontMetrics fb = g2.getFontMetrics();
                 int w = Math.max(fb.stringWidth(t1), fb.stringWidth(t2)) + 22, h = 46;

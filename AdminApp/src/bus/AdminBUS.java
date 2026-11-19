@@ -2,7 +2,9 @@ package bus;
 
 import api.SocketClient;
 import dto.*;
+import org.json.JSONObject;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 
 public final class AdminBUS {
@@ -78,19 +80,19 @@ public final class AdminBUS {
         return (List<BillDTO>) request(SocketAction.ADMIN_GET_BILLS, null).getData();
     }
 
-    public BigDecimal calculateTotalRevenue(List<BillDTO> bills) {
-        return bills.stream().map(BillDTO::getTotalAmount).filter(java.util.Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-    }
+    public record RevenueReport(List<BillDTO> bills, JSONObject summary) {}
 
-    public BigDecimal calculateTotalDiscount(List<BillDTO> bills) {
-        return bills.stream().map(BillDTO::getDiscount).filter(java.util.Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-    }
-
-    public BigDecimal calculateTotalTax(List<BillDTO> bills) {
-        return bills.stream().map(BillDTO::getTax).filter(java.util.Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    @SuppressWarnings("unchecked")
+    public RevenueReport getRevenueReport(LocalDate from, LocalDate to, String billNumber, String paymentMethod) {
+        JSONObject filters = new JSONObject().put("billNumber", billNumber).put("paymentMethod", paymentMethod);
+        if (from != null && to != null) {
+            filters.put("from", from.toString()).put("to", to.toString());
+        }
+        SocketPacket packet = request(SocketAction.ADMIN_GET_BILLS, filters);
+        if (!(packet.getExtraData() instanceof JSONObject summary)) {
+            throw new IllegalStateException("Server chưa trả dữ liệu thống kê");
+        }
+        return new RevenueReport((List<BillDTO>) packet.getData(), summary);
     }
 
     // ==========================================================

@@ -3,6 +3,7 @@ package api;
 import bus.*;
 import dao.*;
 import dto.*;
+import org.json.JSONObject;
 
 import java.io.*;
 import java.net.Socket;
@@ -519,7 +520,15 @@ public class ClientHandler implements Runnable {
                 }
                 case ADMIN_GET_BILLS: {
                     requireWorkstationRole("ADMIN");
-                    sendPacket(ok(req.getAction(), "Danh sách hóa đơn", new AdminBUS().getAllBills(), null));
+                    AdminBUS admin = new AdminBUS();
+                    if (req.getData() == null) {
+                        sendPacket(ok(req.getAction(), "Danh sách hóa đơn", admin.getAllBills(), null));
+                    } else if (req.getData() instanceof JSONObject filters) {
+                        AdminBUS.RevenueReport report = admin.getRevenueReport(filters);
+                        sendPacket(ok(req.getAction(), "Thống kê doanh thu", report.bills(), report.summary()));
+                    } else {
+                        throw new IllegalArgumentException("Bộ lọc thống kê không hợp lệ");
+                    }
                     break;
                 }
                 case ADMIN_GET_ACCOUNTS: {
