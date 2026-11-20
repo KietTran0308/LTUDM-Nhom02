@@ -2,16 +2,13 @@ package bus;
 
 import dao.*;
 import dto.*;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
+
 import java.sql.SQLException;
-import java.time.format.DateTimeFormatter;
-import java.time.LocalDateTime;
 import java.util.List;
 
-public class ServerOrderBUS {
+public class OrderBUS {
+
     private final OrderDAO orderDAO = new OrderDAO();
-    private final VoucherDAO voucherDAO = new VoucherDAO();
 
     public OrderDTO processIncomingTableOrder(OrderDTO order, String voucherCode) throws Exception {
         if (order == null || order.getItems() == null || order.getItems().isEmpty()) {

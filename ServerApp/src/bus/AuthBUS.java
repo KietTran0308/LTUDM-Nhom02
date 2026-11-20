@@ -8,6 +8,7 @@ import utils.PasswordUtil;
 import java.sql.SQLException;
 
 public class AuthBUS {
+
     private final UserDAO userDAO = new UserDAO();
 
     private static final PasswordReset RESET_SERVICE = new PasswordReset();
@@ -34,7 +35,7 @@ public class AuthBUS {
     }
 
     public UserDTO register(UserDTO reqUser) throws Exception {
-        // Các kết nối cùng dùng một khóa để hai yêu cầu không thể cùng vượt qua bước kiểm tra trùng.
+
         synchronized (REGISTER_LOCK) {
             if (userDAO.existsByEmail(reqUser.getEmail())) {
                 throw new IllegalArgumentException("Email đã được sử dụng.");
@@ -45,6 +46,21 @@ public class AuthBUS {
             }
             reqUser.setPasswordHash(PasswordUtil.encode(reqUser.getPasswordHash()));
             UserDTO created = userDAO.registerUser(reqUser);
+            if (created == null) throw new IllegalStateException("Không thể tạo tài khoản.");
+            created.setPasswordHash(null);
+            return created;
+        }
+    }
+
+    public UserDTO registerWithRole(UserDTO reqUser, String roleName) throws Exception {
+        synchronized (REGISTER_LOCK) {
+            if (userDAO.existsByEmail(reqUser.getEmail()))
+                throw new IllegalArgumentException("Email đã được sử dụng.");
+            String phone = reqUser.getPhone();
+            if (phone != null && !phone.isBlank() && isPhoneRegistered(phone.trim()))
+                throw new IllegalArgumentException("Số điện thoại đã được sử dụng.");
+            reqUser.setPasswordHash(PasswordUtil.encode(reqUser.getPasswordHash()));
+            UserDTO created = userDAO.registerUserWithRole(reqUser, roleName);
             if (created == null) throw new IllegalStateException("Không thể tạo tài khoản.");
             created.setPasswordHash(null);
             return created;

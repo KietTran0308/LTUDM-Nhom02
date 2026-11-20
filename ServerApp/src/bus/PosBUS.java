@@ -11,7 +11,7 @@ import api.SocketServer;
 public final class PosBUS {
     private final UserDTO operator;
     private final OrderDAO orderDAO = new OrderDAO();
-    private final ServerOrderBUS orderBUS = new ServerOrderBUS();
+    private final OrderBUS orderBUS = new OrderBUS();
 
     public PosBUS(UserDTO operator) {
         if (operator == null || operator.getId() == null

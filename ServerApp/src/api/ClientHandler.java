@@ -26,7 +26,7 @@ public class ClientHandler implements Runnable {
 
     private final FoodDAO foodDAO = new FoodDAO();
     private final CategoryDAO categoryDAO = new CategoryDAO();
-    private final ServerOrderBUS serverOrderBUS = new ServerOrderBUS();
+    private final OrderBUS orderBUS = new OrderBUS();
     private final AuthBUS authBUS = new AuthBUS();
     private UserDTO authenticatedUser;
     private boolean customerMode;
@@ -174,6 +174,12 @@ public class ClientHandler implements Runnable {
 
 
                 SocketPacket request = SocketJsonMapper.fromJsonString(rawJson);
+                if (request.getAction() == SocketAction.ADMIN_LOCK_ACCOUNT) {
+                    System.out.println("===== LOCK ACCOUNT DEBUG =====");
+                    System.out.println("JSON nhận được: " + rawJson);
+                    System.out.println("Data: " + request.getData());
+                    System.out.println("ExtraData: " + request.getExtraData());
+                }
 
                 System.out.println("[Server] Nhận action: " + request.getAction()
                         + " | peer=" + socket.getRemoteSocketAddress());
@@ -271,10 +277,10 @@ public class ClientHandler implements Runnable {
                     }
 
                     // Gọi xuống ServerOrderBUS để kiểm tra đơn gốc parent_order_id, tính tiền, lưu DB & trừ kho
-                    OrderDTO savedOrder = serverOrderBUS.processIncomingTableOrder(incomingOrder, voucherCode);
+                    OrderDTO savedOrder = orderBUS.processIncomingTableOrder(incomingOrder, voucherCode);
 
                     // Lấy lại toàn bộ danh sách món đang theo dõi của bàn này trả về cho Tablet
-                    List<OrderItemDTO> updatedTrackingList = serverOrderBUS.getTableTrackingItems(targetTableId);
+                    List<OrderItemDTO> updatedTrackingList = orderBUS.getTableTrackingItems(targetTableId);
 
                     sendPacket(new SocketPacket(
                             req.getAction(), true,
@@ -288,7 +294,7 @@ public class ClientHandler implements Runnable {
 
                 case GET_TABLE_TRACKING: {
                     requireCurrentTable(req.getTableId());
-                    List<OrderItemDTO> trackedItems = serverOrderBUS.getTableTrackingItems(req.getTableId());
+                    List<OrderItemDTO> trackedItems = orderBUS.getTableTrackingItems(req.getTableId());
                     sendPacket(new SocketPacket(
                             SocketAction.GET_TABLE_TRACKING, true,
                             "Đồng bộ trạng thái đơn thành công", trackedItems, null
@@ -298,7 +304,7 @@ public class ClientHandler implements Runnable {
 
                 case VIEW_SESSION_BILL: {
                     requireCurrentTable(req.getTableId());
-                    OrderDTO preview = serverOrderBUS.getTableBillPreview(currentTableId);
+                    OrderDTO preview = orderBUS.getTableBillPreview(currentTableId);
                     if (preview != null && !pairedSessionId.equals(preview.getTableSessionId())) {
                         throw new SecurityException("Hoa don khong thuoc phien hien tai");
                     }
@@ -548,7 +554,8 @@ public class ClientHandler implements Runnable {
                             updAcc.getId(),
                             updAcc.getFullName(),
                             updAcc.getPhone(),
-                            updAcc.getEmail()
+                            updAcc.getEmail(),
+                            updAcc.getRoleName()
                     );
 
                     if (!success) throw new IllegalStateException("Cập nhật thông tin thất bại");
@@ -561,7 +568,13 @@ public class ClientHandler implements Runnable {
                     Long accId = (Long) req.getData(); // Lấy ID tài khoản dạng Long
                     if (accId == null || accId <= 0) throw new IllegalArgumentException("ID tài khoản không hợp lệ");
 
-                    boolean success = new AdminBUS().lockAccount(accId);
+                    // Client gửi trạng thái đích trong extraData: "LOCK" hoặc "UNLOCK"
+                    String mode = req.getExtraData() == null ? "" : String.valueOf(req.getExtraData());
+                    boolean active;
+                    if ("UNLOCK".equalsIgnoreCase(mode)) active = true;
+                    else if ("LOCK".equalsIgnoreCase(mode)) active = false;
+                    else throw new IllegalArgumentException("Thiếu trạng thái khóa/mở khóa");
+                    boolean success = new AdminBUS().setAccountActive(accId, authenticatedUser.getId(), active);
                     if (!success) throw new IllegalStateException("Thao tác khóa/mở khóa thất bại");
 
                     sendPacket(ok(req.getAction(), "Đã thay đổi trạng thái tài khoản", null, null));

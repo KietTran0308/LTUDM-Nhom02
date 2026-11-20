@@ -213,7 +213,7 @@ public class CustomerGUI extends JFrame {
                 CToast.success(this, event.message);
                 break;
             case ORDER_COMPLETED:
-                lblKitchenNotice.setText("🔔 Một đơn đã hoàn tất chế biến — nhân viên sẽ mang món ra bàn.");
+                lblKitchenNotice.setText("Một đơn đã hoàn tất chế biến — nhân viên sẽ mang món ra bàn.");
                 lblKitchenNotice.setVisible(true);
                 CToast.success(this, event.message);
                 tabletBUS.requestTableTracking();

@@ -244,13 +244,51 @@ public class UserDAO {
     }
 
     /**
+     * Admin cấp tài khoản với vai trò chỉ định (STAFF / KITCHEN / CUSTOMER).
+     * roleID được tra theo tên trong bảng roles.
+     */
+    public UserDTO registerUserWithRole(UserDTO newUser, String roleName) throws SQLException {
+        Long roleId = findRoleIdByName(roleName);
+        if (roleId == null) {
+            throw new SQLException("Không tìm thấy role " + roleName + " trong bảng roles");
+        }
+
+        String sql = "INSERT INTO users " +
+                "(roleID, email, password_hash, full_name, phone, is_active) " +
+                "VALUES (?, ?, ?, ?, ?, TRUE)";
+
+        try (
+                Connection conn = dbConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)
+        ) {
+            ps.setLong(1, roleId);
+            ps.setString(2, newUser.getEmail().trim());
+            ps.setString(3, newUser.getPasswordHash().trim());
+            ps.setString(4, newUser.getFullName().trim());
+            ps.setString(5, newUser.getPhone().trim());
+            ps.executeUpdate();
+
+            try (ResultSet rsKey = ps.getGeneratedKeys()) {
+                if (rsKey.next()) {
+                    newUser.setId(rsKey.getLong(1));
+                    newUser.setRoleID(roleId);
+                    newUser.setRoleName(roleName);
+                    newUser.setIsActive(true);
+                    return newUser;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
      * Lấy danh sách tất cả người dùng.
      */
     public List<UserDTO> findAll() throws SQLException {
         List<UserDTO> userList = new ArrayList<>();
-
-        String sql = "SELECT u.*, r.nameRole FROM users u " +
-                "JOIN roles r ON u.roleID = r.roleID";
+        String sql = "SELECT u.*, r.nameRole FROM users u "
+                + "JOIN roles r ON u.roleID = r.roleID "
+                + "ORDER BY u.id ASC";
 
         try (
                 Connection conn = dbConnection.getConnection();
@@ -317,9 +355,9 @@ public class UserDAO {
      * Cập nhật thông tin người dùng.
      */
     public boolean update(UserDTO user) throws SQLException {
-        String sql = "UPDATE users SET " +
-                "full_name = ?, phone = ?, email = ? " +
-                "WHERE id = ?";
+        String sql = "UPDATE users SET "
+                + "full_name = ?, phone = ?, email = ?, roleID = ? "
+                + "WHERE id = ?";
 
         try (
                 Connection conn = dbConnection.getConnection();
@@ -328,7 +366,8 @@ public class UserDAO {
             ps.setString(1, user.getFullName().trim());
             ps.setString(2, user.getPhone().trim());
             ps.setString(3, user.getEmail().trim());
-            ps.setLong(4, user.getId());
+            ps.setLong(4, user.getRoleID());
+            ps.setLong(5, user.getId());
 
             return ps.executeUpdate() > 0;
         }
@@ -346,6 +385,17 @@ public class UserDAO {
         ) {
             ps.setLong(1, userId);
 
+            return ps.executeUpdate() > 0;
+        }
+    }
+
+    /** Đặt trạng thái khóa/mở khóa theo giá trị đích (không đảo ngược). */
+    public boolean setActive(long accountId, boolean active) throws SQLException {
+        String sql = "UPDATE users SET is_active = ? WHERE id = ?";
+        try (Connection conn = dbConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setBoolean(1, active);
+            ps.setLong(2, accountId);
             return ps.executeUpdate() > 0;
         }
     }

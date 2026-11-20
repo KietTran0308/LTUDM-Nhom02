@@ -7,7 +7,9 @@ import api.SocketClient;
 import bus.KitchenBUS;
 import components.*;
 import dto.*;
+import utils.Utils;
 
+import javax.sound.sampled.*;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
@@ -34,6 +36,7 @@ public class KitchenGUI extends JFrame {
     private final CToggleButton waiting = new CToggleButton("Chờ nhận / đã nhận", 255, true);
     private final CToggleButton cooking = new CToggleButton("Đang chế biến", 220, false);
     private final CToggleButton ready = new CToggleButton("Chờ phục vụ", 220, false);
+    private final CToggleButton allTab = new CToggleButton("Tổng", 160, false);
     private final JLabel queueSummary = new JLabel("Chưa có món trong hàng đợi");
 
     private static final int QUEUE_POLL_MS = 100;
@@ -43,6 +46,11 @@ public class KitchenGUI extends JFrame {
     private int stage;
     private javax.swing.Timer responseTimer;
     private javax.swing.Timer autoRefreshTimer;
+
+    private final JLabel lblClock = new JLabel("", SwingConstants.RIGHT);
+    private static final DateTimeFormatter CLOCK_FORMAT =
+            DateTimeFormatter.ofPattern("HH:mm:ss  |  dd/MM/yyyy");
+    private javax.swing.Timer clockTimer;
 
     public KitchenGUI(UserDTO user, SocketClient authenticatedSocket) {
         if (user == null || user.getRoleName() == null ||
@@ -71,6 +79,16 @@ public class KitchenGUI extends JFrame {
         headerRight.setOpaque(false);
         CButton logout = new CButton("Đăng xuất", 120, 42);
         logout.addActionListener(e -> logout());
+
+        lblClock.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 15));
+        lblClock.setForeground(Color.WHITE);
+        lblClock.setPreferredSize(new Dimension(220, 42));
+        lblClock.setBorder(new EmptyBorder(0, 0, 0, 6));
+        updateClock();
+        clockTimer = new javax.swing.Timer(1000, e -> updateClock());
+        clockTimer.start();
+
+        headerRight.add(lblClock);
         headerRight.add(logout);
         // Tai logo tu ServerApp qua TCP/IMG/2 tren luong nen, khong doc getResource cua ClientApp.
         JPanel brand = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
@@ -119,32 +137,45 @@ public class KitchenGUI extends JFrame {
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         JPanel middle = new JPanel(new BorderLayout(0, 8));
         middle.setBorder(new EmptyBorder(8, 22, 4, 22));
-        // CToggleButton hiển thị tab, vẫn dùng ButtonGroup; không cần JTabbedPane / CardLayout.
+
         JPanel queueHeader = new JPanel(new BorderLayout(0, 10));
         queueHeader.setOpaque(false);
         JPanel filters = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         filters.setBackground(Color.WHITE);
         filters.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(227, 232, 228)));
 
+        JPanel leftTabs = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        leftTabs.setOpaque(false);
+
+        JPanel rightTotal = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        rightTotal.setOpaque(false);
+
         ButtonGroup group = new ButtonGroup();
-        CToggleButton[] tabs = {waiting, cooking, ready};
+        CToggleButton[] tabs = {waiting, cooking, ready, allTab};
         for (int i = 0; i < tabs.length; i++) {
             final int selectedStage = i;
             CToggleButton tab = tabs[i];
             group.add(tab);
-            filters.add(tab);
             tab.addActionListener(e -> {
                 stage = selectedStage;
                 renderQueue(kitchenBUS.getQueue());
             });
+            if (i < 3) {
+                leftTabs.add(tab);
+            } else {
+                rightTotal.add(tab);
+            }
         }
+        filters.add(leftTabs, BorderLayout.WEST);
+        filters.add(rightTotal, BorderLayout.EAST);
+
         queueSummary.setFont(new Font("SansSerif", Font.PLAIN, 13));
         queueSummary.setBorder(new EmptyBorder(1, 5, 2, 0));
         queueSummary.setBackground(new Color(255, 255, 255));
         queueHeader.add(filters, BorderLayout.CENTER);
         queueHeader.add(queueSummary, BorderLayout.SOUTH);
         middle.add(queueHeader, BorderLayout.NORTH);
-        // CTable da co JScrollPane va thanh cuon rieng, khong boc ScrollPane lan nua.
+
         middle.add(kitchenTable, BorderLayout.CENTER);
         history.setEditable(false);
         history.setRows(5);
@@ -238,6 +269,10 @@ public class KitchenGUI extends JFrame {
                 log("Đã cập nhật trạng thái món #" + event.itemId);
                 updateAction();
                 break;
+            case NEW_ORDER_ALERT:
+                renderQueue(kitchenBUS.getQueue());
+                playNewOrderSound();
+                break;
             case ERROR:
                 pendingUpdates.clear();
                 updateAction();
@@ -255,14 +290,23 @@ public class KitchenGUI extends JFrame {
         visibleItems.clear();
         int selectedRow = -1;
         int[] counts = new int[3];
+        int totalCount = 0;
         for (OrderDTO o : orders) {
             if (o.getItems() == null) continue;
             for (OrderItemDTO item : o.getItems()) {
                 OrderStatus value = item.getStatus();
-                if (value == null || value == OrderStatus.SERVED || value == OrderStatus.CANCELLED) continue;
-                int itemStage = value == OrderStatus.COOKING ? 1 : value == OrderStatus.COMPLETED ? 2 : 0;
-                counts[itemStage]++;
-                if (itemStage != stage) continue;
+                if (value == null || value == OrderStatus.CANCELLED) continue;
+
+                totalCount++;
+
+                int itemStage = -1;
+                if (value != OrderStatus.SERVED) {
+                    itemStage = value == OrderStatus.COOKING ? 1 : value == OrderStatus.COMPLETED ? 2 : 0;
+                    counts[itemStage]++;
+                }
+
+                if (stage != 3 && (value == OrderStatus.SERVED || itemStage != stage)) continue;
+
                 visibleItems.put(item.getId(), item);
                 if (Objects.equals(item.getId(), chosen)) selectedRow = model.getRowCount();
                 String tableName = o.getTableName() == null || o.getTableName().isBlank()
@@ -277,6 +321,7 @@ public class KitchenGUI extends JFrame {
         waiting.setText("Chờ nhận / đã nhận (" + counts[0] + ")");
         cooking.setText("Đang chế biến (" + counts[1] + ")");
         ready.setText("Chờ phục vụ (" + counts[2] + ")");
+        allTab.setText("Tổng (" + totalCount + ")");
         queueSummary.setText(model.getRowCount() == 0 ? "Không có món trong nhóm này."
                 : model.getRowCount() + " dòng món — ưu tiên lượt gọi trước; đọc kỹ ghi chú chế biến.");
         if (selectedRow >= 0) table.setRowSelectionInterval(selectedRow, selectedRow);
@@ -292,10 +337,18 @@ public class KitchenGUI extends JFrame {
     private void logout() {
         if (responseTimer != null) responseTimer.stop();
         if (autoRefreshTimer != null) autoRefreshTimer.stop();
+        if (clockTimer != null) clockTimer.stop();
         kitchenBUS.logout();
         dispose();
         new AuthGUI().setVisible(true);
     }
+
+    @Override
+    public void dispose() {
+        if (clockTimer != null) clockTimer.stop();
+        super.dispose();
+    }
+
     /** Load logo via TCP IMG/2, khong doc file local va khong block Swing EDT. */
     private JLabel createSocketLogo(String imageKey, int size) {
         JLabel label = new JLabel("AN", SwingConstants.CENTER);
@@ -337,5 +390,57 @@ public class KitchenGUI extends JFrame {
         return label;
     }
 
+    private void playNewOrderSound() {
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() {
+                try {
+                    AudioFormat format = new AudioFormat(44100f, 16, 1, true, false);
+                    byte[] tone1 = generateTone(880.0, 0.14, format);
+                    byte[] pause = new byte[(int) (0.05 * format.getSampleRate() * format.getFrameSize())];
+                    byte[] tone2 = generateTone(1174.66, 0.22, format);
+
+                    byte[] combined = new byte[tone1.length + pause.length + tone2.length];
+                    System.arraycopy(tone1, 0, combined, 0, tone1.length);
+                    System.arraycopy(pause, 0, combined, tone1.length, pause.length);
+                    System.arraycopy(tone2, 0, combined, tone1.length + pause.length, tone2.length);
+
+                    AudioInputStream ais = new AudioInputStream(
+                            new java.io.ByteArrayInputStream(combined),
+                            format,
+                            combined.length / format.getFrameSize());
+                    Clip clip = AudioSystem.getClip();
+                    clip.open(ais);
+                    clip.addLineListener(ev -> {
+                        if (ev.getType() == LineEvent.Type.STOP) {
+                            clip.close();
+                        }
+                    });
+                    clip.start();
+                } catch (Exception ex) {
+                    Toolkit.getDefaultToolkit().beep();
+                }
+                return null;
+            }
+
+            private byte[] generateTone(double freqHz, double durationSec, AudioFormat format) {
+                int samples = (int) (durationSec * format.getSampleRate());
+                byte[] buf = new byte[samples * 2];
+                for (int i = 0; i < samples; i++) {
+                    double angle = 2.0 * Math.PI * i * freqHz / format.getSampleRate();
+                    // Envelope mượt để tránh tiếng "bụp" đầu/cuối
+                    double env = Math.min(1.0, Math.min(i / 400.0, (samples - i) / 600.0));
+                    short sample = (short) (Math.sin(angle) * env * Short.MAX_VALUE * 0.45);
+                    buf[i * 2] = (byte) (sample & 0xff);
+                    buf[i * 2 + 1] = (byte) ((sample >> 8) & 0xff);
+                }
+                return buf;
+            }
+        }.execute();
+    }
+
+    private void updateClock() {
+        lblClock.setText(java.time.LocalDateTime.now().format(CLOCK_FORMAT));
+    }
 
 }

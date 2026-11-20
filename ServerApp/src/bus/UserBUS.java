@@ -92,4 +92,10 @@ public class UserBUS {
 
         return userDAO.toggleAccountActive(accountId);
     }
+    public boolean setAccountActive(long accountId, boolean active) throws SQLException {
+        if (accountId <= 0) {
+            throw new IllegalArgumentException("ID tài khoản không hợp lệ");
+        }
+        return userDAO.setActive(accountId, active);
+    }
 }

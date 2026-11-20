@@ -4,27 +4,21 @@ import java.io.Serializable;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-/**
- * Anh xa bang bill: moi table_session co toi da mot bill
- * (UNIQUE bill.table_session_id). KHONG co bill.order_id trong database.
- */
 public class BillDTO implements Serializable {
     private static final long serialVersionUID = 1L;
 
     private Long id;
-    private Long tableSessionId; // NOT NULL, FK -> table_sessions.id, UNIQUE
-    private BigDecimal totalAmount; // DECIMAL(14,2) NOT NULL
-    private BigDecimal discount; // DECIMAL(14,2), DEFAULT 0
-    private BigDecimal tax; // DECIMAL(14,2), DEFAULT 0
-    private PaymentMethod paymentMethod; // NULL khi chua thanh toan
-    private LocalDateTime paidAt; // NULL khi chua thanh toan
-    private PaymentStatus paymentStatus; // NOT NULL, DEFAULT UNPAID
-    private LocalDateTime createdAt; // NOT NULL, DEFAULT CURRENT_TIMESTAMP(3)
+    private Long tableSessionId;
+    private BigDecimal totalAmount;
+    private BigDecimal discount;
+    private BigDecimal tax;
+    private PaymentMethod paymentMethod;
+    private LocalDateTime paidAt;
+    private PaymentStatus paymentStatus;
+    private LocalDateTime createdAt;
 
     public BillDTO() {}
 
-    // Giữ constructor 7 tham số để hạn chế thay đổi code cũ.
-    // Quan trọng: tham số thứ hai là tableSessionId, KHÔNG PHẢI orderId.
     public BillDTO(Long id, Long tableSessionId, BigDecimal totalAmount,
                    BigDecimal discount, BigDecimal tax,
                    PaymentMethod paymentMethod, LocalDateTime paidAt) {

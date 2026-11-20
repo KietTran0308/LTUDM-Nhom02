@@ -110,9 +110,10 @@ public class SocketJsonMapper {
                 if (root.has("data") && !root.isNull("data")) {
                     data = root.getLong("data");
                 }
-                break;
 
-            default:
+                if (root.has("extraData") && !root.isNull("extraData")) {
+                    extraData = root.getString("extraData");
+                }
                 break;
         }
 

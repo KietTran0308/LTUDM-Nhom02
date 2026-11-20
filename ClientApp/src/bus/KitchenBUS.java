@@ -6,9 +6,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-/** Quan ly du lieu hang doi bep; GUI chi nhan Event va ve lai bang. */
 public class KitchenBUS {
-    public enum Type { QUEUE_UPDATED, ITEM_UPDATED, ERROR }
+    public enum Type { QUEUE_UPDATED, ITEM_UPDATED, NEW_ORDER_ALERT, ERROR }
 
     public static final class Event {
         public final Type type;
@@ -24,6 +23,8 @@ public class KitchenBUS {
 
     private final SocketClient socket;
     private List<OrderDTO> queue = new ArrayList<>();
+    private final java.util.Set<Long> knownPendingIds = new java.util.HashSet<>();
+    private boolean queueInitialized = false;
 
     public KitchenBUS(SocketClient authenticatedSocket) {
         socket = Objects.requireNonNull(authenticatedSocket, "Can Socket dang nhap");
@@ -62,7 +63,12 @@ public class KitchenBUS {
                 case GET_KITCHEN_QUEUE:
                     if (!(p.getData() instanceof List<?>))
                         return new Event(Type.ERROR, "Server tra ve hang doi bep khong hop le", null);
-                    queue = new ArrayList<>((List<OrderDTO>) p.getData());
+                    List<OrderDTO> updated = new ArrayList<>((List<OrderDTO>) p.getData());
+                    boolean hasNewPending = detectNewPendingItems(updated);
+                    queue = updated;
+                    if (hasNewPending) {
+                        return new Event(Type.NEW_ORDER_ALERT, "Có món mới vào bếp", null);
+                    }
                     return new Event(Type.QUEUE_UPDATED, p.getMessage(), null);
                 case UPDATE_ITEM_STATUS:
                     // ACK da xu ly. Lay lai snapshot tu Server de tranh du lieu cu.
@@ -80,6 +86,31 @@ public class KitchenBUS {
             }
         }
         return null;
+    }
+
+    private boolean detectNewPendingItems(List<OrderDTO> orders) {
+        java.util.Set<Long> currentPending = new java.util.HashSet<>();
+        for (OrderDTO o : orders) {
+            if (o.getItems() == null) continue;
+            for (OrderItemDTO item : o.getItems()) {
+                if (item.getId() != null && item.getStatus() == OrderStatus.PENDING) {
+                    currentPending.add(item.getId());
+                }
+            }
+        }
+        boolean foundNew = false;
+        if (queueInitialized) {
+            for (Long id : currentPending) {
+                if (!knownPendingIds.contains(id)) {
+                    foundNew = true;
+                    break;
+                }
+            }
+        }
+        knownPendingIds.clear();
+        knownPendingIds.addAll(currentPending);
+        queueInitialized = true;
+        return foundNew;
     }
 
     public List<OrderDTO> getQueue() { return new ArrayList<>(queue); }

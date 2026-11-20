@@ -171,38 +171,62 @@ public class AdminBUS {
     // --- 4. NGHIỆP VỤ QUẢN LÝ TÀI KHOẢN (HOÀN THIỆN) ---
 
     public List<UserDTO> getAllAccounts() throws SQLException {
-        return userBUS.getAllUsers();
+        List<UserDTO> users = userBUS.getAllUsers();
+        users.forEach(u -> u.setPasswordHash(null)); // không gửi mã băm mật khẩu về client
+        return users;
     }
 
     // Nghiệp vụ Thêm tài khoản mới (sử dụng AuthBUS)
     public boolean createNewAccount(String fullName, String phone, String email, Long roleId, String roleName) throws Exception {
+        // Kiểm tra dữ liệu ở Server, không chỉ dựa vào GUI
+        if (fullName == null || fullName.isBlank())
+            throw new IllegalArgumentException("Họ tên không được để trống");
+        if (phone == null || !phone.trim().matches("0\\d{9}"))
+            throw new IllegalArgumentException("Số điện thoại không hợp lệ (VD: 0901234567)");
+        if (email != null && !email.isBlank()
+                && !email.trim().matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"))
+            throw new IllegalArgumentException("Email không hợp lệ");
+        fullName = fullName.trim();
+        phone = phone.trim();
+
         UserDTO newUser = new UserDTO();
         newUser.setFullName(fullName);
         newUser.setPhone(phone);
-        // Nếu không có email, có thể tạo email giả định hoặc để trống tùy DB của bạn
-        newUser.setEmail(email != null && !email.isEmpty() ? email : phone + "@bepnha.com");
+
+        newUser.setEmail(email != null && !email.isBlank() ? email.trim() : phone + "@bepnha.com");
         newUser.setRoleName(roleName);
         newUser.setIsActive(true);
-
-        // Mật khẩu mặc định khi Admin cấp tài khoản (ví dụ: số điện thoại)
-        // AuthBUS.register sẽ tự động băm (hash) mật khẩu này
         newUser.setPasswordHash(phone);
 
-        // Gọi hàm register của AuthBUS để kiểm tra trùng lặp và lưu DB
-        authBUS.register(newUser);
+        authBUS.registerWithRole(newUser, roleName); // role do server tra theo tên, roleId từ client bị bỏ qua
         return true;
     }
 
     // Nghiệp vụ Cập nhật tài khoản
-    public boolean updateAccount(Long id, String fullName, String phone, String email) throws SQLException {
+
+    public boolean updateAccount(Long id, String fullName, String phone, String email, String roleName) throws SQLException {
         UserDTO user = userBUS.getUserById(id);
+
+        if (user == null) {
+            throw new IllegalArgumentException("Không tìm thấy tài khoản");
+        }
 
         user.setFullName(fullName);
         user.setPhone(phone);
-        user.setEmail(email != null && !email.isEmpty() ? email : user.getEmail());
+        user.setEmail(email != null && !email.isEmpty()
+                ? email : user.getEmail());
+
+        Long roleId = new dao.UserDAO().findRoleIdByName(roleName);
+
+        if (roleId == null) {
+            throw new IllegalArgumentException("Vai trò không tồn tại");
+        }
+
+        user.setRoleID(roleId);
 
         return userBUS.updateUser(user);
     }
+
 
     // Nghiệp vụ Khóa/Mở khóa tài khoản
     public boolean lockAccount(Long id) throws SQLException {
@@ -222,6 +246,29 @@ public class AdminBUS {
                 .replaceAll("\\s+", "-");
     }
 
+    /** Khóa (active=false) hoặc mở khóa (active=true) theo trạng thái đích do client yêu cầu. */
+    public boolean setAccountActive(
+            Long accountId, Long adminId, boolean active)
+            throws SQLException {
+
+        System.out.println("SERVER ADMINBUS:");
+        System.out.println("accountId = " + accountId);
+        System.out.println("adminId = " + adminId);
+        System.out.println("active = " + active);
+
+        if (accountId == null || accountId <= 0)
+            throw new IllegalArgumentException("ID không hợp lệ");
+
+        if (!active && accountId.equals(adminId))
+            throw new SecurityException(
+                    "Không thể tự khóa tài khoản đang đăng nhập");
+
+        boolean result = userBUS.setAccountActive(accountId, active);
+
+        System.out.println("Kết quả UserBUS = " + result);
+
+        return result;
+    }
     public boolean toggleAccountActive(
             Long accountId, Long adminId) throws SQLException {
 

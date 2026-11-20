@@ -119,6 +119,8 @@ public class AdminGUI extends JFrame {
     // Trang 4: Tài khoản
     private static final String ROLE_MEMBER = "Thành viên";
     private static final String ROLE_STAFF = "Nhân viên";
+    private static final String ROLE_KITCHEN = "Bếp";
+    private static final String ROLE_ADMIN = "Quản trị viên";
     private static final String ST_ACTIVE = "Đang hoạt động";
     private static final String ST_LOCKED = "Đã khóa";
 
@@ -879,12 +881,12 @@ public class AdminGUI extends JFrame {
         JPanel kpis = kpiRow(4);
         kpis.add(createKpiCard("TỔNG TÀI KHOẢN", kpiAccTotal, Utils.FOREST_BG, NavIcon.USER));
         kpis.add(createKpiCard("THÀNH VIÊN", kpiAccMember, Utils.GOLD_ACCENT, NavIcon.RECEIPT));
-        kpis.add(createKpiCard("NHÂN VIÊN", kpiAccStaff, Utils.SAFE_GREEN, NavIcon.USER));
+        kpis.add(createKpiCard("NHÂN VIÊN & BẾP", kpiAccStaff, Utils.SAFE_GREEN, NavIcon.USER));
         kpis.add(createKpiCard("ĐANG KHÓA", kpiAccLocked, Utils.DANGER_RED, NavIcon.LOCK));
         page.add(kpis, BorderLayout.NORTH);
 
         txtAccSearch = createSearchField("Tìm theo tên, SĐT...", 300);
-        cboAccRole = createFilterCombo("Tất cả vai trò", ROLE_MEMBER, ROLE_STAFF);
+        cboAccRole = createFilterCombo("Tất cả vai trò", ROLE_MEMBER, ROLE_STAFF, ROLE_KITCHEN);
         cboAccStatus = createFilterCombo("Tất cả trạng thái", ST_ACTIVE, ST_LOCKED);
         onTextChange(txtAccSearch, () -> applyAccountFilter(true));
         cboAccRole.addActionListener(e -> {
@@ -926,27 +928,33 @@ public class AdminGUI extends JFrame {
             @Override
             protected void onLoaded(List<UserDTO> result) {
                 allAccounts = copyOrEmpty(result);
+
+                allAccounts.removeIf(u ->
+                        "ADMIN".equalsIgnoreCase(u.getRoleName())
+                );
+
                 applyAccountFilter(false);
             }
         }.execute();
     }
 
-    private static boolean isMemberAccount(UserDTO account) {
-        String role = account.getRoleName();
-        return "CUSTOMER".equalsIgnoreCase(role)
-                || "MEMBER".equalsIgnoreCase(role)
-                || ROLE_MEMBER.equalsIgnoreCase(role);
-    }
-
+    /** Ánh xạ roleName trong DB sang nhãn hiển thị. */
     private static String accountRoleLabel(UserDTO account) {
-        return isMemberAccount(account) ? ROLE_MEMBER : ROLE_STAFF;
+        String role = account.getRoleName();
+        if (role == null) return ROLE_MEMBER;
+        role = role.trim().toUpperCase(Locale.ROOT);
+        if (role.equals("ADMIN")) return ROLE_ADMIN;
+        if (role.equals("STAFF")) return ROLE_STAFF;
+        if (role.equals("KITCHEN")) return ROLE_KITCHEN;
+        return ROLE_MEMBER; // CUSTOMER / MEMBER / các role khác
     }
 
     private void applyAccountFilter(boolean resetPage) {
         int members = 0, staff = 0, locked = 0;
         for (UserDTO u : allAccounts) {
-            if (isMemberAccount(u)) members++;
-            else staff++;
+            String label = accountRoleLabel(u);
+            if (ROLE_MEMBER.equals(label)) members++;
+            else if (ROLE_STAFF.equals(label) || ROLE_KITCHEN.equals(label)) staff++;
 
             if (Boolean.FALSE.equals(u.getIsActive())) locked++;
         }
@@ -998,13 +1006,14 @@ public class AdminGUI extends JFrame {
         JTextField phone = createStyledTextField(edit ? acc.getPhone() : "");
         JTextField email = createStyledTextField(edit && acc.getEmail() != null ? acc.getEmail() : "");
 
-        JComboBox<String> roleBox = new JComboBox<>(new String[]{ROLE_MEMBER, ROLE_STAFF});
+        JComboBox<String> roleBox = new JComboBox<>(new String[]{ROLE_MEMBER, ROLE_STAFF, ROLE_KITCHEN});
         styleCombo(roleBox);
 
         if (edit) {
             String rName = accountRoleLabel(acc);
+            if (ROLE_ADMIN.equals(rName)) roleBox.addItem(ROLE_ADMIN);
             roleBox.setSelectedItem(rName);
-            roleBox.setEnabled(false);
+            roleBox.setEnabled(true);
         }
 
         JPanel form = newFormPanel();
@@ -1023,15 +1032,21 @@ public class AdminGUI extends JFrame {
                     String roleStr = (String) roleBox.getSelectedItem();
 
                     if (n.isEmpty()) return "Vui lòng nhập họ tên.";
-                    if (!p.matches("(0|\\+84)\\d{9}")) return "Số điện thoại không hợp lệ (VD: 0901234567).";
+                    if (!p.matches("0\\d{9}")) return "Số điện thoại không hợp lệ (VD: 0901234567).";
 
-                    // Kiểm tra roleId theo bảng roles trong CSDL trước khi triển khai.
-                    Long rId = ROLE_STAFF.equals(roleStr) ? 2L : 3L;
-                    String rNameDB = ROLE_STAFF.equals(roleStr) ? "STAFF" : "CUSTOMER";
+                    // Server tự tra roleID theo tên role (UserDAO.findRoleIdByName),
+                    // nên chỉ cần gửi đúng roleName; rId bên dưới chỉ là giá trị giữ chỗ.
+                    Long rId = 0L;
+
+                    String rNameDB;
+
+                    if (ROLE_STAFF.equals(roleStr)) rNameDB = "STAFF";
+                    else if (ROLE_KITCHEN.equals(roleStr)) rNameDB = "KITCHEN";
+                    else rNameDB = "CUSTOMER";
 
                     performUpdate(edit ? "Cập nhật tài khoản" : "Cấp tài khoản", () -> {
                         if (edit) {
-                            return adminBUS.updateAccount(acc.getId(), n, p, e);
+                            return adminBUS.updateAccount(acc.getId(), n, p, e, rNameDB);
                         } else {
                             return adminBUS.createNewAccount(n, p, e, rId, rNameDB);
                         }
@@ -1042,15 +1057,33 @@ public class AdminGUI extends JFrame {
     }
 
     private void toggleLock(UserDTO u) {
-        boolean isLocked = Boolean.FALSE.equals(u.getIsActive());
-        String action = isLocked ? "mở khóa" : "khóa";
-        if (confirmAction("Xác nhận",
-                "Bạn có chắc muốn " + action + " tài khoản của " + u.getFullName() + "?")) {
-            performUpdate("Chuyển trạng thái tài khoản",
-                    () -> adminBUS.lockAccount(u.getId()), this::loadAccounts);
-        }
-    }
+        boolean isCurrentlyActive = Boolean.TRUE.equals(u.getIsActive());
 
+        String action = isCurrentlyActive ? "LOCK" : "UNLOCK";
+        String message = isCurrentlyActive
+                ? "Bạn có chắc muốn khóa tài khoản này?"
+                : "Bạn có chắc muốn mở khóa tài khoản này?";
+
+        int confirm = JOptionPane.showConfirmDialog(
+                this,
+                message,
+                "Xác nhận",
+                JOptionPane.YES_NO_OPTION
+        );
+
+        if (confirm != JOptionPane.YES_OPTION) {
+            return;
+        }
+
+        performUpdate(
+                isCurrentlyActive ? "Khóa tài khoản" : "Mở khóa tài khoản",
+                () -> adminBUS.setAccountActive(
+                        u.getId(),
+                        !isCurrentlyActive
+                ),
+                this::loadAccounts
+        );
+    }
     // THÀNH PHẦN DÙNG CHUNG: CARD, KPI, TOOLBAR, MODAL, FORM
     private JPanel createCard() {
         JPanel card = new JPanel() {
@@ -1599,6 +1632,10 @@ public class AdminGUI extends JFrame {
                 return new Color[]{new Color(252, 230, 230),Utils.DANGER_RED};
             case ROLE_STAFF:
                 return new Color[]{new Color(222, 232, 226), Utils.FOREST_BG};
+            case ROLE_KITCHEN:
+                return new Color[]{new Color(253, 237, 232), Utils.TERRACOTTA};
+            case ROLE_ADMIN:
+                return new Color[]{new Color(235, 230, 250), new Color(102, 51, 153)};
             default:
                 return new Color[]{new Color(250, 238, 224), new Color(150, 95, 40)};
         }

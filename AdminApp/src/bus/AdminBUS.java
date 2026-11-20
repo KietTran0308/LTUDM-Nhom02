@@ -114,12 +114,13 @@ public final class AdminBUS {
         return true;
     }
 
-    public boolean updateAccount(Long id, String fullName, String phone, String email) {
+    public boolean updateAccount(Long id, String fullName, String phone, String email, String roleName) {
         UserDTO u = new UserDTO();
         u.setId(id);
         u.setFullName(fullName);
         u.setPhone(phone);
         u.setEmail(email);
+        u.setRoleName(roleName);
         request(SocketAction.ADMIN_UPDATE_ACCOUNT, u);
         return true;
     }
@@ -168,8 +169,11 @@ public final class AdminBUS {
         return admin;
     }
 
-    public boolean lockAccount(Long id) {
-        request(SocketAction.ADMIN_LOCK_ACCOUNT, id);
+    /** Đặt trạng thái đích: active=true là mở khóa, active=false là khóa. */
+    public boolean setAccountActive(Long id, boolean active) {
+        socket.requestAndWait(
+                new SocketPacket(SocketAction.ADMIN_LOCK_ACCOUNT, null, id, active ? "UNLOCK" : "LOCK"),
+                7000);
         return true;
     }
 }
