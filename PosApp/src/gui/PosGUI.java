@@ -18,29 +18,35 @@ import javax.swing.border.LineBorder;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.JTableHeader;
 import java.awt.*;
-import java.awt.event.ComponentAdapter;
-import java.awt.event.ComponentEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.math.BigDecimal;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.ExecutionException;
 
 public final class PosGUI extends JFrame {
-    private static final Color FREE_COLOR = new Color(38, 77, 56);
-    private static final Color BUSY_COLOR = Utils.TERRACOTTA;
+    // Màu sơ đồ bàn lấy từ StaffGUI
+    private static final Color ACTIVE_COLOR = new Color(202, 227, 207);
+    private static final Color EMPTY_COLOR = new Color(244, 231, 224);
+    private static final Color SELECT_COLOR = new Color(35, 101, 66);
     private static final DecimalFormat MONEY = new DecimalFormat("#,##0.## 'VNĐ'",
             DecimalFormatSymbols.getInstance(Locale.forLanguageTag("vi-VN")));
 
     private final PosBUS pos;
     private final CardLayout workspaceLayout = new CardLayout();
     private final JPanel workspace = new JPanel(workspaceLayout);
-    private final GridLayout tableGridLayout = new GridLayout(0, 4, 16, 16);
-    private final JPanel tableGridPanel = new JPanel(tableGridLayout);
+    private final JPanel tableGridPanel = new JPanel(new GridLayout(0, 4, 14, 14));
+    private final JPanel floorList = new JPanel();
+    private final JLabel floorHeading = new JLabel("Đang tải các tầng...");
+    private List<TableDTO> tableSnapshot = new ArrayList<>();
+    private Integer selectedFloor;
     private final DefaultTableModel billItemsModel = new DefaultTableModel(
             new String[]{"Lượt gọi", "Tên món ăn", "Đơn giá", "Số lượng", "Thành tiền", "Trạng thái"}, 0) {
         @Override
@@ -58,7 +64,6 @@ public final class PosGUI extends JFrame {
     private final ButtonGroup paymentMethods = new ButtonGroup();
     private final CToggleButton cashButton = new CToggleButton("Tiền mặt", 100, false);
     private final CToggleButton bankButton = new CToggleButton("Chuyển khoản ngân hàng", 205, false);
-    private final CButton btnOpenSession = new CButton("Mở phiên bàn", 154, 42);
     private final CButton btnCreateCustomer = new CButton("Tạo tài khoản khách", 205, 42);
 
     private final CButton btnCheckout = new CButton("Xuất hóa đơn", 490, 52);
@@ -70,6 +75,10 @@ public final class PosGUI extends JFrame {
     private boolean refreshing;
     private boolean reviewing;
     private final Timer refreshTimer;
+    private final JLabel lblClock = new JLabel("", SwingConstants.RIGHT);
+    private static final java.time.format.DateTimeFormatter CLOCK_FORMAT =
+            java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss  |  dd/MM/yyyy");
+    private Timer clockTimer;
 
 
     public static void showPosLogin() {
@@ -171,6 +180,7 @@ public final class PosGUI extends JFrame {
             @Override
             public void windowClosed(WindowEvent e) {
                 refreshTimer.stop();
+                if (clockTimer != null) clockTimer.stop();
                 pos.close();
             }
         });
@@ -215,7 +225,6 @@ public final class PosGUI extends JFrame {
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 4));
         actions.setOpaque(false);
-        btnOpenSession.addActionListener(e -> openSelectedTable());
         btnCreateCustomer.addActionListener(e -> showCreateCustomerDialog());
         JButton btnLogout = new JButton("Đăng xuất");
         btnLogout.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 13));
@@ -226,13 +235,25 @@ public final class PosGUI extends JFrame {
         btnLogout.setBorder(new LineBorder(new Color(80, 95, 86), 1, true));
         btnLogout.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         btnLogout.addActionListener(e -> dispose());
-        actions.add(btnOpenSession);
+        // Đồng hồ: giờ:phút:giây | ngày/tháng/năm, đặt trước nút Tạo tài khoản khách và Đăng xuất.
+        lblClock.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 15));
+        lblClock.setForeground(Color.WHITE);
+        lblClock.setPreferredSize(new Dimension(220, 42));
+        lblClock.setBorder(new EmptyBorder(0, 0, 0, 6));
+        updateClock();
+        clockTimer = new Timer(1000, e -> updateClock());
+        clockTimer.start();
+        actions.add(lblClock);
         actions.add(btnCreateCustomer);
         actions.add(btnLogout);
 
         header.add(leftBrand, BorderLayout.WEST);
         header.add(actions, BorderLayout.EAST);
         add(header, BorderLayout.NORTH);
+    }
+
+    private void updateClock() {
+        lblClock.setText(java.time.LocalDateTime.now().format(CLOCK_FORMAT));
     }
 
     private void showCreateCustomerDialog() {
@@ -345,42 +366,114 @@ public final class PosGUI extends JFrame {
     }
 
     private JPanel createTableMap() {
-        JPanel card = createWhiteCard(20, 20, 20, 20);
-        card.setLayout(new BorderLayout(0, 15));
+        // Bố cục lấy từ StaffGUI: sidebar chọn tầng (trái) + lưới bàn của tầng (giữa)
+        JPanel mapPanel = new JPanel(new BorderLayout(18, 0));
+        mapPanel.setOpaque(false);
+        mapPanel.add(menuFloor(), BorderLayout.WEST);
 
-        JPanel heading = new JPanel(new BorderLayout(0, 5));
-        heading.setOpaque(false);
-        heading.add(sectionTitle("Sơ đồ bàn phục vụ"), BorderLayout.NORTH);
-        JPanel legend = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
-        legend.setOpaque(false);
-        JLabel free = new JLabel("● Bàn trống");
-        free.setForeground(FREE_COLOR);
-        JLabel active = new JLabel("● Đang dùng bữa");
-        active.setForeground(BUSY_COLOR);
-        legend.add(free);
-        legend.add(active);
-        heading.add(legend, BorderLayout.SOUTH);
+        JPanel tableArea = new JPanel(new BorderLayout(0, 12));
+        tableArea.setBackground(Color.WHITE);
+        tableArea.setBorder(new EmptyBorder(18, 18, 18, 18));
+        JPanel tableHeader = new JPanel(new GridLayout(0, 1, 0, 5));
+        tableHeader.setOpaque(false);
+        floorHeading.setFont(Utils.getCustomFont("Inter", Font.BOLD, 20));
+        floorHeading.setForeground(Utils.FOREST_BG);
+        tableHeader.add(floorHeading);
+        tableArea.add(tableHeader, BorderLayout.NORTH);
 
-        tableGridPanel.setOpaque(false);
-        JPanel gridView = new JPanel(new BorderLayout());
-        gridView.setBackground(Color.WHITE);
-        gridView.setBorder(new EmptyBorder(5, 5, 5, 5));
-        gridView.add(tableGridPanel, BorderLayout.NORTH);
-        JScrollPane scroll = new JScrollPane(gridView);
-        scroll.setVerticalScrollBar(new CScrollBar());
-        scroll.getVerticalScrollBar().setUnitIncrement(24);
+        tableGridPanel.setBackground(Color.WHITE);
+        tableGridPanel.setBorder(new EmptyBorder(6, 4, 12, 4));
+        // Neo lưới lên đầu: 1-2 bàn không bị kéo cao theo toàn bộ vùng cuộn.
+        JPanel tableAnchor = new JPanel(new BorderLayout());
+        tableAnchor.setBackground(Color.WHITE);
+        tableAnchor.add(tableGridPanel, BorderLayout.NORTH);
+
+        JScrollPane scroll = new JScrollPane(tableAnchor);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.getViewport().setBackground(Color.WHITE);
         scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        scroll.setBorder(null);
-        scroll.getViewport().addComponentListener(new ComponentAdapter() {
-            @Override
-            public void componentResized(ComponentEvent e) {
-                tableGridLayout.setColumns(Math.max(1, (scroll.getViewport().getWidth() - 10) / 180));
-                tableGridPanel.revalidate();
+        scroll.setVerticalScrollBar(new CScrollBar());
+        scroll.getVerticalScrollBar().setUnitIncrement(20);
+        tableArea.add(scroll, BorderLayout.CENTER);
+        mapPanel.add(tableArea, BorderLayout.CENTER);
+        return mapPanel;
+    }
+
+    private JPanel menuFloor() {
+        JPanel sidebar = new JPanel(new BorderLayout(0, 14));
+        sidebar.setBackground(Color.WHITE);
+        sidebar.setBorder(new EmptyBorder(20, 12, 16, 12));
+        sidebar.setPreferredSize(new Dimension(245, 0));
+        JLabel label = new JLabel("CHỌN TẦNG");
+        label.setFont(Utils.getCustomFont("Inter", Font.BOLD, 17));
+        label.setForeground(Utils.FOREST_BG);
+        sidebar.add(label, BorderLayout.NORTH);
+
+        floorList.setLayout(new BoxLayout(floorList, BoxLayout.Y_AXIS));
+        floorList.setBackground(Color.WHITE);
+        JScrollPane floorsScroll = new JScrollPane(floorList);
+        floorsScroll.setBorder(BorderFactory.createEmptyBorder());
+        floorsScroll.getViewport().setBackground(Color.WHITE);
+        floorsScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        floorsScroll.setVerticalScrollBar(new CScrollBar());
+        floorsScroll.getVerticalScrollBar().setUnitIncrement(16);
+        sidebar.add(floorsScroll, BorderLayout.CENTER);
+        return sidebar;
+    }
+
+    private static String floorName(int floor) {
+        return "Tầng " + floor;
+    }
+
+    private void selectFloor(int floor) {
+        if (Objects.equals(selectedFloor, floor)) return;
+        selectedFloor = floor;
+        renderTableMap(tableSnapshot); // Chỉ render lại snapshot cục bộ, không gọi server.
+    }
+
+    private void renderFloorSidebar(List<TableDTO> tables, Set<Integer> floors) {
+        floorList.removeAll();
+        if (floors.isEmpty()) {
+            JLabel empty = new JLabel("Chưa có tầng nào");
+            empty.setBorder(new EmptyBorder(10, 7, 10, 7));
+            floorList.add(empty);
+        }
+        for (int floor : floors) {
+            int total = 0;
+            int active = 0;
+            for (TableDTO t : tables) {
+                if (Objects.equals(t.getFloorNumber(), floor)) {
+                    total++;
+                    if (t.getActiveSessionId() != null) active++;
+                }
             }
-        });
-        card.add(heading, BorderLayout.NORTH);
-        card.add(scroll, BorderLayout.CENTER);
-        return card;
+            final boolean picked = Objects.equals(selectedFloor, floor);
+
+            JButton button = new JButton("<html><div style='text-align:left;'><b>" + floorName(floor)
+                    + "</b><br/>" + total + " bàn  •  " + active + " đang phục vụ</div></html>");
+            button.setHorizontalAlignment(SwingConstants.LEFT);
+            button.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 14));
+            button.setForeground(picked ? Color.WHITE : new Color(37, 65, 49));
+            button.setBackground(picked ? SELECT_COLOR : new Color(244, 247, 243));
+            button.setOpaque(true);
+            button.setFocusPainted(false);
+            button.setBorder(BorderFactory.createCompoundBorder(
+                    new LineBorder(picked ? SELECT_COLOR : new Color(224, 230, 223), 1, true),
+                    new EmptyBorder(11, 14, 11, 8)));
+            button.setPreferredSize(new Dimension(209, 65));
+            button.setMaximumSize(new Dimension(Integer.MAX_VALUE, 65));
+            button.setAlignmentX(Component.LEFT_ALIGNMENT);
+            button.addActionListener(e -> selectFloor(floor));
+            floorList.add(button);
+            floorList.add(Box.createVerticalStrut(9));
+        }
+        floorList.revalidate();
+        floorList.repaint();
+    }
+
+    private static String safeHtml(String raw) {
+        if (raw == null) return "Bàn";
+        return raw.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     private JPanel createTableDetail() {
@@ -530,7 +623,6 @@ public final class PosGUI extends JFrame {
                 && Objects.equals(selectedTable.getActiveSessionId(), billPreview.getTableSessionId());
         btnBack.setEnabled(available);
         btnCreateCustomer.setEnabled(available);
-        btnOpenSession.setEnabled(available && hasTable && !active);
         cashButton.setEnabled(available && billReady);
         bankButton.setEnabled(available && billReady);
         btnCheckout.setEnabled(available && billReady && selectedPaymentMethod() != null);
@@ -543,36 +635,46 @@ public final class PosGUI extends JFrame {
     }
 
     private void renderTableMap(List<TableDTO> tables) {
+        tableSnapshot = new ArrayList<>(tables);
+        Set<Integer> floors = new TreeSet<>();
+        for (TableDTO t : tables) floors.add(t.getFloorNumber());
+        if (selectedFloor == null || !floors.contains(selectedFloor)) {
+            selectedFloor = floors.isEmpty() ? null : floors.iterator().next();
+        }
+
+        renderFloorSidebar(tables, floors);
+        List<TableDTO> visible = new ArrayList<>();
+        for (TableDTO t : tables) {
+            if (Objects.equals(t.getFloorNumber(), selectedFloor)) visible.add(t);
+        }
+        floorHeading.setText(selectedFloor == null ? "SƠ ĐỒ BÀN"
+                : "SƠ ĐỒ BÀN · " + floorName(selectedFloor).toUpperCase());
+
         tableGridPanel.removeAll();
-        for (TableDTO table : tables) {
-            boolean active = table.getActiveSessionId() != null;
-            JButton tile = new JButton() {
-                @Override
-                protected void paintComponent(Graphics g) {
-                    Graphics2D g2 = (Graphics2D) g.create();
-                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    g2.setColor(active ? BUSY_COLOR : FREE_COLOR);
-                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), 20, 20);
-                    g2.dispose();
-                    super.paintComponent(g);
-                }
-            };
-            String name = table.getTableName() == null ? "Bàn #" + table.getId() : table.getTableName();
-            String safeName = name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-            tile.setText("<html><center><b>" + safeName + "</b><br/>"
-                    + "<span style='font-size:10px;color:#E0E0E0;'>Sức chứa: "
-                    + (table.getCapacity() == null ? "---" : table.getCapacity()) + " khách</span><br/><br/>"
-                    + (active ? "● ĐANG DÙNG BỮA" : "● BÀN TRỐNG") + "</center></html>");
-            tile.setPreferredSize(new Dimension(150, 125));
-            tile.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.PLAIN, 14));
-            tile.setForeground(Color.WHITE);
-            tile.setOpaque(false);
-            tile.setContentAreaFilled(false);
-            tile.setBorderPainted(false);
-            tile.setFocusPainted(false);
-            tile.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-            tile.addActionListener(e -> selectTable(table));
-            tableGridPanel.add(tile);
+        if (tables.isEmpty()) {
+            JLabel empty = new JLabel("Server chưa có dữ liệu bàn trong restaurant_tables.", SwingConstants.CENTER);
+            empty.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 15));
+            tableGridPanel.add(empty);
+        } else if (visible.isEmpty()) {
+            JLabel empty = new JLabel("Tầng này hiện chưa có bàn.", SwingConstants.CENTER);
+            empty.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 15));
+            tableGridPanel.add(empty);
+        }
+        for (TableDTO t : visible) {
+            boolean active = t.getActiveSessionId() != null;
+            JButton button = new JButton("<html><center><b>" + safeHtml(t.getTableName()) + "</b><br/>"
+                    + "Sức chứa: " + t.getCapacity() + " người<br/>"
+                    + (active ? "KHÁCH ĐANG DÙNG BỮA" : "BÀN TRỐNG") + "</center></html>");
+            button.setFont(Utils.getCustomFont("Inter", Font.BOLD, 14));
+            button.setPreferredSize(new Dimension(195, 125));
+            button.setBackground(active ? ACTIVE_COLOR : EMPTY_COLOR);
+            button.setOpaque(true);
+            button.setFocusPainted(false);
+            button.setBorder(new LineBorder(new Color(220, 224, 217), 1, true));
+            button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            // Khác StaffGUI: ở POS, bấm vào bàn sẽ mở màn hình chi tiết/thanh toán.
+            button.addActionListener(e -> selectTable(t));
+            tableGridPanel.add(button);
         }
         tableGridPanel.revalidate();
         tableGridPanel.repaint();
@@ -580,6 +682,11 @@ public final class PosGUI extends JFrame {
 
     private void selectTable(TableDTO table) {
         if (busy || reviewing) return;
+        // Bàn trống: hỏi xác nhận mở phiên ngay tại sơ đồ, không chuyển sang màn hình chi tiết.
+        if (table.getActiveSessionId() == null) {
+            confirmAndOpenTable(table);
+            return;
+        }
         selectedTable = table;
         paymentMethods.clearSelection();
         clearInvoicePanel();
@@ -599,7 +706,7 @@ public final class PosGUI extends JFrame {
     private void updateTableHeading() {
         lblSelectedTableInfo.setText(selectedTable.getTableName());
         Long sessionId = selectedTable.getActiveSessionId();
-        lblSessionInfo.setText(sessionId == null ? "Bàn trống · Chọn Mở phiên bàn"
+        lblSessionInfo.setText(sessionId == null ? "Bàn trống"
                 : "Phiên #" + sessionId + " · Đang dùng bữa");
     }
 
@@ -762,17 +869,26 @@ public final class PosGUI extends JFrame {
                 }, this::clearInvoicePanel);
     }
 
-    private void openSelectedTable() {
-        TableDTO snapshot = selectedTable;
+    private void confirmAndOpenTable(TableDTO snapshot) {
         if (snapshot == null || snapshot.getActiveSessionId() != null) return;
-        int answer = JOptionPane.showConfirmDialog(this,
-                "Mở phiên phục vụ mới cho " + snapshot.getTableName() + "?",
-                "POS — Xác nhận mở bàn", JOptionPane.YES_NO_OPTION);
+        // Tạm dừng tự làm mới trong lúc hộp thoại mở để dữ liệu bàn không đổi bất ngờ.
+        reviewing = true;
+        updateButtons();
+        int answer;
+        try {
+            answer = JOptionPane.showConfirmDialog(this,
+                    "Xác nhận mở phiên phục vụ mới cho " + snapshot.getTableName() + "?",
+                    "POS — Xác nhận mở phiên bàn", JOptionPane.YES_NO_OPTION,
+                    JOptionPane.QUESTION_MESSAGE);
+        } finally {
+            reviewing = false;
+            updateButtons();
+        }
         if (answer != JOptionPane.YES_OPTION) return;
         execute("Mở phiên " + snapshot.getTableName(),
                 () -> pos.openTable(snapshot.getId()), sid -> {
                     CToast.success(this, "Đã mở phiên #" + sid + " cho " + snapshot.getTableName());
-                    refreshTables(false);
+                    refreshTables(false); // Tải lại sơ đồ bàn
                 }, () -> refreshTables(false));
     }
 

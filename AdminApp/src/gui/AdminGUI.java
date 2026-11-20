@@ -105,18 +105,6 @@ public class AdminGUI extends JFrame {
     private JLabel kpiFoodTotal, kpiFoodOpen, kpiFoodPaused;
     private Paging<FoodDTO> foodPaging;
 
-    // Trang 2: Kho
-    private List<IngredientDTO> allIngredients = new ArrayList<>();
-    private List<IngredientDTO> shownIngredients = new ArrayList<>();
-    private DefaultTableModel stockModel;
-    private JTable stockTable;
-    private JTextField txtStockSearch;
-    private JComboBox<String> cboStockStatus;
-    private JLabel kpiStockTotal, kpiStockOk, kpiStockLow;
-    private JPanel stockBanner;
-    private JLabel lblStockBanner;
-    private Color bannerBg = new Color(228, 240, 232);
-    private Color bannerBorder = Utils.SAFE_GREEN;
 
     // Trang 3: Doanh thu
     private DefaultTableModel billModel, topFoodsModel;
@@ -170,7 +158,6 @@ public class AdminGUI extends JFrame {
         contentCards.setOpaque(false);
         contentCards.setBorder(new EmptyBorder(22, 28, 24, 28));
         contentCards.add(createFoodPage(), PAGE_FOODS);
-        contentCards.add(createInventoryPage(), PAGE_INVENTORY);
         contentCards.add(createRevenuePage(), PAGE_REVENUE);
         contentCards.add(createAccountPage(), PAGE_ACCOUNTS);
 
@@ -290,8 +277,6 @@ public class AdminGUI extends JFrame {
         top.add(caption);
 
         top.add(createNavButton("Quản lý thực đơn", NavIcon.FOOD, PAGE_FOODS));
-        top.add(Box.createVerticalStrut(8));
-        top.add(createNavButton("Kho nguyên liệu", NavIcon.BOX, PAGE_INVENTORY));
         top.add(Box.createVerticalStrut(8));
         top.add(createNavButton("Thống kê doanh thu", NavIcon.CHART, PAGE_REVENUE));
         top.add(Box.createVerticalStrut(8));
@@ -424,11 +409,6 @@ public class AdminGUI extends JFrame {
         }
 
         switch (pageId) {
-            case PAGE_INVENTORY:
-                lblPageTitle.setText("Kho nguyên liệu");
-                lblPageSubtitle.setText("Theo dõi tồn kho, định mức tối thiểu và nhập thêm hàng.");
-                loadInventory();
-                break;
             case PAGE_REVENUE:
                 lblPageTitle.setText("Thống kê doanh thu");
                 lblPageSubtitle.setText("Doanh thu theo ngày, món bán chạy và lịch sử hóa đơn.");
@@ -687,92 +667,6 @@ public class AdminGUI extends JFrame {
         }
     }
 
-    // TRANG 2: KHO NGUYÊN LIỆU
-    private JPanel createInventoryPage() {
-        JPanel page = new JPanel(new BorderLayout(0, 18));
-        page.setOpaque(false);
-
-        lblStockBanner = new JLabel();
-        lblStockBanner.setFont(font(Font.BOLD, 14));
-        stockBanner = new JPanel(new BorderLayout()) {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(bannerBg);
-                g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 14, 14);
-                g2.setColor(bannerBorder);
-                g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 14, 14);
-                g2.dispose();
-            }
-        };
-        stockBanner.setOpaque(false);
-        stockBanner.setBorder(new EmptyBorder(14, 20, 14, 20));
-        stockBanner.add(lblStockBanner, BorderLayout.CENTER);
-
-        kpiStockTotal = kpiLabel("0");
-        kpiStockOk = kpiLabel("0");
-        kpiStockLow = kpiLabel("0");
-        kpiStockOk.setForeground(Utils.SAFE_GREEN);
-        kpiStockLow.setForeground(Utils.DANGER_RED);
-        JPanel kpis = kpiRow(3);
-        kpis.add(createKpiCard("TỔNG NGUYÊN LIỆU", kpiStockTotal, Utils.FOREST_BG, NavIcon.BOX));
-        kpis.add(createKpiCard("ĐỦ HÀNG", kpiStockOk, Utils.SAFE_GREEN, NavIcon.CHECK));
-        kpis.add(createKpiCard("SẮP HẾT", kpiStockLow, Utils.DANGER_RED, NavIcon.ALERT));
-
-        JPanel north = new JPanel();
-        north.setLayout(new BoxLayout(north, BoxLayout.Y_AXIS));
-        north.setOpaque(false);
-        stockBanner.setAlignmentX(Component.LEFT_ALIGNMENT);
-        kpis.setAlignmentX(Component.LEFT_ALIGNMENT);
-        north.add(stockBanner);
-        north.add(Box.createVerticalStrut(18));
-        north.add(kpis);
-        page.add(north, BorderLayout.NORTH);
-
-        txtStockSearch = createSearchField("Tìm theo tên nguyên liệu...", 300);
-        cboStockStatus = createFilterCombo("Tất cả trạng thái", "Đủ hàng", "Sắp hết");
-        onTextChange(txtStockSearch, this::applyStockFilter);
-        cboStockStatus.addActionListener(e -> {
-            if (!adjusting) applyStockFilter();
-        });
-        JButton btnNew = createRoundedButton("+  Khai báo mới", Utils.FOREST_BG, Color.WHITE, 150, 40);
-        btnNew.addActionListener(e -> openIngredientDialog());
-        JButton btnRestock = createRoundedButton("Nhập kho", Utils.TERRACOTTA, Color.WHITE, 120, 40);
-        btnRestock.addActionListener(e -> {
-            int viewRow = stockTable.getSelectedRow();
-            int modelRow = viewRow < 0 ? -1 : stockTable.convertRowIndexToModel(viewRow);
-            openRestockDialog(modelRow >= 0 && modelRow < shownIngredients.size()
-                    ? shownIngredients.get(modelRow) : null);
-        });
-
-        stockModel = readOnlyModel("ID", "Tên nguyên liệu", "Tồn kho", "Định mức", "Trạng thái", "Thao tác");
-        CTable stockTableComponent = createStyledTable(stockModel, 46);
-        stockTable = stockTableComponent.getTable();
-        stockTable.putClientProperty("rowTint", (IntFunction<Color>) r -> isLowRow(r) ? new Color(254, 245, 245) : null);
-        stockTable.getColumnModel().getColumn(2).setCellRenderer(new RowRenderer(true) {
-            @Override
-            public Component getTableCellRendererComponent(JTable t, Object v, boolean s, boolean f, int r, int c) {
-                super.getTableCellRendererComponent(t, v, s, f, r, c);
-                setForeground(isLowRow(r) ? Utils.DANGER_RED : Utils.SAFE_GREEN);
-                return this;
-            }
-        });
-        stockTable.getColumnModel().getColumn(4).setCellRenderer(new BadgeRenderer());
-        installActionColumn(stockTable, 5, (row, idx) -> {
-            if (row >= 0 && row < shownIngredients.size()) openRestockDialog(shownIngredients.get(row));
-        });
-        setColumnWidths(stockTable, 70, 300, 180, 180, 160, 120);
-
-        page.add(createTableCard(createToolbar(flow(FlowLayout.LEFT, txtStockSearch, cboStockStatus),
-                flow(FlowLayout.RIGHT, btnNew, btnRestock)), stockTableComponent, null), BorderLayout.CENTER);
-        return page;
-    }
-
-    private boolean isLowRow(int row) {
-        return row >= 0 && row < shownIngredients.size() && isLow(shownIngredients.get(row));
-    }
-
     private boolean isLow(IngredientDTO i) {
         return i.getStockQuantity().compareTo(i.getMinStockLevel()) <= 0;
     }
@@ -786,118 +680,8 @@ public class AdminGUI extends JFrame {
 
             @Override
             protected void onLoaded(List<IngredientDTO> result) {
-                allIngredients = copyOrEmpty(result);
-                int low = 0;
-                for (IngredientDTO i : allIngredients) if (isLow(i)) low++;
-                kpiStockTotal.setText(String.valueOf(allIngredients.size()));
-                kpiStockOk.setText(String.valueOf(allIngredients.size() - low));
-                kpiStockLow.setText(String.valueOf(low));
-
-                if (low > 0) {
-                    lblStockBanner.setText("Cảnh báo tồn kho: " + low + " nguyên liệu đang chạm hoặc thấp hơn định mức. Cần nhập sớm.");
-                    lblStockBanner.setForeground(Utils.DANGER_RED);
-                    bannerBg = new Color(254, 242, 242);
-                    bannerBorder = new Color(238, 188, 188);
-                } else {
-                    lblStockBanner.setText("Tồn kho an toàn: tất cả nguyên liệu đều cao hơn định mức tối thiểu.");
-                    lblStockBanner.setForeground(Utils.SAFE_GREEN);
-                    bannerBg = new Color(232, 243, 236);
-                    bannerBorder = new Color(180, 214, 192);
-                }
-                stockBanner.repaint();
-                applyStockFilter();
             }
         }.execute();
-    }
-
-    private void applyStockFilter() {
-        String q = txtStockSearch.getText().trim().toLowerCase();
-        String st = (String) cboStockStatus.getSelectedItem();
-        shownIngredients = new ArrayList<>();
-        stockModel.setRowCount(0);
-        for (IngredientDTO i : allIngredients) {
-            boolean low = isLow(i);
-            if (!q.isEmpty() && !String.valueOf(i.getName()).toLowerCase().contains(q)) continue;
-            if ("Đủ hàng".equals(st) && low) continue;
-            if ("Sắp hết".equals(st) && !low) continue;
-            shownIngredients.add(i);
-            stockModel.addRow(new Object[]{
-                    i.getId(), i.getName(), QTY_FMT.format(i.getStockQuantity()) + " " + i.getUnit(),
-                    QTY_FMT.format(i.getMinStockLevel()) + " " + i.getUnit(), low ? "Sắp hết" : "Đủ hàng", "Nhập kho"
-            });
-        }
-    }
-
-    private void openRestockDialog(IngredientDTO preselected) {
-        if (allIngredients.isEmpty()) {
-            CToast.warning(this, "Chưa có nguyên liệu nào.");
-            return;
-        }
-        JComboBox<IngredientDTO> box = new JComboBox<>();
-        styleCombo(box);
-        for (IngredientDTO i : allIngredients) {
-            box.addItem(i);
-            if (preselected != null && i.getId().equals(preselected.getId())) box.setSelectedItem(i);
-        }
-        box.setRenderer(new DefaultListCellRenderer() {
-            @Override
-            public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean sel, boolean foc) {
-                super.getListCellRendererComponent(list, value, index, sel, foc);
-                if (value instanceof IngredientDTO) {
-                    IngredientDTO i = (IngredientDTO) value;
-                    setText(i.getName() + "  (tồn " + QTY_FMT.format(i.getStockQuantity()) + " " + i.getUnit() + ")");
-                }
-                return this;
-            }
-        });
-        box.setEnabled(preselected == null);
-        JTextField qty = createStyledTextField("10");
-        JPanel form = newFormPanel();
-        addField(form, "Nguyên liệu", box);
-        addField(form, "Số lượng nhập thêm", qty);
-
-        showModal("Nhập kho", "Số lượng sẽ được cộng vào tồn kho hiện tại.", form, "Xác nhận nhập", Utils.TERRACOTTA, () -> {
-            BigDecimal added;
-            try {
-                added = new BigDecimal(qty.getText().trim().replace(",", "."));
-            } catch (NumberFormatException ex) {
-                return "Số lượng phải là số hợp lệ.";
-            }
-            if (added.signum() <= 0) return "Số lượng phải lớn hơn 0.";
-            IngredientDTO ing = (IngredientDTO) box.getSelectedItem();
-            if (ing == null) return "Vui lòng chọn nguyên liệu.";
-
-            performUpdate("Nhập kho", () -> adminBUS.restockIngredient(ing.getId(), added), this::loadInventory);
-            return null;
-        });
-    }
-
-    private void openIngredientDialog() {
-        JTextField name = createStyledTextField("");
-        JTextField unit = createStyledTextField("kg");
-        JTextField stock = createStyledTextField("20");
-        JTextField min = createStyledTextField("5");
-        JPanel form = newFormPanel();
-        addField(form, "Tên nguyên liệu", name);
-        addField(form, "Đơn vị tính", unit);
-        addField(form, "Số lượng tồn ban đầu", stock);
-        addField(form, "Định mức tối thiểu", min);
-
-        showModal("Khai báo nguyên liệu", "Thêm nguyên liệu vào danh mục kho.", form, "Khai báo", Utils.FOREST_BG, () -> {
-            if (name.getText().trim().isEmpty()) return "Vui lòng nhập tên.";
-            if (unit.getText().trim().isEmpty()) return "Vui lòng nhập đơn vị tính.";
-            BigDecimal s, m;
-            try {
-                s = new BigDecimal(stock.getText().trim().replace(",", "."));
-                m = new BigDecimal(min.getText().trim().replace(",", "."));
-            } catch (NumberFormatException ex) {
-                return "Tồn kho và định mức không hợp lệ.";
-            }
-            if (s.signum() < 0 || m.signum() < 0) return "Giá trị không được âm.";
-
-            performUpdate("Khai báo nguyên liệu", () -> adminBUS.addIngredient(name.getText().trim(), unit.getText().trim(), s, m), this::loadInventory);
-            return null;
-        });
     }
 
     // TRANG 3: THỐNG KÊ DOANH THU

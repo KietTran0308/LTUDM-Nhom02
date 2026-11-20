@@ -24,26 +24,31 @@ public class AuthBUS {
     }
 
     private final SocketClient socketClient = new SocketClient();
-    private final String serverHost = System.getenv().getOrDefault("SERVER_HOST", "103.211.207.183");
 
     public AuthBUS() {
 
     }
 
-    /** POS/Admin dung ket noi rieng, goi trong SwingWorker. */
+    /** POS/Admin dung ket noi rieng, goi trong SwingWorker. Host/Port lay tu ServerConfig. */
     public static UserDTO loginWorkstation(SocketClient socket, String account, String password) {
-        String host = System.getenv().getOrDefault("SERVER_HOST", "103.211.207.183");
-        if (socket == null || (!socket.isConnected() && !socket.connect(host, 8888, null)))
-            throw new IllegalStateException("Khong ket noi duoc Server " + host + ":8888");
+        if (socket == null)
+            throw new IllegalArgumentException("Socket khong hop le");
+        if (account == null || account.isBlank() || password == null || password.isEmpty())
+            throw new IllegalArgumentException("Vui long nhap tai khoan va mat khau");
+
+        if (!socket.isConnected() && !socket.connect(null))
+            throw new IllegalStateException("Khong ket noi duoc Server");
+
         SocketPacket response = socket.requestAndWait(
-                new SocketPacket(SocketAction.LOGIN, null, account, password), 7000);
+                new SocketPacket(SocketAction.LOGIN, null, account.trim(), password), 7000);
         if (!(response.getData() instanceof UserDTO))
             throw new IllegalStateException("Phan hoi dang nhap khong hop le");
         return (UserDTO) response.getData();
     }
 
+    /** Host/Port lay tu ServerConfig (server.host / SERVER_HOST, server.port / SERVER_PORT). */
     private boolean ready() {
-        return socketClient.isConnected() || socketClient.connect(serverHost, 8888, null);
+        return socketClient.isConnected() || socketClient.connect(null);
     }
 
     public boolean login(String account, String password) {
@@ -85,5 +90,6 @@ public class AuthBUS {
     }
 
     public SocketClient getSocketClient() { return socketClient; }
+
     public void close() { socketClient.close(); }
 }

@@ -502,15 +502,30 @@ public class CustomerGUI extends JFrame {
         return btn;
     }
 
+    /** Mot nhom thanh phan o mot ben cua topBanner, can giua theo chieu doc. */
+    private static JPanel bannerSide(int align, Component... items) {
+        JPanel inner = new JPanel(new FlowLayout(align, 14, 0));
+        inner.setOpaque(false);
+        for (Component item : items) inner.add(item);
+
+        JPanel host = new JPanel(new GridBagLayout());
+        host.setOpaque(false);
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.weightx = 1;
+        gbc.anchor = align == FlowLayout.RIGHT ? GridBagConstraints.EAST : GridBagConstraints.WEST;
+        host.add(inner, gbc);
+        return host;
+    }
+
     private void initCenterContentArea() {
         JPanel centerContainer = new JPanel(new BorderLayout());
         centerContainer.setBackground(Utils.CREAM_BG);
 
-        // Dat TAT CA thanh phan tren mot hang ngang bang FlowLayout.
-        // Boc trong JScrollPane de khong bi xuong dong khi cua so hep
-        // hoac khi ten thanh vien / thong bao bep dai.
-        JPanel topBanner = new JPanel(new FlowLayout(FlowLayout.LEFT, 14, 0));
+        // Banner dung BorderLayout: TRAI = Ban + dang nhap thanh vien,
+        // GIUA = thong bao moi tu bep, PHAI = gio hang + mon da goi.
+        JPanel topBanner = new JPanel(new BorderLayout(18, 0));
         topBanner.setBackground(Color.WHITE);
+        topBanner.setPreferredSize(new Dimension(0, 82));
         topBanner.setBorder(new EmptyBorder(12, 20, 12, 20));
 
         btnTrackOrderTop = new JButton("Món đã gọi (0 phần)") {
@@ -558,23 +573,12 @@ public class CustomerGUI extends JFrame {
         lblKitchenNotice = new JLabel("Chưa có thông báo mới từ bếp.");
         lblKitchenNotice.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 12));
         lblKitchenNotice.setForeground(Utils.TERRACOTTA);
+        // Thong bao nam giua; neu qua dai se tu cat bang "..." thay vi day cac nut ra ngoai.
+        lblKitchenNotice.setHorizontalAlignment(SwingConstants.CENTER);
 
-        // Them truc tiep tung thanh phan vao topBanner: KHONG chia cot/hang.
-        topBanner.add(lblTable);
-        topBanner.add(btnMemberAccount);
-        topBanner.add(lblKitchenNotice);
-        topBanner.add(summaryCartWrapper);
-        topBanner.add(btnTrackOrderTop);
-
-        // JScrollPane cho phep FlowLayout giu mot hang ke ca khi noi dung rong hon man hinh.
-        JScrollPane topBannerScroll = new JScrollPane(
-                topBanner,
-                JScrollPane.VERTICAL_SCROLLBAR_NEVER,
-                JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-        topBannerScroll.setBorder(BorderFactory.createEmptyBorder());
-        topBannerScroll.getViewport().setBackground(Color.WHITE);
-        topBannerScroll.getHorizontalScrollBar().setUnitIncrement(20);
-        topBannerScroll.setPreferredSize(new Dimension(0, 82));
+        topBanner.add(bannerSide(FlowLayout.LEFT, lblTable, btnMemberAccount), BorderLayout.WEST);
+        topBanner.add(lblKitchenNotice, BorderLayout.CENTER);
+        topBanner.add(bannerSide(FlowLayout.RIGHT, summaryCartWrapper, btnTrackOrderTop), BorderLayout.EAST);
 
         centerContentHost = new JPanel(new BorderLayout());
         centerContentHost.setBackground(Utils.CREAM_BG);
@@ -610,7 +614,7 @@ public class CustomerGUI extends JFrame {
         trackingView = createInlineTrackOrderView();
         centerContentHost.add(menuView, BorderLayout.CENTER);
 
-        centerContainer.add(topBannerScroll, BorderLayout.NORTH);
+        centerContainer.add(topBanner, BorderLayout.NORTH);
         centerContainer.add(centerContentHost, BorderLayout.CENTER);
 
         add(centerContainer, BorderLayout.CENTER);

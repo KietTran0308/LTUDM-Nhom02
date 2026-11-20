@@ -32,6 +32,10 @@ public class StaffGUI extends JFrame {
     private final SocketClient sessionSocket;
 
     private final Timer responseTimer;
+    private final JLabel lblClock = new JLabel("", SwingConstants.RIGHT);
+    private static final java.time.format.DateTimeFormatter CLOCK_FORMAT =
+            java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss  |  dd/MM/yyyy");
+    private Timer clockTimer;
     private final JPanel tableGrid = new JPanel(new GridLayout(0, 4, 14, 14));
     private final JPanel floorList = new JPanel();
     private final JLabel floorHeading = new JLabel("Đang tải các tầng...");
@@ -90,8 +94,26 @@ public class StaffGUI extends JFrame {
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 0));
         actions.setOpaque(false);
-        CButton logout = new CButton("Đăng xuất", 200, 50);
+        // Đồng hồ: giờ:phút:giây | ngày/tháng/năm, đứng trước nút Đăng xuất.
+        lblClock.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 15));
+        lblClock.setForeground(Color.WHITE);
+        lblClock.setPreferredSize(new Dimension(220, 42));
+        lblClock.setBorder(new EmptyBorder(0, 0, 0, 6));
+        updateClock();
+        clockTimer = new Timer(1000, e -> updateClock());
+        clockTimer.start();
+
+        // Nút Đăng xuất vẽ lại giống PosGUI.
+        JButton logout = new JButton("Đăng xuất");
+        logout.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 13));
+        logout.setForeground(Color.WHITE);
+        logout.setBackground(new Color(52, 66, 58));
+        logout.setFocusPainted(false);
+        logout.setPreferredSize(new Dimension(115, 42));
+        logout.setBorder(new LineBorder(new Color(80, 95, 86), 1, true));
+        logout.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         logout.addActionListener(e -> logout());
+        actions.add(lblClock);
         actions.add(logout);
         top.add(actions, BorderLayout.EAST);
         add(top, BorderLayout.NORTH);
@@ -597,6 +619,17 @@ public class StaffGUI extends JFrame {
                 CToast.warning(this, event.message);
                 break;
         }
+    }
+
+    private void updateClock() {
+        lblClock.setText(java.time.LocalDateTime.now().format(CLOCK_FORMAT));
+    }
+
+    @Override
+    public void dispose() {
+        // Dừng đồng hồ khi đóng cửa sổ (đăng xuất hoặc bàn giao sang CustomerGUI).
+        if (clockTimer != null) clockTimer.stop();
+        super.dispose();
     }
 
     private void logout() {
