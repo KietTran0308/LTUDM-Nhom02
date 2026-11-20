@@ -1,0 +1,419 @@
+package dao;
+
+import dto.UserDTO;
+import utils.PasswordUtil;
+
+import java.sql.*;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+
+public class UserDAO {
+
+    /**
+     * Kiểm tra đăng nhập bằng Email HOẶC Số điện thoại kèm mật khẩu
+     */
+    public UserDTO authenticate(String emailOrPhone, String passwordHash) {
+        String sql = "SELECT u.*, r.nameRole FROM users u " +
+                "JOIN roles r ON u.roleID = r.roleID " +
+                "WHERE (u.email = ? OR u.phone = ?) AND u.is_active = TRUE";
+
+        Connection conn = null;
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+
+        try {
+            conn = dbConnection.getConnection();
+            ps = conn.prepareStatement(sql);
+            ps.setString(1, emailOrPhone.trim());
+            ps.setString(2, emailOrPhone.trim());
+            rs = ps.executeQuery();
+
+            if (rs.next() && PasswordUtil.matches(passwordHash, rs.getString("password_hash"))) {
+                UserDTO user = new UserDTO(
+                        rs.getLong("id"),
+                        rs.getLong("roleID"),
+                        rs.getString("email"),
+                        rs.getString("password_hash"),
+                        rs.getString("full_name"),
+                        rs.getString("phone"),
+                        rs.getBoolean("is_active"),
+                        rs.getObject("created_at", LocalDateTime.class),
+                        rs.getObject("updated_at", LocalDateTime.class)
+                );
+                user.setRoleName(rs.getString("nameRole"));
+                return user;
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        } finally {
+            dbConnection.closeConnection(conn, ps, rs);
+        }
+        return null;
+    }
+
+
+    private UserDTO mapUser(ResultSet rs) throws SQLException {
+        UserDTO user = new UserDTO(
+                rs.getLong("id"),
+                rs.getLong("roleID"),
+                rs.getString("email"),
+                rs.getString("password_hash"),
+                rs.getString("full_name"),
+                rs.getString("phone"),
+                rs.getBoolean("is_active"),
+                rs.getObject("created_at", LocalDateTime.class),
+                rs.getObject("updated_at", LocalDateTime.class)
+        );
+
+        user.setRoleName(rs.getString("nameRole"));
+
+        return user;
+    }
+
+    /**
+     * Đăng nhập bằng Email hoặc số điện thoại và mật khẩu.
+     */
+    public UserDTO findByEmailOrPhone(String emailOrPhone, String password) {
+        String sql = "SELECT u.*, r.nameRole FROM users u " +
+                "JOIN roles r ON u.roleID = r.roleID " +
+                "WHERE (u.email = ? OR u.phone = ?) AND u.is_active = TRUE";
+
+        try (
+                Connection conn = dbConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)
+        ) {
+            ps.setString(1, emailOrPhone.trim());
+            ps.setString(2, emailOrPhone.trim());
+            ps.setQueryTimeout(5); // Gioi han thoi gian chay SQL; khong thay the JDBC connectTimeout.
+
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next() &&
+                        PasswordUtil.matches(
+                                password, rs.getString("password_hash")
+                        )) {
+                    return mapUser(rs);
+                }
+            }
+
+        } catch (SQLException e) {
+            // Không nhầm lỗi database với sai email/mật khẩu.
+            throw new IllegalStateException("Lỗi kết nối hoặc truy vấn cơ sở dữ liệu", e);
+        }
+
+        return null;
+    }
+
+    /**
+     * Kiểm tra email đã tồn tại hay chưa.
+     */
+    public boolean existsByEmail(String email) throws SQLException {
+        String sql = "SELECT id FROM users WHERE email = ? LIMIT 1";
+
+        try (
+                Connection conn = dbConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)
+        ) {
+            ps.setString(1, email.trim());
+
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        }
+    }
+
+    /** Kiểm tra email đã đăng ký và tài khoản còn hoạt động. */
+    public boolean existsActiveByEmail(String email) throws SQLException {
+        String sql = "SELECT id FROM users WHERE LOWER(email) = LOWER(?) AND is_active = TRUE LIMIT 1";
+        try (Connection conn = dbConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, email);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        }
+    }
+
+    /** Chỉ cập nhật mật khẩu đã băm, không thay đổi vai trò hoặc phiên bàn. */
+    public boolean updatePasswordByEmail(String email, String encodedPassword) throws SQLException {
+        String sql = "UPDATE users SET password_hash = ? WHERE LOWER(email) = LOWER(?) AND is_active = TRUE";
+        try (Connection conn = dbConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, encodedPassword);
+            ps.setString(2, email);
+            return ps.executeUpdate() == 1;
+        }
+    }
+
+    /**
+     * Kiểm tra số điện thoại đã tồn tại hay chưa.
+     */
+    public boolean existsByPhone(String phone) throws SQLException {
+        String sql = "SELECT id FROM users WHERE phone = ? LIMIT 1";
+
+        try (
+                Connection conn = dbConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)
+        ) {
+            ps.setString(1, phone.trim());
+
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        }
+    }
+
+    /**
+     * Tìm roleID theo tên quyền.
+     */
+    public Long findRoleIdByName(String roleName) throws SQLException {
+        String sql = "SELECT roleID FROM roles " +
+                "WHERE UPPER(nameRole) = UPPER(?) LIMIT 1";
+
+        try (
+                Connection conn = dbConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)
+        ) {
+            ps.setString(1, roleName.trim());
+
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getLong("roleID");
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Đăng ký tài khoản mới.
+     */
+    public UserDTO registerUser(UserDTO newUser) throws SQLException {
+        String sqlRole = "SELECT roleID, nameRole FROM roles " +
+                "WHERE UPPER(nameRole) IN ('CUSTOMER', 'TABLE_KIOSK', 'USER') " +
+                "LIMIT 1";
+
+        String sqlInsert = "INSERT INTO users " +
+                "(roleID, email, password_hash, full_name, phone, is_active) " +
+                "VALUES (?, ?, ?, ?, ?, TRUE)";
+
+        try (
+                Connection conn = dbConnection.getConnection();
+                PreparedStatement psRole = conn.prepareStatement(sqlRole)
+        ) {
+            long roleId;
+            String roleName;
+
+            try (ResultSet rsRole = psRole.executeQuery()) {
+                if (!rsRole.next()) {
+                    throw new SQLException("Không tìm thấy role CUSTOMER!");
+                }
+
+                roleId = rsRole.getLong("roleID");
+                roleName = rsRole.getString("nameRole");
+            }
+
+            try (
+                    PreparedStatement psInsert = conn.prepareStatement(
+                            sqlInsert, Statement.RETURN_GENERATED_KEYS
+                    )
+            ) {
+                psInsert.setLong(1, roleId);
+                psInsert.setString(2, newUser.getEmail().trim());
+                psInsert.setString(3, newUser.getPasswordHash().trim());
+                psInsert.setString(4, newUser.getFullName().trim());
+                psInsert.setString(5, newUser.getPhone().trim());
+
+                psInsert.executeUpdate();
+
+                try (ResultSet rsKey = psInsert.getGeneratedKeys()) {
+                    if (rsKey.next()) {
+                        newUser.setId(rsKey.getLong(1));
+                        newUser.setRoleID(roleId);
+                        newUser.setRoleName(roleName);
+                        newUser.setIsActive(true);
+
+                        return newUser;
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Admin cấp tài khoản với vai trò chỉ định (STAFF / KITCHEN / CUSTOMER).
+     * roleID được tra theo tên trong bảng roles.
+     */
+    public UserDTO registerUserWithRole(UserDTO newUser, String roleName) throws SQLException {
+        Long roleId = findRoleIdByName(roleName);
+        if (roleId == null) {
+            throw new SQLException("Không tìm thấy role " + roleName + " trong bảng roles");
+        }
+
+        String sql = "INSERT INTO users " +
+                "(roleID, email, password_hash, full_name, phone, is_active) " +
+                "VALUES (?, ?, ?, ?, ?, TRUE)";
+
+        try (
+                Connection conn = dbConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)
+        ) {
+            ps.setLong(1, roleId);
+            ps.setString(2, newUser.getEmail().trim());
+            ps.setString(3, newUser.getPasswordHash().trim());
+            ps.setString(4, newUser.getFullName().trim());
+            ps.setString(5, newUser.getPhone().trim());
+            ps.executeUpdate();
+
+            try (ResultSet rsKey = ps.getGeneratedKeys()) {
+                if (rsKey.next()) {
+                    newUser.setId(rsKey.getLong(1));
+                    newUser.setRoleID(roleId);
+                    newUser.setRoleName(roleName);
+                    newUser.setIsActive(true);
+                    return newUser;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Lấy danh sách tất cả người dùng.
+     */
+    public List<UserDTO> findAll() throws SQLException {
+        List<UserDTO> userList = new ArrayList<>();
+            String sql = "SELECT u.*, r.nameRole FROM users u "
+                    + "JOIN roles r ON u.roleID = r.roleID "
+                    + "ORDER BY u.id ASC";
+
+        try (
+                Connection conn = dbConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql);
+                ResultSet rs = ps.executeQuery()
+        ) {
+            while (rs.next()) {
+                userList.add(mapUser(rs));
+            }
+        }
+
+        return userList;
+    }
+
+    /**
+     * Tìm người dùng theo ID.
+     */
+    public UserDTO findById(long userId) throws SQLException {
+        String sql = "SELECT u.*, r.nameRole FROM users u " +
+                "JOIN roles r ON u.roleID = r.roleID " +
+                "WHERE u.id = ?";
+
+        try (
+                Connection conn = dbConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)
+        ) {
+            ps.setLong(1, userId);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return mapUser(rs);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Tìm người dùng theo số điện thoại.
+     */
+    public UserDTO findByPhone(String phone) throws SQLException {
+        String sql = "SELECT u.*, r.nameRole FROM users u " +
+                "JOIN roles r ON u.roleID = r.roleID " +
+                "WHERE u.phone = ?";
+
+        try (
+                Connection conn = dbConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)
+        ) {
+            ps.setString(1, phone.trim());
+
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return mapUser(rs);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Cập nhật thông tin người dùng.
+     */
+    public boolean update(UserDTO user) throws SQLException {
+        String sql = "UPDATE users SET "
+            + "full_name = ?, phone = ?, email = ?, roleID = ? "
+            + "WHERE id = ?";
+
+        try (
+                Connection conn = dbConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)
+        ) {
+            ps.setString(1, user.getFullName().trim());
+            ps.setString(2, user.getPhone().trim());
+            ps.setString(3, user.getEmail().trim());
+            ps.setLong(4, user.getRoleID());
+            ps.setLong(5, user.getId());
+
+            return ps.executeUpdate() > 0;
+        }
+    }
+
+    /**
+     * Vô hiệu hóa tài khoản thay vì xóa hẳn khỏi database.
+     */
+    public boolean deactivate(long userId) throws SQLException {
+        String sql = "UPDATE users SET is_active = FALSE WHERE id = ?";
+
+        try (
+                Connection conn = dbConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)
+        ) {
+            ps.setLong(1, userId);
+
+            return ps.executeUpdate() > 0;
+        }
+    }
+
+    /** Đặt trạng thái khóa/mở khóa theo giá trị đích (không đảo ngược). */
+    public boolean setActive(long accountId, boolean active) throws SQLException {
+        String sql = "UPDATE users SET is_active = ? WHERE id = ?";
+        try (Connection conn = dbConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setBoolean(1, active);
+            ps.setLong(2, accountId);
+            return ps.executeUpdate() > 0;
+        }
+    }
+
+    public boolean toggleAccountActive(long accountId)
+            throws SQLException {
+
+        String sql = """
+        UPDATE users
+        SET is_active = NOT is_active
+        WHERE id = ?
+        """;
+
+        try (Connection conn = dbConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setLong(1, accountId);
+            return ps.executeUpdate() == 1;
+        }
+    }
+}
