@@ -38,13 +38,14 @@ public class FoodDAO {
             rs = ps.executeQuery();
 
             while (rs.next()) {
+                Timestamp created = rs.getTimestamp("created_at");
                 images.add(new FoodImageDTO(
                         rs.getLong("id"),
                         rs.getLong("foods_id"),
                         rs.getString("url"),
                         rs.getBoolean("is_cover"),
                         rs.getInt("sort_order"),
-                        rs.getObject("created_at", LocalDateTime.class)
+                        created == null ? null : created.toLocalDateTime()
                 ));
             }
         } catch (SQLException e) {

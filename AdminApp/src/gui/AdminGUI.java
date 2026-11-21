@@ -736,7 +736,7 @@ public class AdminGUI extends JFrame {
         txtBillSearch = createSearchField("Tìm theo mã hóa đơn...", 260);
         cboBillTime = createFilterCombo("Tất cả thời gian", "Hôm nay", "7 ngày qua", "30 ngày qua");
         cboBillPay = createFilterCombo("Tất cả thanh toán");
-        for (PaymentMethod payment : PaymentMethod.values()) cboBillPay.addItem(payment.name());
+        for (dbEnums.PaymentMethod payment : dbEnums.PaymentMethod.values()) cboBillPay.addItem(payment.name());
         btnFilterRevenue = createRoundedButton("Lọc", Utils.FOREST_BG, Color.WHITE, 84, 40);
         btnFilterRevenue.addActionListener(e -> loadRevenue());
         txtBillSearch.addActionListener(e -> loadRevenue());

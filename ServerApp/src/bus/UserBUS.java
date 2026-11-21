@@ -41,18 +41,19 @@ public class UserBUS {
         if (user == null || user.getId() <= 0) {
             throw new IllegalArgumentException("Thông tin người dùng không hợp lệ");
         }
-
         if (user.getFullName() == null || user.getFullName().trim().isEmpty()) {
             throw new IllegalArgumentException("Họ tên không được để trống");
         }
-
-        if (user.getEmail() == null || !user.getEmail().contains("@")) {
-            throw new IllegalArgumentException("Email không hợp lệ");
+        if (user.getEmail() == null || !user.getEmail().trim().matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+            throw new IllegalArgumentException("Email bắt buộc nhập và phải hợp lệ");
+        }
+        if (user.getPhone() == null || !user.getPhone().trim().matches("0\\d{9}")) {
+            throw new IllegalArgumentException("Số điện thoại bắt buộc nhập (10 chữ số, bắt đầu bằng 0)");
         }
 
-        if (user.getPhone() == null || !user.getPhone().matches("^[0-9]{10,11}$")) {
-            throw new IllegalArgumentException("Số điện thoại không hợp lệ");
-        }
+        user.setFullName(user.getFullName().trim());
+        user.setEmail(user.getEmail().trim());
+        user.setPhone(user.getPhone().trim());
 
         return userDAO.update(user);
     }

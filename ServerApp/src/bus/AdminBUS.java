@@ -2,7 +2,6 @@ package bus;
 
 import dao.BillDAO;
 import dao.CategoryDAO;
-import dao.IngredientDAO;
 import dto.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -15,12 +14,10 @@ import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.TreeMap;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 public class AdminBUS {
     private final FoodBUS foodBUS = new FoodBUS();
     private final CategoryDAO categoryDAO = new CategoryDAO();
-    private final IngredientDAO ingredientDAO = new IngredientDAO();
     private final BillDAO billDAO = new BillDAO();
     private final UserBUS userBUS = new UserBUS();
     private final AuthBUS authBUS = new AuthBUS();
@@ -51,7 +48,11 @@ public class AdminBUS {
     public boolean updateFood(Long id, String name, BigDecimal price, Long categoryId, boolean isPublished) throws SQLException {
         FoodDTO food = foodBUS.getFoodById(id);
 
-        food.setName(name);
+        String trimmedName = name == null ? "" : name.trim();
+        if (!trimmedName.isEmpty() && !trimmedName.equals(food.getName())) {
+            food.setSlug(generateSlug(trimmedName) + "-" + id);
+        }
+        food.setName(trimmedName);
         food.setPrice(price);
         food.setCategoryId(categoryId);
         food.setIsPublished(isPublished);
@@ -143,55 +144,50 @@ public class AdminBUS {
 
     // Nghiệp vụ Thêm tài khoản mới (sử dụng AuthBUS)
     public boolean createNewAccount(String fullName, String phone, String email, Long roleId, String roleName) throws Exception {
-        // Kiểm tra dữ liệu ở Server, không chỉ dựa vào GUI
         if (fullName == null || fullName.isBlank())
             throw new IllegalArgumentException("Họ tên không được để trống");
         if (phone == null || !phone.trim().matches("0\\d{9}"))
             throw new IllegalArgumentException("Số điện thoại không hợp lệ (VD: 0901234567)");
-        if (email != null && !email.isBlank()
-                && !email.trim().matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"))
-            throw new IllegalArgumentException("Email không hợp lệ");
+        if (email == null || email.isBlank()
+                || !email.trim().matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"))
+            throw new IllegalArgumentException("Email không được để trống và phải đúng định dạng");
+
         fullName = fullName.trim();
         phone = phone.trim();
+        email = email.trim();
 
         UserDTO newUser = new UserDTO();
         newUser.setFullName(fullName);
         newUser.setPhone(phone);
-
-        newUser.setEmail(email != null && !email.isBlank() ? email.trim() : phone + "@bepnha.com");
+        newUser.setEmail(email);
         newUser.setRoleName(roleName);
         newUser.setIsActive(true);
         newUser.setPasswordHash(phone);
 
-        authBUS.registerWithRole(newUser, roleName); // role do server tra theo tên, roleId từ client bị bỏ qua
+        authBUS.registerWithRole(newUser, roleName);
         return true;
     }
 
     // Nghiệp vụ Cập nhật tài khoản
-
     public boolean updateAccount(Long id, String fullName, String phone, String email, String roleName) throws SQLException {
         UserDTO user = userBUS.getUserById(id);
+        if (user == null) throw new IllegalArgumentException("Không tìm thấy tài khoản");
+        if (email == null || email.isBlank()) throw new IllegalArgumentException("Email không được để trống");
+        if (phone == null || phone.isBlank()) throw new IllegalArgumentException("Số điện thoại không được để trống");
+        if (fullName == null || fullName.isBlank()) throw new IllegalArgumentException("Họ tên không được để trống");
 
-        if (user == null) {
-            throw new IllegalArgumentException("Không tìm thấy tài khoản");
-        }
-
-        user.setFullName(fullName);
-        user.setPhone(phone);
-        user.setEmail(email != null && !email.isEmpty()
-                ? email : user.getEmail());
+        user.setFullName(fullName.trim());
+        user.setPhone(phone.trim());
+        user.setEmail(email.trim());
 
         Long roleId = new dao.UserDAO().findRoleIdByName(roleName);
-
         if (roleId == null) {
             throw new IllegalArgumentException("Vai trò không tồn tại");
         }
-
         user.setRoleID(roleId);
 
         return userBUS.updateUser(user);
     }
-
 
     // Nghiệp vụ Khóa/Mở khóa tài khoản
     public boolean lockAccount(Long id) throws SQLException {

@@ -35,8 +35,8 @@ public class AuthBUS {
     }
 
     public UserDTO register(UserDTO reqUser) throws Exception {
-
         synchronized (REGISTER_LOCK) {
+            validateRequiredContact(reqUser);
             if (userDAO.existsByEmail(reqUser.getEmail())) {
                 throw new IllegalArgumentException("Email đã được sử dụng.");
             }
@@ -54,6 +54,7 @@ public class AuthBUS {
 
     public UserDTO registerWithRole(UserDTO reqUser, String roleName) throws Exception {
         synchronized (REGISTER_LOCK) {
+            validateRequiredContact(reqUser);
             if (userDAO.existsByEmail(reqUser.getEmail()))
                 throw new IllegalArgumentException("Email đã được sử dụng.");
             String phone = reqUser.getPhone();
@@ -76,5 +77,26 @@ public class AuthBUS {
             return userDAO.existsByPhone("0" + phone.substring(3));
         }
         return false;
+    }
+
+    private void validateRequiredContact(UserDTO reqUser) {
+        if (reqUser == null) {
+            throw new IllegalArgumentException("Thông tin đăng ký không hợp lệ.");
+        }
+        if (reqUser.getFullName() == null || reqUser.getFullName().isBlank()) {
+            throw new IllegalArgumentException("Họ tên không được để trống.");
+        }
+        String email = reqUser.getEmail();
+        if (email == null || email.isBlank()
+                || !email.trim().matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+            throw new IllegalArgumentException("Email bắt buộc nhập và phải đúng định dạng.");
+        }
+        String phone = reqUser.getPhone();
+        if (phone == null || !phone.trim().matches("0\\d{9}")) {
+            throw new IllegalArgumentException("Số điện thoại bắt buộc nhập (10 chữ số, bắt đầu bằng 0).");
+        }
+        reqUser.setFullName(reqUser.getFullName().trim());
+        reqUser.setEmail(email.trim());
+        reqUser.setPhone(phone.trim());
     }
 }

@@ -277,7 +277,7 @@ public class ClientHandler implements Runnable {
                 }
 
                 case GET_ALL_TABLES: {
-                    requireWorkstationRole("STAFF", "ADMIN");
+                    requireWorkstationRole("ADMIN");
                     PosBUS pos = new PosBUS(authenticatedUser);
                     sendPacket(ok(
                             SocketAction.GET_ALL_TABLES,
@@ -288,7 +288,7 @@ public class ClientHandler implements Runnable {
                 }
 
                 case OPEN_TABLE_SESSION: {
-                    requireWorkstationRole("STAFF", "ADMIN");
+                    requireWorkstationRole("ADMIN");
                     Long tableId = req.getTableId();
                     if (tableId == null || tableId <= 0) {
                         throw new IllegalArgumentException("Mã bàn không hợp lệ");
@@ -304,7 +304,7 @@ public class ClientHandler implements Runnable {
                 }
 
                 case GET_TABLE_BILL_PREVIEW: {
-                    requireWorkstationRole("STAFF", "ADMIN");
+                    requireWorkstationRole("ADMIN");
                     Long tableId = req.getTableId();
                     if (tableId == null || tableId <= 0) {
                         throw new IllegalArgumentException("Mã bàn không hợp lệ");
@@ -322,7 +322,7 @@ public class ClientHandler implements Runnable {
                     throw new IllegalStateException("Hãy xác nhận đã phục vụ trên màn hình bếp.");
 
                 case PAY_TABLE_BILL: {
-                    requireWorkstationRole("STAFF", "ADMIN");
+                    requireWorkstationRole("ADMIN");
                     Long tableId = req.getTableId();
                     BillDTO bill = (BillDTO) req.getData();
 

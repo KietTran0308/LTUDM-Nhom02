@@ -407,6 +407,7 @@ public class SocketJsonMapper {
         b.setTotalAmount(obj.optBigDecimal("totalAmount", BigDecimal.ZERO));
         b.setDiscount(obj.optBigDecimal("discount", BigDecimal.ZERO));
         b.setTax(obj.optBigDecimal("tax", BigDecimal.ZERO));
+        b.setPointsUsed(obj.optInt("pointsUsed", 0));
 
         if (obj.has("paymentMethod") && !obj.isNull("paymentMethod")) {
             b.setPaymentMethod(dbEnums.PaymentMethod.valueOf(obj.getString("paymentMethod")));
@@ -427,36 +428,14 @@ public class SocketJsonMapper {
         return f;
     }
 
-    private static IngredientDTO jsonToIngredient(JSONObject obj) {
-        IngredientDTO i = new IngredientDTO();
-        if (obj.has("id") && !obj.isNull("id")) i.setId(obj.getLong("id"));
-        i.setName(obj.optString("name", ""));
-        i.setUnit(obj.optString("unit", ""));
-        i.setStockQuantity(obj.optBigDecimal("stockQuantity", BigDecimal.ZERO));
-        i.setMinStockLevel(obj.optBigDecimal("minStockLevel", BigDecimal.ZERO));
-        return i;
-    }
-
-    private static JSONArray ingredientListToJsonArray(List<IngredientDTO> list) {
-        JSONArray result = new JSONArray();
-        for (IngredientDTO i : list) {
-            JSONObject obj = new JSONObject();
-            if (i.getId() != null) obj.put("id", i.getId());
-            obj.put("name", i.getName());
-            obj.put("unit", i.getUnit());
-            obj.put("stockQuantity", i.getStockQuantity());
-            obj.put("minStockLevel", i.getMinStockLevel());
-            result.put(obj);
-        }
-        return result;
-    }
-
     private static JSONArray billListToJsonArray(List<BillDTO> list) {
         JSONArray result = new JSONArray();
         for (BillDTO b : list) {
             JSONObject obj = new JSONObject();
             if (b.getId() != null) obj.put("id", b.getId());
             if (b.getTableSessionId() != null) obj.put("tableSessionId", b.getTableSessionId());
+            if (b.getUserId() != null) obj.put("userId", b.getUserId());
+            obj.put("pointsUsed", b.getPointsUsed());
             obj.put("totalAmount", b.getTotalAmount());
             obj.put("discount", b.getDiscount());
             obj.put("tax", b.getTax());

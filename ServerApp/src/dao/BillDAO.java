@@ -46,10 +46,12 @@ public class BillDAO {
                                 "payment_method, paid_at, payment_status) " +
                                 "VALUES (?, ?, ?, ?, ?, NOW(3), 'PAID')")) {
                     ps.setLong(1, sessionId);
-                    ps.setBigDecimal(2, current.getCheckoutTotal());
-                    ps.setBigDecimal(3, current.getDiscountAmount());
-                    ps.setBigDecimal(4, current.getCheckoutTax());
-                    ps.setString(5, bill.getPaymentMethod().name());
+                    ps.setObject(2, bill.getUserId(), java.sql.Types.BIGINT);
+                    ps.setBigDecimal(3, current.getCheckoutTotal());
+                    ps.setBigDecimal(4, current.getDiscountAmount());
+                    ps.setInt(5, bill.getPointsUsed());
+                    ps.setBigDecimal(6, current.getCheckoutTax());
+                    ps.setString(7, bill.getPaymentMethod().name());
                     ps.executeUpdate();
                 }
                 try (PreparedStatement ps = conn.prepareStatement(

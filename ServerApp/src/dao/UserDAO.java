@@ -190,10 +190,7 @@ public class UserDAO {
      * Đăng ký tài khoản mới.
      */
     public UserDTO registerUser(UserDTO newUser) throws SQLException {
-        String sqlRole = "SELECT roleID, nameRole FROM roles " +
-                "WHERE UPPER(nameRole) IN ('CUSTOMER', 'TABLE_KIOSK', 'USER') " +
-                "LIMIT 1";
-
+        String sqlRole = "SELECT roleID, nameRole FROM roles " + "WHERE UPPER(nameRole) IN ('CUSTOMER', 'TABLE_KIOSK', 'USER') " + "LIMIT 1";
         String sqlInsert = "INSERT INTO users " +
                 "(roleID, email, password_hash, full_name, phone, is_active) " +
                 "VALUES (?, ?, ?, ?, ?, TRUE)";
@@ -219,11 +216,15 @@ public class UserDAO {
                             sqlInsert, Statement.RETURN_GENERATED_KEYS
                     )
             ) {
+                String phone = newUser.getPhone() == null ? null : newUser.getPhone().trim();
+                String pass = newUser.getPasswordHash() == null ? "" : newUser.getPasswordHash().trim();
+
                 psInsert.setLong(1, roleId);
                 psInsert.setString(2, newUser.getEmail().trim());
-                psInsert.setString(3, newUser.getPasswordHash().trim());
+                psInsert.setString(3, pass);
                 psInsert.setString(4, newUser.getFullName().trim());
-                psInsert.setString(5, newUser.getPhone().trim());
+                if (phone == null || phone.isEmpty()) psInsert.setNull(5, Types.VARCHAR);
+                else psInsert.setString(5, phone);
 
                 psInsert.executeUpdate();
 
@@ -243,10 +244,6 @@ public class UserDAO {
         return null;
     }
 
-    /**
-     * Admin cấp tài khoản với vai trò chỉ định (STAFF / KITCHEN / CUSTOMER).
-     * roleID được tra theo tên trong bảng roles.
-     */
     public UserDTO registerUserWithRole(UserDTO newUser, String roleName) throws SQLException {
         Long roleId = findRoleIdByName(roleName);
         if (roleId == null) {
@@ -261,11 +258,16 @@ public class UserDAO {
                 Connection conn = dbConnection.getConnection();
                 PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)
         ) {
+            String phone = newUser.getPhone() == null ? null : newUser.getPhone().trim();
+            String pass = newUser.getPasswordHash() == null ? "" : newUser.getPasswordHash().trim();
+
             ps.setLong(1, roleId);
             ps.setString(2, newUser.getEmail().trim());
-            ps.setString(3, newUser.getPasswordHash().trim());
+            ps.setString(3, pass);
             ps.setString(4, newUser.getFullName().trim());
-            ps.setString(5, newUser.getPhone().trim());
+            if (phone == null || phone.isEmpty()) ps.setNull(5, Types.VARCHAR);
+            else ps.setString(5, phone);
+
             ps.executeUpdate();
 
             try (ResultSet rsKey = ps.getGeneratedKeys()) {
