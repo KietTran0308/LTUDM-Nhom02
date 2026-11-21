@@ -30,20 +30,12 @@ public final class ServerConfig {
     private static int loadPort() {
         String value = System.getProperty("server.port");
 
-        if (value == null || value.isBlank()) {
-            value = System.getenv("SERVER_PORT");
-        }
-
-        if (value == null || value.isBlank()) {
-            return DEFAULT_PORT;
-        }
+        if (value == null || value.isBlank()) value = System.getenv("SERVER_PORT");
+        if (value == null || value.isBlank()) return DEFAULT_PORT;
 
         try {
             int port = Integer.parseInt(value.trim());
-
-            if (port >= 1 && port <= 65535) {
-                return port;
-            }
+            if (port >= 1 && port <= 65535) return port;
         } catch (NumberFormatException ignored) {
         }
 

@@ -25,7 +25,7 @@ public class FoodDAO {
      */
     public List<FoodImageDTO> getImagesByFoodId(Long foodId) {
         List<FoodImageDTO> images = new ArrayList<>();
-        String sql = "SELECT * FROM food_images WHERE foods_id = ? ORDER BY sort_order ASC";
+        String sql = "SELECT * FROM food_images WHERE foods_id = ?";
 
         Connection conn = null;
         PreparedStatement ps = null;
@@ -44,7 +44,6 @@ public class FoodDAO {
                         rs.getLong("foods_id"),
                         rs.getString("url"),
                         rs.getBoolean("is_cover"),
-                        rs.getInt("sort_order"),
                         created == null ? null : created.toLocalDateTime()
                 ));
             }
@@ -73,9 +72,9 @@ public class FoodDAO {
     }
 
     public boolean insertFoodWithCover(FoodDTO food) {
-        String sqlFood = "INSERT INTO foods (sku, category_id, name, slug, description, price, is_published, is_deleted) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, FALSE)";
-        String sqlImg = "INSERT INTO food_images (foods_id, url, is_cover, sort_order) VALUES (?, ?, TRUE, 1)";
+        String sqlFood = "INSERT INTO foods (sku, category_id, name, description, price, is_published, is_deleted) " +
+                "VALUES (?, ?, ?, ?, ?, ?, FALSE)";
+        String sqlImg = "INSERT INTO food_images (foods_id, url, is_cover) VALUES (?, ?, TRUE)";
 
         Connection conn = null;
         PreparedStatement psFood = null;
@@ -90,10 +89,9 @@ public class FoodDAO {
             psFood.setString(1, food.getSku());
             psFood.setObject(2, food.getCategoryId(), Types.BIGINT);
             psFood.setString(3, food.getName());
-            psFood.setString(4, food.getSlug());
-            psFood.setString(5, food.getDescription());
-            psFood.setBigDecimal(6, food.getPrice());
-            psFood.setBoolean(7, food.getIsPublished());
+            psFood.setString(4, food.getDescription());
+            psFood.setBigDecimal(5, food.getPrice());
+            psFood.setBoolean(6, food.getIsPublished());
             psFood.executeUpdate();
 
             rsKey = psFood.getGeneratedKeys();
@@ -118,11 +116,11 @@ public class FoodDAO {
     }
 
     public boolean updateFoodBasicInfo(FoodDTO food) {
-        String sql = "UPDATE foods SET sku = ?, category_id = ?, name = ?, slug = ?, " +
+        String sql = "UPDATE foods SET sku = ?, category_id = ?, name = ?, " +
                 "description = ?, price = ?, is_published = ? WHERE id = ? AND is_deleted = FALSE";
         String updateCover = "UPDATE food_images SET url = ? WHERE foods_id = ? AND is_cover = TRUE";
-        String insertCover = "INSERT INTO food_images (foods_id, url, is_cover, sort_order) " +
-                "VALUES (?, ?, TRUE, 1)";
+        String insertCover = "INSERT INTO food_images (foods_id, url, is_cover) " +
+                "VALUES (?, ?, TRUE)";
         Connection conn = null;
         try {
             conn = dbConnection.getConnection();
@@ -131,11 +129,10 @@ public class FoodDAO {
                 ps.setString(1, food.getSku());
                 ps.setObject(2, food.getCategoryId(), Types.BIGINT);
                 ps.setString(3, food.getName());
-                ps.setString(4, food.getSlug());
-                ps.setString(5, food.getDescription());
-                ps.setBigDecimal(6, food.getPrice());
-                ps.setBoolean(7, Boolean.TRUE.equals(food.getIsPublished()));
-                ps.setLong(8, food.getId());
+                ps.setString(4, food.getDescription());
+                ps.setBigDecimal(5, food.getPrice());
+                ps.setBoolean(6, Boolean.TRUE.equals(food.getIsPublished()));
+                ps.setLong(7, food.getId());
                 ps.executeUpdate();
             }
             // A no-op UPDATE may return 0; the BUS has already checked that the food exists.
@@ -214,7 +211,7 @@ public class FoodDAO {
         Timestamp updated = rs.getTimestamp("updated_at");
         FoodDTO food = new FoodDTO(
                 rs.getLong("id"), rs.getString("sku"), rs.getObject("category_id", Long.class),
-                rs.getString("name"), rs.getString("slug"), rs.getString("description"),
+                rs.getString("name"), rs.getString("description"),
                 rs.getBigDecimal("price"), rs.getBoolean("is_published"), rs.getBoolean("is_deleted"),
                 created == null ? null : created.toLocalDateTime(),
                 updated == null ? null : updated.toLocalDateTime());
@@ -279,20 +276,12 @@ public class FoodDAO {
         return exists("SELECT 1 FROM foods WHERE name = ? LIMIT 1", name);
     }
 
-    public boolean existsBySlug(String slug) throws SQLException {
-        return exists("SELECT 1 FROM foods WHERE slug = ? LIMIT 1", slug);
-    }
-
     public boolean existsBySkuExceptId(String sku, Long foodId) throws SQLException {
         return exists("SELECT 1 FROM foods WHERE sku = ? AND id <> ? LIMIT 1", sku, foodId);
     }
 
     public boolean existsByNameExceptId(String name, Long foodId) throws SQLException {
         return exists("SELECT 1 FROM foods WHERE name = ? AND id <> ? LIMIT 1", name, foodId);
-    }
-
-    public boolean existsBySlugExceptId(String slug, Long foodId) throws SQLException {
-        return exists("SELECT 1 FROM foods WHERE slug = ? AND id <> ? LIMIT 1", slug, foodId);
     }
 
     public boolean updatePublishedStatus(Long foodId, boolean isPublished) throws SQLException {

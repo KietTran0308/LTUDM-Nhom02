@@ -8,6 +8,8 @@ import java.io.InputStream;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.ByteBuffer;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import javax.crypto.SecretKey;
 import security.AESGCMUtil;
 
@@ -31,6 +33,7 @@ public final class ImageSocketServer {
             folder = imageName.substring(0, slash).toLowerCase(java.util.Locale.ROOT);
             filename = imageName.substring(slash + 1);
         }
+
         URL resource = ImageSocketServer.class.getResource("/img/" + folder + "/" + filename);
         if (resource == null) {
             resource = ImageSocketServer.class.getResource("/gui/img/" + folder + "/" + filename);

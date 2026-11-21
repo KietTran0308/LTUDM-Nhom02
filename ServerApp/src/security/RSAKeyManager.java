@@ -33,8 +33,7 @@ public class RSAKeyManager {
     private static final Set<PosixFilePermission> OWNER_FILE =
             EnumSet.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE);
 
-    private final Path publicKeyPath;
-    private final Path privateKeyPath;
+    private final Path publicKeyPath, privateKeyPath;
     private PublicKey publicKey;
     private PrivateKey privateKey;
 

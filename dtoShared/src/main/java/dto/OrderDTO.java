@@ -11,28 +11,15 @@ public class OrderDTO implements Serializable {
 
     private Long id;
     private String orderCode;
-    private Long parentOrderId; // Phục vụ gọi thêm món nhiều lượt tại bàn (Haidilao style)
-    private Long userId;
-    private Long tableId;       // orders.table_id, nullable
-    private Long tableSessionId; // orders.table_session_id, nullable; phiên bàn gọi món
-    private Long voucherId;
-    private dbEnums.OrderType orderType;
+    private Long parentOrderId;
+    private Long userId, tableId, tableSessionId, voucherId;
     private dbEnums.OrderStatus status;
-    private BigDecimal subtotal;
-    private BigDecimal shippingFee;
-    private BigDecimal discountAmount;
-    private BigDecimal totalAmount;
-    private BigDecimal checkoutTax;
-    private String checkoutRevision;
-    private String receiverName;
-    private String receiverPhone;
-    private String shippingAddress;
-    private String note;
+    private BigDecimal subtotal, discountAmount, totalAmount, checkoutTax;
+    private String checkoutRevision, note;
     private String cancelReason;
     private LocalDateTime cancelledAt;
     private Long confirmedBy;
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
+    private LocalDateTime createdAt, updatedAt;
 
     // Danh sách món đi kèm trong đơn để gửi trọn gói qua TCP Socket
     private List<OrderItemDTO> items = new ArrayList<>();
@@ -61,17 +48,11 @@ public class OrderDTO implements Serializable {
     public Long getVoucherId() { return voucherId; }
     public void setVoucherId(Long voucherId) { this.voucherId = voucherId; }
 
-    public dbEnums.OrderType getOrderType() { return orderType; }
-    public void setOrderType(dbEnums.OrderType orderType) { this.orderType = orderType; }
-
     public dbEnums.OrderStatus getStatus() { return status; }
     public void setStatus(dbEnums.OrderStatus status) { this.status = status; }
 
     public BigDecimal getSubtotal() { return subtotal; }
     public void setSubtotal(BigDecimal subtotal) { this.subtotal = subtotal; }
-
-    public BigDecimal getShippingFee() { return shippingFee; }
-    public void setShippingFee(BigDecimal shippingFee) { this.shippingFee = shippingFee; }
 
     public BigDecimal getDiscountAmount() { return discountAmount; }
     public void setDiscountAmount(BigDecimal discountAmount) { this.discountAmount = discountAmount; }
@@ -86,15 +67,6 @@ public class OrderDTO implements Serializable {
 
     public String getCheckoutRevision() { return checkoutRevision; }
     public void setCheckoutRevision(String checkoutRevision) { this.checkoutRevision = checkoutRevision; }
-
-    public String getReceiverName() { return receiverName; }
-    public void setReceiverName(String receiverName) { this.receiverName = receiverName; }
-
-    public String getReceiverPhone() { return receiverPhone; }
-    public void setReceiverPhone(String receiverPhone) { this.receiverPhone = receiverPhone; }
-
-    public String getShippingAddress() { return shippingAddress; }
-    public void setShippingAddress(String shippingAddress) { this.shippingAddress = shippingAddress; }
 
     public String getNote() { return note; }
     public void setNote(String note) { this.note = note; }
@@ -119,4 +91,5 @@ public class OrderDTO implements Serializable {
 
     public String getTableName() { return tableName; }
     public void setTableName(String tableName) { this.tableName = tableName; }
+
 }

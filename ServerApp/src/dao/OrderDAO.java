@@ -40,7 +40,7 @@ public class OrderDAO {
     }
 
     public Long createTableOrderTransaction(OrderDTO order) throws SQLException {
-        if (order == null || order.getOrderType() != dbEnums.OrderType.DINE_IN ||
+        if (order == null ||
                 order.getTableId() == null || order.getTableId() <= 0 ||
                 order.getItems() == null || order.getItems().isEmpty()) {
             throw new IllegalArgumentException("Đơn tại bàn phải có bàn và ít nhất một món");
@@ -111,15 +111,14 @@ public class OrderDAO {
                 // No voucher logic is provided here. The client cannot set discounts.
                 order.setVoucherId(null);
                 order.setSubtotal(subtotal);
-                order.setShippingFee(BigDecimal.ZERO);
                 order.setDiscountAmount(BigDecimal.ZERO);
                 order.setTotalAmount(subtotal);
                 order.setStatus(dbEnums.OrderStatus.PENDING);
 
                 final String insertOrder =
                         "INSERT INTO orders (order_code, parent_order_id, user_id, table_id, " +
-                                "table_session_id, voucher_id, order_type, status, subtotal, shipping_fee, " +
-                                "discount_amount, total_amount, note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                                "table_session_id, voucher_id, status, subtotal," +
+                                "discount_amount, total_amount, note) VALUES (?,?,?,?,?,?,?,?,?,?,?)";
                 Long orderId;
                 try (PreparedStatement ps = conn.prepareStatement(insertOrder, Statement.RETURN_GENERATED_KEYS)) {
                     ps.setString(1, order.getOrderCode());
@@ -128,13 +127,11 @@ public class OrderDAO {
                     ps.setLong(4, order.getTableId());
                     ps.setLong(5, sessionId);
                     ps.setNull(6, Types.BIGINT);
-                    ps.setString(7, order.getOrderType().name());
-                    ps.setString(8, order.getStatus().name());
-                    ps.setBigDecimal(9, order.getSubtotal());
-                    ps.setBigDecimal(10, order.getShippingFee());
-                    ps.setBigDecimal(11, order.getDiscountAmount());
-                    ps.setBigDecimal(12, order.getTotalAmount());
-                    ps.setString(13, order.getNote());
+                    ps.setString(7, order.getStatus().name());
+                    ps.setBigDecimal(8, order.getSubtotal());
+                    ps.setBigDecimal(9, order.getDiscountAmount());
+                    ps.setBigDecimal(10, order.getTotalAmount());
+                    ps.setString(11, order.getNote());
                     if (ps.executeUpdate() != 1) throw new SQLException("Không thể tạo đơn hàng");
                     try (ResultSet rs = ps.getGeneratedKeys()) {
                         if (!rs.next()) throw new SQLException("Không nhận được ID đơn hàng mới");
@@ -432,7 +429,7 @@ public class OrderDAO {
                         "WHERE order_id = ? AND status <> 'CANCELLED'), " +
                         "total_amount = (SELECT COALESCE(SUM(line_total), 0) FROM order_items " +
                         "WHERE order_id = ? AND status <> 'CANCELLED') " +
-                        "- COALESCE(discount_amount, 0) + COALESCE(shipping_fee, 0) WHERE id = ?")) {
+                        "- COALESCE(discount_amount, 0) WHERE id = ?")) {
             ps.setLong(1, orderId);
             ps.setLong(2, orderId);
             ps.setLong(3, orderId);
@@ -692,12 +689,9 @@ public class OrderDAO {
         order.setTableId(nullableLong(rs, "table_id"));
         order.setTableSessionId(nullableLong(rs, "table_session_id"));
         order.setVoucherId(nullableLong(rs, "voucher_id"));
-        String type = rs.getString("order_type");
-        if (type != null) order.setOrderType(dbEnums.OrderType.valueOf(type));
         String status = rs.getString("status");
         if (status != null) order.setStatus(dbEnums.OrderStatus.valueOf(status));
         order.setSubtotal(rs.getBigDecimal("subtotal"));
-        order.setShippingFee(rs.getBigDecimal("shipping_fee"));
         order.setDiscountAmount(rs.getBigDecimal("discount_amount"));
         order.setTotalAmount(rs.getBigDecimal("total_amount"));
         order.setNote(rs.getString("note"));

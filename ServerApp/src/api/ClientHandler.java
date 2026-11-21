@@ -139,7 +139,7 @@ public class ClientHandler implements Runnable {
 
                 if (rawJson.startsWith("IMG/2 ")) {
                     ImageSocketServer.sendImage(rawJson.substring(6), out, sessionKey);
-                    break;
+                    continue;
                 }
 
                 SocketPacket request = SocketJsonMapper.fromJsonString(rawJson);

@@ -89,10 +89,8 @@ public class FoodBUS {
 
         validateFoodData(food);
 
-        // Chuẩn hóa dữ liệu
         food.setSku(food.getSku().trim());
         food.setName(food.getName().trim());
-        food.setSlug(food.getSlug().trim());
 
         if (food.getDescription() != null) {
             food.setDescription(food.getDescription().trim());
@@ -119,12 +117,6 @@ public class FoodBUS {
             );
         }
 
-        // Kiểm tra trùng slug
-        if (foodDAO.existsBySlug(food.getSlug())) {
-            throw new IllegalArgumentException(
-                    "Slug món ăn đã tồn tại."
-            );
-        }
 
         // Mặc định mở bán nếu chưa truyền trạng thái
         if (food.getIsPublished() == null) {
@@ -167,7 +159,6 @@ public class FoodBUS {
         // Chuẩn hóa dữ liệu
         food.setSku(food.getSku().trim());
         food.setName(food.getName().trim());
-        food.setSlug(food.getSlug().trim());
 
         if (food.getDescription() != null) {
             food.setDescription(food.getDescription().trim());
@@ -197,14 +188,6 @@ public class FoodBUS {
             );
         }
 
-        // Kiểm tra slug trùng với món khác
-        if (foodDAO.existsBySlugExceptId(
-                food.getSlug(), food.getId())) {
-
-            throw new IllegalArgumentException(
-                    "Slug đã được sử dụng."
-            );
-        }
 
         // Nếu không truyền trạng thái thì giữ trạng thái cũ
         if (food.getIsPublished() == null) {
@@ -271,9 +254,6 @@ public class FoodBUS {
         String name = food.getName() == null
                 ? "" : food.getName().trim();
 
-        String slug = food.getSlug() == null
-                ? "" : food.getSlug().trim();
-
         if (sku.isEmpty()) {
             throw new IllegalArgumentException(
                     "SKU món ăn không được để trống."
@@ -286,11 +266,6 @@ public class FoodBUS {
             );
         }
 
-        if (slug.isEmpty()) {
-            throw new IllegalArgumentException(
-                    "Slug món ăn không được để trống."
-            );
-        }
 
         if (food.getPrice() == null ||
                 food.getPrice().compareTo(BigDecimal.ZERO) <= 0) {

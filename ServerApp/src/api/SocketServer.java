@@ -72,7 +72,7 @@ public class SocketServer {
 
     public static void broadcastTablesChanged() {
         emit(staffClients, new SocketPacket(SocketAction.LIST_TABLES, true,
-                "So do ban da thay doi", dao.TableDAO.getAllTables(), null));
+                "So do ban da thay doi", new bus.OrderBUS().getAllRestaurantTables(), null));
     }
 
     public static void broadcastOrderCreated(OrderDTO order) {

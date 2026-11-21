@@ -78,7 +78,7 @@ public class SocketJsonMapper {
                 break;
 
             case ADMIN_GET_BILLS:
-                if (!root.isNull("data")) data = root.get("data");
+                if (root.has("data") && !root.isNull("data") && root.get("data") instanceof JSONObject) data = root.get("data");
                 break;
 
             case ADMIN_ADD_FOOD:
@@ -264,7 +264,6 @@ public class SocketJsonMapper {
         OrderDTO o = new OrderDTO();
         if (obj.has("userId") && !obj.isNull("userId")) o.setUserId(obj.getLong("userId"));
         if (obj.has("tableId") && !obj.isNull("tableId")) o.setTableId(obj.getLong("tableId"));
-        if (obj.has("orderType") && !obj.isNull("orderType")) o.setOrderType(dbEnums.OrderType.valueOf(obj.getString("orderType")));
         if (obj.has("status") && !obj.isNull("status")) o.setStatus(dbEnums.OrderStatus.valueOf(obj.getString("status")));
         o.setNote(obj.optString("note", ""));
 
@@ -350,7 +349,6 @@ public class SocketJsonMapper {
                 obj.put("sku", f.getSku());
                 if (f.getCategoryId() != null) obj.put("categoryId", f.getCategoryId());
                 obj.put("name", f.getName());
-                obj.put("slug", f.getSlug());
                 obj.put("description", f.getDescription());
                 obj.put("price", f.getPrice());
                 obj.put("isPublished", f.getIsPublished());
@@ -369,8 +367,6 @@ public class SocketJsonMapper {
                 JSONObject obj = new JSONObject();
                 obj.put("id", c.getId());
                 obj.put("name", c.getName());
-                obj.put("slug", c.getSlug());
-                obj.put("description", c.getDescription());
                 arr.put(obj);
             }
         }

@@ -45,7 +45,6 @@ public class SocketJsonMapper {
                     if (o.getUserId() != null) obj.put("userId", o.getUserId());
                     if (o.getTableId() != null) obj.put("tableId", o.getTableId());
                     if (o.getTableSessionId() != null) obj.put("tableSessionId", o.getTableSessionId());
-                    if (o.getOrderType() != null) obj.put("orderType", o.getOrderType().name());
                     if (o.getStatus() != null) obj.put("status", o.getStatus().name());
                     if (o.getNote() != null) obj.put("note", o.getNote());
 
@@ -137,9 +136,8 @@ public class SocketJsonMapper {
                 break;
 
             case ADMIN_LOCK_ACCOUNT:
-                if (data instanceof Long) {
-                    root.put("data", data);
-                }
+                if (data instanceof Long) root.put("data", data);
+                if (extraData != null) root.put("extraData", extraData.toString());
                 break;
 
             case REGISTER:
@@ -410,7 +408,7 @@ public class SocketJsonMapper {
             f.setSku(obj.optString("sku", ""));
             if (obj.has("categoryId") && !obj.isNull("categoryId")) f.setCategoryId(obj.getLong("categoryId"));
             f.setName(obj.optString("name", ""));
-            f.setSlug(obj.optString("slug", ""));
+
             f.setDescription(obj.optString("description", ""));
             f.setPrice(obj.optBigDecimal("price", BigDecimal.ZERO));
             f.setIsPublished(obj.optBoolean("isPublished", true));
@@ -428,8 +426,6 @@ public class SocketJsonMapper {
             list.add(new CategoryDTO(
                     obj.getLong("id"),
                     obj.optString("name", ""),
-                    obj.optString("slug", ""),
-                    obj.optString("description", ""),
                     null
             ));
         }

@@ -226,7 +226,7 @@ public class ClientTabletBUS {
     public BufferedImage getOrRequestFoodImage(FoodDTO food) {
         if (!imagesActive || food == null || food.getId() == null) return null;
         Long foodId = food.getId();
-        String key = String.valueOf(food.getCoverImageUrl()) + "|" + food.getSlug();
+        String key = String.valueOf(food.getCoverImageUrl());
         String previous = foodImageKeys.put(foodId, key);
         if (previous != null && !previous.equals(key)) {
             foodImageCache.remove(foodId); // Anh bìa thay doi => bo cache cu.
@@ -280,7 +280,6 @@ public class ClientTabletBUS {
     private BufferedImage fetchFoodImageFromSources(FoodDTO food) {
         LinkedHashSet<String> candidates = new LinkedHashSet<>();
         addImageCandidates(candidates, food.getCoverImageUrl());
-        addImageCandidates(candidates, food.getSlug());
         for (String name : candidates) {
             if (!imagesActive || Thread.currentThread().isInterrupted()) return null;
             BufferedImage image = ImageSocketClient.fetchImage(name);
@@ -406,7 +405,6 @@ public class ClientTabletBUS {
         OrderDTO order = new OrderDTO();
         order.setUserId(this.defaultTableUserId);
         order.setTableId(this.tableId);
-        order.setOrderType(dbEnums.OrderType.DINE_IN);
         order.setStatus(dbEnums.OrderStatus.PENDING);
         order.setNote(buildOrderNote(itemNotes));
         for (OrderItemDTO item : currentCart) {

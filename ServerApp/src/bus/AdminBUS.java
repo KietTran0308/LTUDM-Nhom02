@@ -36,7 +36,6 @@ public class AdminBUS {
         food.setSku(sku);
         food.setCategoryId(categoryId);
         food.setName(name);
-        food.setSlug(generateSlug(name) + "-" + (System.currentTimeMillis() % 10000));
         food.setDescription("Món ngon chuẩn vị");
         food.setPrice(price);
         food.setIsPublished(isPublished);
@@ -49,9 +48,6 @@ public class AdminBUS {
         FoodDTO food = foodBUS.getFoodById(id);
 
         String trimmedName = name == null ? "" : name.trim();
-        if (!trimmedName.isEmpty() && !trimmedName.equals(food.getName())) {
-            food.setSlug(generateSlug(trimmedName) + "-" + id);
-        }
         food.setName(trimmedName);
         food.setPrice(price);
         food.setCategoryId(categoryId);
@@ -75,6 +71,7 @@ public class AdminBUS {
     public RevenueReport getRevenueReport(JSONObject filters) throws SQLException {
         LocalDate from = null;
         LocalDate to = null;
+        if (filters == null) filters = new JSONObject();
         if (filters.has("from") || filters.has("to")) {
             try {
                 from = LocalDate.parse(filters.optString("from"));
@@ -194,18 +191,6 @@ public class AdminBUS {
         return userBUS.deactivateUser(id);
     }
 
-
-    // Hàm tiện ích chuyển tên tiếng Việt có dấu thành slug chuẩn
-    private String generateSlug(String input) {
-        String temp = Normalizer.normalize(input, Normalizer.Form.NFD);
-        Pattern pattern = Pattern.compile("\\p{InCombiningDiacriticalMarks}+");
-        return pattern.matcher(temp).replaceAll("")
-                .toLowerCase()
-                .replaceAll("đ", "d")
-                .replaceAll("[^a-z0-9\\s-]", "")
-                .trim()
-                .replaceAll("\\s+", "-");
-    }
 
     /** Khóa (active=false) hoặc mở khóa (active=true) theo trạng thái đích do client yêu cầu. */
     public boolean setAccountActive(

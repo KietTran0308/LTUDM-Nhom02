@@ -12,10 +12,6 @@ public interface dbEnums {
         PENDING, RECEIVED, COOKING, COMPLETED, SERVED, CANCELLED
     }
 
-    enum OrderType {
-        DINE_IN, TAKEAWAY, DELIVERY
-    }
-
     enum PaymentMethod {
         CASH, CREDIT_CARD, E_WALLET, BANK_TRANSFER
     }

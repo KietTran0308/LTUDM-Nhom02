@@ -12,7 +12,6 @@ public class FoodDTO implements Serializable {
     private String sku;
     private Long categoryId; // Có thể NULL
     private String name;
-    private String slug;
     private String description;
     private BigDecimal price;
     private Boolean isPublished;
@@ -27,14 +26,13 @@ public class FoodDTO implements Serializable {
 
     public FoodDTO() {}
 
-    public FoodDTO(Long id, String sku, Long categoryId, String name, String slug,
+    public FoodDTO(Long id, String sku, Long categoryId, String name,
                    String description, BigDecimal price, Boolean isPublished,
                    Boolean isDeleted, LocalDateTime createdAt, LocalDateTime updatedAt) {
         this.id = id;
         this.sku = sku;
         this.categoryId = categoryId;
         this.name = name;
-        this.slug = slug;
         this.description = description;
         this.price = price;
         this.isPublished = isPublished;
@@ -54,9 +52,6 @@ public class FoodDTO implements Serializable {
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
-
-    public String getSlug() { return slug; }
-    public void setSlug(String slug) { this.slug = slug; }
 
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }

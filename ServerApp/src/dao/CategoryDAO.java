@@ -9,7 +9,7 @@ public class CategoryDAO {
 
     public List<CategoryDTO> getAllCategories() {
         List<CategoryDTO> list = new ArrayList<>();
-        String sql = "SELECT id, name, slug, description, created_at FROM categories ORDER BY id ASC";
+        String sql = "SELECT id, name, created_at FROM categories ORDER BY id ASC";
 
         Connection conn = null;
         PreparedStatement ps = null;
@@ -34,7 +34,7 @@ public class CategoryDAO {
 
     // Read one category (DB exceptions propagate to BUS).
     public CategoryDTO getCategoryById(long id) throws SQLException {
-        String sql = "SELECT id, name, slug, description, created_at FROM categories WHERE id = ?";
+        String sql = "SELECT id, name, created_at FROM categories WHERE id = ?";
         try (Connection conn = dbConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, id);
@@ -48,7 +48,6 @@ public class CategoryDAO {
     private CategoryDTO mapCategory(ResultSet rs) throws SQLException {
         Timestamp created = rs.getTimestamp("created_at");
         return new CategoryDTO(rs.getLong("id"), rs.getString("name"),
-                rs.getString("slug"), rs.getString("description"),
                 created == null ? null : created.toLocalDateTime());
     }
 
@@ -64,25 +63,16 @@ public class CategoryDAO {
         return exists("SELECT 1 FROM categories WHERE name = ? LIMIT 1", name);
     }
 
-    public boolean existsBySlug(String slug) throws SQLException {
-        return exists("SELECT 1 FROM categories WHERE slug = ? LIMIT 1", slug);
-    }
-
     public boolean existsByNameExceptId(String name, Long id) throws SQLException {
         return exists("SELECT 1 FROM categories WHERE name = ? AND id <> ? LIMIT 1", name, id);
     }
 
-    public boolean existsBySlugExceptId(String slug, Long id) throws SQLException {
-        return exists("SELECT 1 FROM categories WHERE slug = ? AND id <> ? LIMIT 1", slug, id);
-    }
 
     public CategoryDTO createCategory(CategoryDTO category) throws SQLException {
-        String sql = "INSERT INTO categories (name, slug, description) VALUES (?, ?, ?)";
+        String sql = "INSERT INTO categories (name) VALUES (?)";
         try (Connection conn = dbConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             ps.setString(1, category.getName());
-            ps.setString(2, category.getSlug());
-            ps.setString(3, category.getDescription());
             if (ps.executeUpdate() != 1) throw new SQLException("Không tạo được danh mục");
             try (ResultSet keys = ps.getGeneratedKeys()) {
                 if (!keys.next()) throw new SQLException("Không lấy được ID danh mục mới");
@@ -93,13 +83,11 @@ public class CategoryDAO {
     }
 
     public CategoryDTO updateCategory(CategoryDTO category) throws SQLException {
-        String sql = "UPDATE categories SET name = ?, slug = ?, description = ? WHERE id = ?";
+        String sql = "UPDATE categories SET name = ? WHERE id = ?";
         try (Connection conn = dbConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, category.getName());
-            ps.setString(2, category.getSlug());
-            ps.setString(3, category.getDescription());
-            ps.setLong(4, category.getId());
+            ps.setLong(2, category.getId());
             // Some JDBC drivers return zero when values were unchanged.
             ps.executeUpdate();
         }
