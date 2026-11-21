@@ -2,8 +2,7 @@ package dao;
 
 import dto.OrderDTO;
 import dto.OrderItemDTO;
-import dto.OrderStatus;
-import dto.OrderType;
+import dto.dbEnums;
 import org.json.JSONArray;
 
 import java.math.BigDecimal;
@@ -41,7 +40,7 @@ public class OrderDAO {
     }
 
     public Long createTableOrderTransaction(OrderDTO order) throws SQLException {
-        if (order == null || order.getOrderType() != OrderType.DINE_IN ||
+        if (order == null || order.getOrderType() != dbEnums.OrderType.DINE_IN ||
                 order.getTableId() == null || order.getTableId() <= 0 ||
                 order.getItems() == null || order.getItems().isEmpty()) {
             throw new IllegalArgumentException("Đơn tại bàn phải có bàn và ít nhất một món");
@@ -107,7 +106,7 @@ public class OrderDAO {
                         throw new SQLException("Giá món không hợp lệ: " + item.getFoodsId());
                     }
                     item.setLineTotal(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
-                    item.setStatus(OrderStatus.PENDING);
+                    item.setStatus(dbEnums.OrderStatus.PENDING);
                     subtotal = subtotal.add(item.getLineTotal());
                     collectIngredients(conn, item.getFoodsId(), item.getQuantity(), ingredientRequirements);
                 }
@@ -118,7 +117,7 @@ public class OrderDAO {
                 order.setShippingFee(BigDecimal.ZERO);
                 order.setDiscountAmount(BigDecimal.ZERO);
                 order.setTotalAmount(subtotal);
-                order.setStatus(OrderStatus.PENDING);
+                order.setStatus(dbEnums.OrderStatus.PENDING);
                 deductIngredients(conn, ingredientRequirements);
 
                 final String insertOrder =
@@ -159,7 +158,7 @@ public class OrderDAO {
                         ps.setBigDecimal(4, item.getUnitPrice());
                         ps.setInt(5, item.getQuantity());
                         ps.setBigDecimal(6, item.getLineTotal());
-                        ps.setString(7, OrderStatus.PENDING.name());
+                        ps.setString(7, dbEnums.OrderStatus.PENDING.name());
                         ps.setString(8, item.getNote());
                         ps.addBatch();
                     }
@@ -306,46 +305,62 @@ public class OrderDAO {
         return list;
     }
 
-    /**
-     * Kitchen queue only includes orders from ACTIVE table sessions.
-     */
     public List<OrderDTO> getKitchenQueue() {
         List<OrderDTO> orders = new ArrayList<>();
-        String sql = """
-                SELECT o.*, rt.table_name AS display_table_name
-                FROM orders o
-                JOIN table_sessions ts
-                    ON ts.id = o.table_session_id
-                LEFT JOIN tables rt
-                    ON rt.id = o.table_id
-                WHERE ts.status = 'ACTIVE'
-                  AND o.status <> 'CANCELLED'
-                  AND EXISTS (
-                      SELECT 1
-                      FROM order_items oi
-                      WHERE oi.order_id = o.id
-                        AND oi.status NOT IN ('SERVED', 'CANCELLED')
-                  )
-                ORDER BY o.created_at ASC
-                """;
-        try (Connection conn = dbConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                OrderDTO o = mapOrder(rs);
-                o.setItems(readOrderItems(conn, o.getId()));
-                orders.add(o);
+        Map<Long, OrderDTO> orderMap = new LinkedHashMap<>();
+
+        String sqlOrders = """
+            SELECT o.*, rt.table_name AS display_table_name
+            FROM orders o
+            LEFT JOIN tables rt ON rt.id = o.table_id
+            WHERE o.created_at >= CURDATE()
+              AND o.created_at < CURDATE() + INTERVAL 1 DAY
+            ORDER BY o.created_at ASC
+            """;
+
+        String sqlItems = """
+            SELECT oi.*
+            FROM order_items oi
+            JOIN orders o ON o.id = oi.order_id
+            WHERE o.created_at >= CURDATE()
+              AND o.created_at < CURDATE() + INTERVAL 1 DAY
+            ORDER BY oi.id ASC
+            """;
+
+        try (Connection conn = dbConnection.getConnection()) {
+            try (PreparedStatement ps = conn.prepareStatement(sqlOrders);
+                 ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    OrderDTO o = mapOrder(rs);
+                    o.setTableName(rs.getString("display_table_name"));
+                    o.setItems(new ArrayList<>());
+                    orders.add(o);
+                    orderMap.put(o.getId(), o);
+                }
             }
+            if (orderMap.isEmpty()) return orders;
+
+            try (PreparedStatement ps = conn.prepareStatement(sqlItems);
+                 ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    OrderItemDTO item = mapItem(rs);
+                    OrderDTO parent = orderMap.get(item.getOrderId());
+                    if (parent != null) parent.getItems().add(item);
+                }
+            }
+            orders.removeIf(o -> o.getItems().isEmpty());
         } catch (SQLException e) {
-            throw new IllegalStateException("Lỗi truy vấn hàng đợi bếp", e);
+            throw new IllegalStateException("Lỗi truy vấn danh sách món trong ngày của bếp", e);
         }
         return orders;
     }
 
     public Long getTableIdByOrderItem(long itemId) {
-        String sql = "SELECT o.table_id FROM order_items oi JOIN orders o ON o.id = oi.order_id " +
-                "JOIN table_sessions ts ON ts.id = o.table_session_id " +
-                "WHERE oi.id = ? AND ts.status = 'ACTIVE'";
+        // Bỏ điều kiện ts.status = 'ACTIVE' để bếp vẫn có thể xác nhận Đã phục vụ (SERVED)
+        // cho những món đã nấu xong (COMPLETED) dù bàn đã thanh toán xong phiên.
+        String sql = "SELECT o.table_id FROM order_items oi " +
+                "JOIN orders o ON o.id = oi.order_id " +
+                "WHERE oi.id = ?";
         try (Connection conn = dbConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, itemId);
@@ -357,7 +372,7 @@ public class OrderDAO {
         }
     }
 
-    public boolean updateOrderItemStatus(Long orderItemId, OrderStatus newStatus) {
+    public boolean updateOrderItemStatus(Long orderItemId, dbEnums.OrderStatus newStatus) {
         if (newStatus == null) throw new IllegalArgumentException("Trạng thái món không hợp lệ");
         try (Connection conn = dbConnection.getConnection()) {
             conn.setAutoCommit(false);
@@ -365,7 +380,7 @@ public class OrderDAO {
                 long orderId;
                 long foodId;
                 int quantity;
-                OrderStatus oldStatus;
+                dbEnums.OrderStatus oldStatus;
                 try (PreparedStatement ps = conn.prepareStatement(
                         "SELECT oi.order_id, oi.foods_id, oi.quantity, oi.status, " +
                                 "o.status AS order_status, ts.status AS session_status " +
@@ -381,13 +396,18 @@ public class OrderDAO {
                         orderId = rs.getLong("order_id");
                         foodId = rs.getLong("foods_id");
                         quantity = rs.getInt("quantity");
-                        oldStatus = OrderStatus.valueOf(rs.getString("status"));
+                        oldStatus = dbEnums.OrderStatus.valueOf(rs.getString("status"));
                         String orderStatus = rs.getString("order_status");
                         String sessionStatus = rs.getString("session_status");
-                        // A kitchen can mark an order COMPLETED before it is SERVED.
-                        // The session's CLOSED state (payment) is the final barrier.
-                        if ("CANCELLED".equals(orderStatus) || "CLOSED".equals(sessionStatus) ||
+
+                        if ("CANCELLED".equals(orderStatus) ||
                                 ("COMPLETED".equals(orderStatus) && sessionStatus == null)) {
+                            conn.rollback();
+                            return false;
+                        }
+                        // Nếu phiên bàn đã CLOSED (khách đã thanh toán), chỉ cho phép chốt từ COMPLETED -> SERVED
+                        if ("CLOSED".equals(sessionStatus) &&
+                                !(oldStatus == dbEnums.OrderStatus.COMPLETED && newStatus == dbEnums.OrderStatus.SERVED)) {
                             conn.rollback();
                             return false;
                         }
@@ -397,18 +417,18 @@ public class OrderDAO {
                     conn.commit();
                     return true;
                 }
-                boolean permitted = (oldStatus == OrderStatus.PENDING && newStatus == OrderStatus.RECEIVED)
-                        || (oldStatus == OrderStatus.RECEIVED && newStatus == OrderStatus.COOKING)
-                        || (oldStatus == OrderStatus.COOKING && newStatus == OrderStatus.COMPLETED)
-                        || (oldStatus == OrderStatus.COMPLETED && newStatus == OrderStatus.SERVED)
-                        || ((oldStatus == OrderStatus.PENDING || oldStatus == OrderStatus.RECEIVED)
-                        && newStatus == OrderStatus.CANCELLED);
+                boolean permitted = (oldStatus == dbEnums.OrderStatus.PENDING && newStatus == dbEnums.OrderStatus.RECEIVED)
+                        || (oldStatus == dbEnums.OrderStatus.RECEIVED && newStatus == dbEnums.OrderStatus.COOKING)
+                        || (oldStatus == dbEnums.OrderStatus.COOKING && newStatus == dbEnums.OrderStatus.COMPLETED)
+                        || (oldStatus == dbEnums.OrderStatus.COMPLETED && newStatus == dbEnums.OrderStatus.SERVED)
+                        || ((oldStatus == dbEnums.OrderStatus.PENDING || oldStatus == dbEnums.OrderStatus.RECEIVED)
+                        && newStatus == dbEnums.OrderStatus.CANCELLED);
                 if (!permitted) {
                     conn.rollback();
                     return false;
                 }
 
-                if (newStatus == OrderStatus.CANCELLED) {
+                if (newStatus == dbEnums.OrderStatus.CANCELLED) {
                     Map<Long, BigDecimal> ingredients = new HashMap<>();
                     collectIngredients(conn, foodId, quantity, ingredients);
                     restoreIngredients(conn, ingredients);
@@ -422,7 +442,7 @@ public class OrderDAO {
                     ps.setLong(3, orderItemId);
                     if (ps.executeUpdate() != 1) throw new SQLException("Không cập nhật được trạng thái món");
                 }
-                if (newStatus == OrderStatus.CANCELLED) recalculateOrderAmounts(conn, orderId);
+                if (newStatus == dbEnums.OrderStatus.CANCELLED) recalculateOrderAmounts(conn, orderId);
                 conn.commit();
                 return true;
             } catch (SQLException | RuntimeException ex) {
@@ -484,15 +504,15 @@ public class OrderDAO {
         }
     }
 
-    public boolean updateOrderStatus(Long orderId, OrderStatus newStatus) {
+    public boolean updateOrderStatus(Long orderId, dbEnums.OrderStatus newStatus) {
         if (newStatus == null) throw new IllegalArgumentException("Trạng thái không hợp lệ");
-        if (newStatus == OrderStatus.CANCELLED) {
+        if (newStatus == dbEnums.OrderStatus.CANCELLED) {
             throw new IllegalArgumentException("Hủy đơn phải có lý do; dùng cancelOrder()");
         }
         try (Connection conn = dbConnection.getConnection()) {
             conn.setAutoCommit(false);
             try {
-                OrderStatus oldStatus;
+                dbEnums.OrderStatus oldStatus;
                 String sessionStatus;
                 try (PreparedStatement ps = conn.prepareStatement(
                         "SELECT o.status, ts.status AS session_status FROM orders o " +
@@ -504,11 +524,11 @@ public class OrderDAO {
                             conn.rollback();
                             return false;
                         }
-                        oldStatus = OrderStatus.valueOf(rs.getString("status"));
+                        oldStatus = dbEnums.OrderStatus.valueOf(rs.getString("status"));
                         sessionStatus = rs.getString("session_status");
                     }
                 }
-                if (oldStatus == OrderStatus.CANCELLED || "CLOSED".equals(sessionStatus)) {
+                if (oldStatus == dbEnums.OrderStatus.CANCELLED || "CLOSED".equals(sessionStatus)) {
                     conn.rollback();
                     return false;
                 }
@@ -749,9 +769,9 @@ public class OrderDAO {
         order.setTableSessionId(nullableLong(rs, "table_session_id"));
         order.setVoucherId(nullableLong(rs, "voucher_id"));
         String type = rs.getString("order_type");
-        if (type != null) order.setOrderType(OrderType.valueOf(type));
+        if (type != null) order.setOrderType(dbEnums.OrderType.valueOf(type));
         String status = rs.getString("status");
-        if (status != null) order.setStatus(OrderStatus.valueOf(status));
+        if (status != null) order.setStatus(dbEnums.OrderStatus.valueOf(status));
         order.setSubtotal(rs.getBigDecimal("subtotal"));
         order.setShippingFee(rs.getBigDecimal("shipping_fee"));
         order.setDiscountAmount(rs.getBigDecimal("discount_amount"));
@@ -765,7 +785,7 @@ public class OrderDAO {
                 nullableLong(rs, "id"), nullableLong(rs, "order_id"),
                 nullableLong(rs, "foods_id"), rs.getString("foods_name"),
                 rs.getBigDecimal("unit_price"), rs.getInt("quantity"),
-                rs.getBigDecimal("line_total"), OrderStatus.valueOf(rs.getString("status")));
+                rs.getBigDecimal("line_total"), dbEnums.OrderStatus.valueOf(rs.getString("status")));
         item.setNote(rs.getString("note"));
         return item;
     }

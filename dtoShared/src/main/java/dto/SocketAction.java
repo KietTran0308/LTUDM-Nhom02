@@ -41,11 +41,6 @@ public enum SocketAction{
     ADMIN_UPDATE_FOOD,
     ADMIN_DELETE_FOOD,
 
-    // 7. Admin - Kho
-    ADMIN_GET_INGREDIENTS,
-    ADMIN_ADD_INGREDIENT,
-    ADMIN_RESTOCK_INGREDIENT,
-
     // 8. Admin - Hóa đơn
     ADMIN_GET_BILLS,
 

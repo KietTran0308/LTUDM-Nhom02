@@ -353,18 +353,37 @@ public class UserDAO {
 
     /**
      * Cập nhật thông tin người dùng.
+     * <p>
+     * users.phone cho phép NULL (các tài khoản thử nghiệm id 46-49 không có số điện thoại),
+     * nên phone null hoặc rỗng được ghi thành NULL thay vì gây NullPointerException.
+     * full_name, email, roleID và id là bắt buộc; thiếu thì báo lỗi rõ ràng.
      */
     public boolean update(UserDTO user) throws SQLException {
+        if (user == null || user.getId() == null)
+            throw new IllegalArgumentException("Thiếu ID tài khoản cần cập nhật");
+        if (user.getFullName() == null || user.getFullName().isBlank())
+            throw new IllegalArgumentException("Họ tên không được để trống");
+        if (user.getEmail() == null || user.getEmail().isBlank())
+            throw new IllegalArgumentException("Email không được để trống");
+        if (user.getRoleID() == null)
+            throw new IllegalArgumentException("Thiếu vai trò của tài khoản");
+
         String sql = "UPDATE users SET "
                 + "full_name = ?, phone = ?, email = ?, roleID = ? "
                 + "WHERE id = ?";
+
+        String phone = user.getPhone() == null ? null : user.getPhone().trim();
 
         try (
                 Connection conn = dbConnection.getConnection();
                 PreparedStatement ps = conn.prepareStatement(sql)
         ) {
             ps.setString(1, user.getFullName().trim());
-            ps.setString(2, user.getPhone().trim());
+            if (phone == null || phone.isEmpty()) {
+                ps.setNull(2, Types.VARCHAR);
+            } else {
+                ps.setString(2, phone);
+            }
             ps.setString(3, user.getEmail().trim());
             ps.setLong(4, user.getRoleID());
             ps.setLong(5, user.getId());

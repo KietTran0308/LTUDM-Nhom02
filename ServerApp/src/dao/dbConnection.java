@@ -8,7 +8,7 @@ import java.sql.SQLException;
 
 public class dbConnection {
 
-    private static final String URL = System.getenv().getOrDefault("DB_URL", "jdbc:mysql://127.0.0.1:3306/annhien_datmon?useSSL=false&serverTimezone=UTC&characterEncoding=UTF-8");
+    private static final String URL = System.getenv().getOrDefault("DB_URL", "jdbc:mysql://127.0.0.1:3306/annhien_datmon?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh&characterEncoding=UTF-8");
     private static final String USER = System.getenv().getOrDefault("DB_USER", "root");
     private static final String PASSWORD = System.getenv().getOrDefault("DB_PASSWORD", "");
 

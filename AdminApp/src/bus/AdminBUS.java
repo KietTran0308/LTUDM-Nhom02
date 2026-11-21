@@ -58,24 +58,6 @@ public final class AdminBUS {
     }
 
     @SuppressWarnings("unchecked")
-    public List<IngredientDTO> getAllIngredients() {
-        return (List<IngredientDTO>) request(SocketAction.ADMIN_GET_INGREDIENTS, null).getData();
-    }
-
-    public boolean addIngredient(String name, String unit, BigDecimal stock, BigDecimal min) {
-        IngredientDTO ingredient = new IngredientDTO(null, name, unit, stock, min, null, null);
-        request(SocketAction.ADMIN_ADD_INGREDIENT, ingredient);
-        return true;
-    }
-
-    public boolean restockIngredient(Long id, BigDecimal amount) {
-        IngredientDTO ingredient = new IngredientDTO();
-        ingredient.setId(id); ingredient.setStockQuantity(amount);
-        request(SocketAction.ADMIN_RESTOCK_INGREDIENT, ingredient);
-        return true;
-    }
-
-    @SuppressWarnings("unchecked")
     public List<BillDTO> getAllBills() {
         return (List<BillDTO>) request(SocketAction.ADMIN_GET_BILLS, null).getData();
     }

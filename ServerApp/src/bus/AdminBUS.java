@@ -25,10 +25,8 @@ public class AdminBUS {
     private final UserBUS userBUS = new UserBUS();
     private final AuthBUS authBUS = new AuthBUS();
 
-    // --- 1. NGHIỆP VỤ QUẢN LÝ MÓN ĂN ---
-
+    // NGHIỆP VỤ QUẢN LÝ THỨC ĂN
     public List<FoodDTO> getAllFoods() throws SQLException {
-        // Lấy tất cả món chưa xóa cho Admin
         return foodBUS.getAllFoodsForAdmin();
     }
 
@@ -41,65 +39,32 @@ public class AdminBUS {
         food.setSku(sku);
         food.setCategoryId(categoryId);
         food.setName(name);
-        // Tạo slug cơ bản, FoodBUS sẽ lo việc trim và validate
         food.setSlug(generateSlug(name) + "-" + (System.currentTimeMillis() % 10000));
         food.setDescription("Món ngon chuẩn vị");
         food.setPrice(price);
         food.setIsPublished(isPublished);
         food.setCoverImageUrl(coverUrl);
-
-        // Gọi createFood của FoodBUS để kiểm tra trùng SKU, Tên, Slug trước khi Insert
         foodBUS.createFood(food);
         return true;
     }
 
     public boolean updateFood(Long id, String name, BigDecimal price, Long categoryId, boolean isPublished) throws SQLException {
-        // Vì GUI cập nhật không gửi SKU và Slug, ta phải lấy object cũ từ DB lên
-        // để pass qua được hàm validateFoodData của FoodBUS
         FoodDTO food = foodBUS.getFoodById(id);
 
-        // Cập nhật các trường mà AdminGUI gửi sang
         food.setName(name);
         food.setPrice(price);
         food.setCategoryId(categoryId);
         food.setIsPublished(isPublished);
 
-        // Gọi updateFood của FoodBUS để kiểm tra trùng lặp và tính hợp lệ
         foodBUS.updateFood(food);
         return true;
     }
 
     public boolean deleteFood(Long id) throws SQLException {
-        // Gọi deleteFood của FoodBUS để kiểm tra tồn tại trước khi soft delete
         return foodBUS.deleteFood(id);
     }
 
-
-    // --- 2. NGHIỆP VỤ KHO NGUYÊN LIỆU & CẢNH BÁO ---
-    public List<IngredientDTO> getAllIngredients() {
-        return ingredientDAO.getAllIngredients();
-    }
-
-    /**
-     * Lọc danh sách nguyên liệu có tồn kho chạm đáy (stock_quantity <= min_stock_level)
-     */
-    public List<IngredientDTO> getLowStockIngredients() {
-        return ingredientDAO.getAllIngredients().stream()
-                .filter(i -> i.getStockQuantity().compareTo(i.getMinStockLevel()) <= 0)
-                .collect(Collectors.toList());
-    }
-
-    public boolean restockIngredient(Long ingredientId, BigDecimal amount) {
-        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) return false;
-        return ingredientDAO.restockIngredient(ingredientId, amount);
-    }
-
-    public boolean addIngredient(String name, String unit, BigDecimal initialStock, BigDecimal minLevel) {
-        IngredientDTO ing = new IngredientDTO(null, name.trim(), unit.trim(), initialStock, minLevel, null, null);
-        return ingredientDAO.insertIngredient(ing);
-    }
-
-    // --- 3. NGHIỆP VỤ THỐNG KÊ DOANH THU (BẢNG BILL) ---
+    // NGHIỆP VỤ THỐNG KẾ
     public List<BillDTO> getAllBills() {
         return billDAO.getAllBills();
     }
@@ -122,10 +87,10 @@ public class AdminBUS {
         }
 
         String method = filters.optString("paymentMethod");
-        PaymentMethod payment = method.isEmpty() ? null : PaymentMethod.valueOf(method);
+        dbEnums.PaymentMethod payment = method.isEmpty() ? null : dbEnums.PaymentMethod.valueOf(method);
         BillDAO.ReportRows rows = billDAO.getReportRows(from, to, payment, filters.optString("billNumber"));
         List<BillDTO> paidBills = rows.bills().stream()
-                .filter(bill -> bill.getPaymentStatus() == PaymentStatus.PAID && bill.getPaidAt() != null)
+                .filter(bill -> bill.getPaymentStatus() == dbEnums.PaymentStatus.PAID && bill.getPaidAt() != null)
                 .toList();
 
         TreeMap<LocalDate, BigDecimal> revenueByDay = new TreeMap<>();

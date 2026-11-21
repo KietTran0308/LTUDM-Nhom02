@@ -14,7 +14,7 @@ public class OrderItemDTO implements Serializable {
     private BigDecimal unitPrice;
     private Integer quantity;
     private BigDecimal lineTotal;
-    private OrderStatus status; // Đồng bộ trạng thái từng món từ Bếp về Tablet
+    private dbEnums.OrderStatus status; // Đồng bộ trạng thái từng món từ Bếp về Tablet
     private String note; // order_items.note VARCHAR(500), nullable
     private LocalDateTime updatedAt; // DATETIME(3) NOT NULL
     private LocalDateTime completedAt; // DATETIME(3), nullable
@@ -22,7 +22,7 @@ public class OrderItemDTO implements Serializable {
     public OrderItemDTO() {}
 
     public OrderItemDTO(Long id, Long orderId, Long foodsId, String foodsName,
-                        BigDecimal unitPrice, Integer quantity, BigDecimal lineTotal, OrderStatus status) {
+                        BigDecimal unitPrice, Integer quantity, BigDecimal lineTotal, dbEnums.OrderStatus status) {
         this.id = id;
         this.orderId = orderId;
         this.foodsId = foodsId;
@@ -35,7 +35,7 @@ public class OrderItemDTO implements Serializable {
 
     public OrderItemDTO(Long id, Long orderId, Long foodsId, String foodsName,
                         BigDecimal unitPrice, Integer quantity, BigDecimal lineTotal,
-                        OrderStatus status, String note, LocalDateTime updatedAt,
+                        dbEnums.OrderStatus status, String note, LocalDateTime updatedAt,
                         LocalDateTime completedAt) {
         this(id, orderId, foodsId, foodsName, unitPrice, quantity, lineTotal, status);
         this.note = note;
@@ -64,8 +64,8 @@ public class OrderItemDTO implements Serializable {
     public BigDecimal getLineTotal() { return lineTotal; }
     public void setLineTotal(BigDecimal lineTotal) { this.lineTotal = lineTotal; }
 
-    public OrderStatus getStatus() { return status; }
-    public void setStatus(OrderStatus status) { this.status = status; }
+    public dbEnums.OrderStatus getStatus() { return status; }
+    public void setStatus(dbEnums.OrderStatus status) { this.status = status; }
 
     public String getNote() { return note; }
     public void setNote(String note) { this.note = note; }

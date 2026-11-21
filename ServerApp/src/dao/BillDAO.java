@@ -2,8 +2,7 @@ package dao;
 
 import dto.BillDTO;
 import dto.OrderDTO;
-import dto.PaymentMethod;
-import dto.PaymentStatus;
+import dto.dbEnums;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -87,7 +86,7 @@ public class BillDAO {
 
     public record ReportRows(List<BillDTO> bills, List<TopFood> topFoods) {}
 
-    public ReportRows getReportRows(LocalDate from, LocalDate to, PaymentMethod payment, String billNumber)
+    public ReportRows getReportRows(LocalDate from, LocalDate to, dbEnums.PaymentMethod payment, String billNumber)
             throws SQLException {
         StringBuilder where = new StringBuilder(" WHERE 1=1");
         List<String> params = new ArrayList<>();
@@ -158,9 +157,9 @@ public class BillDAO {
         try (ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
                 String pmStr = rs.getString("payment_method");
-                PaymentMethod pm = pmStr == null ? null : PaymentMethod.valueOf(pmStr);
+                dbEnums.PaymentMethod pm = pmStr == null ? null : dbEnums.PaymentMethod.valueOf(pmStr);
                 String statusStr = rs.getString("payment_status");
-                PaymentStatus paymentStatus = statusStr == null ? null : PaymentStatus.valueOf(statusStr);
+                dbEnums.PaymentStatus paymentStatus = statusStr == null ? null : dbEnums.PaymentStatus.valueOf(statusStr);
                 Timestamp paidAt = rs.getTimestamp("paid_at");
                 Timestamp createdAt = rs.getTimestamp("created_at");
 

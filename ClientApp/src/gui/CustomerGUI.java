@@ -57,16 +57,6 @@ public class CustomerGUI extends JFrame {
 
     private JLabel lblKitchenNotice;
 
-    private JLabel lblSentItems;
-    private JButton btnMemberAccount;
-
-    private UserDTO loggedInMember;
-    private JDialog memberProfileDialog;
-    private JTextArea memberProfileArea;
-
-    private String memberProfileText = "Đang tải thông tin...";
-    private String memberHistoryText = "Đang tải lịch sử...";
-
     private JButton btnTrackOrderTop;
     private CTable trackTable;
     private JButton btnRequestCancelSupport;
@@ -199,7 +189,7 @@ public class CustomerGUI extends JFrame {
                 break;
             case ITEM_STATUS:
                 refreshTrackTable();
-                if (event.data instanceof Long && event.status == OrderStatus.COMPLETED) {
+                if (event.data instanceof Long && event.status == dbEnums.OrderStatus.COMPLETED) {
                     Long completedId = (Long) event.data;
                     if (completedNotified.add(completedId)) {
                         OrderItemDTO item = tabletBUS.getTrackedItemById(completedId);
@@ -222,31 +212,7 @@ public class CustomerGUI extends JFrame {
                 if (event.data instanceof OrderDTO) showSessionBill((OrderDTO) event.data);
                 else CToast.info(this, "Bàn chưa có món đã gọi.");
                 break;
-            case MEMBER_LOGIN:
-                if (event.data instanceof UserDTO) {
-                    loggedInMember = (UserDTO) event.data;
-                    btnMemberAccount.setText("Tài khoản: " + loggedInMember.getFullName());
-                    CToast.success(this, "Đăng nhập thành viên thành công.");
-                }
-                break;
-            case MEMBER_PROFILE:
-                memberProfileText = event.data == null ? "Chưa có thông tin." : String.valueOf(event.data);
-                updateMemberProfileText();
-                break;
-            case MEMBER_HISTORY:
-                memberHistoryText = event.data == null ? "Chưa có lịch sử đặt món." : String.valueOf(event.data);
-                updateMemberProfileText();
-                break;
-            case MEMBER_LOGOUT:
-                loggedInMember = null;
-                btnMemberAccount.setText("Đăng nhập thành viên");
-                if (memberProfileDialog != null) {
-                    memberProfileDialog.dispose();
-                    memberProfileDialog = null;
-                    memberProfileArea = null;
-                }
-                CToast.success(this, "Đã đăng xuất tài khoản thành viên.");
-                break;
+
             case SESSION_CLOSED:
                 returnToLogin("Đã đóng phiên bàn. Thiết bị sẵn sàng cho lượt khách tiếp theo.");
                 break;
@@ -295,8 +261,6 @@ public class CustomerGUI extends JFrame {
         loadBrandLogoViaSocket(lblIcon);
         lblIcon.setBorder(new EmptyBorder(0, 0, 0, 12));
 
-        // Chi hien tuy chon tra thiet bi khi bam vao logo, khong hien nut tren sidebar.
-        // Logo van duoc tai qua TCP Socket va cap nhat tren chinh JLabel nay.
         JPopupMenu staffMenu = new JPopupMenu();
         JMenuItem miLogout = new JMenuItem("Trả thiết bị / Đăng xuất");
         miLogout.setFont(Utils.getCustomFont("Inter", Font.BOLD, 13));
@@ -561,22 +525,13 @@ public class CustomerGUI extends JFrame {
         lblTable.setFont(Utils.getCustomFont("Inter", Font.BOLD, 17));
         lblTable.setForeground(Utils.FOREST_BG);
 
-        btnMemberAccount = createOutlineButton("Đăng nhập thành viên");
-        btnMemberAccount.addActionListener(e -> {
-            if (loggedInMember == null) {
-                openMemberLoginDialog();
-            } else {
-                openMemberProfile();
-            }
-        });
-
         lblKitchenNotice = new JLabel("Chưa có thông báo mới từ bếp.");
         lblKitchenNotice.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 12));
         lblKitchenNotice.setForeground(Utils.TERRACOTTA);
         // Thong bao nam giua; neu qua dai se tu cat bang "..." thay vi day cac nut ra ngoai.
         lblKitchenNotice.setHorizontalAlignment(SwingConstants.CENTER);
 
-        topBanner.add(bannerSide(FlowLayout.LEFT, lblTable, btnMemberAccount), BorderLayout.WEST);
+        topBanner.add(bannerSide(FlowLayout.LEFT, lblTable), BorderLayout.WEST);
         topBanner.add(lblKitchenNotice, BorderLayout.CENTER);
         topBanner.add(bannerSide(FlowLayout.RIGHT, summaryCartWrapper, btnTrackOrderTop), BorderLayout.EAST);
 
@@ -1389,129 +1344,6 @@ public class CustomerGUI extends JFrame {
         }
     }
 
-    private void openMemberLoginDialog() {
-        JDialog dialog = new JDialog(
-                this, "Đăng nhập thành viên", true);
-        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-        dialog.setSize(410, 295);
-        dialog.setResizable(false);
-        dialog.setLocationRelativeTo(this);
-
-        JPanel form = new JPanel(new GridLayout(0, 1, 0, 8));
-        form.setBackground(Color.WHITE);
-        form.setBorder(new EmptyBorder(20, 25, 20, 25));
-
-        JTextField txtEmail = new JTextField();
-        JPasswordField txtPassword = new JPasswordField();
-
-        JButton btnLogin = new JButton("Đăng nhập");
-        JButton btnCancel = new JButton("Hủy");
-
-        form.add(new JLabel("Email tài khoản:"));
-        form.add(txtEmail);
-        form.add(new JLabel("Mật khẩu:"));
-        form.add(txtPassword);
-
-        JPanel actions = new JPanel(
-                new FlowLayout(FlowLayout.RIGHT, 10, 0));
-        actions.setOpaque(false);
-        actions.add(btnCancel);
-        actions.add(btnLogin);
-        form.add(actions);
-
-        btnCancel.addActionListener(e -> dialog.dispose());
-
-        btnLogin.addActionListener(e -> {
-            String email = txtEmail.getText().trim();
-            char[] passwordChars = txtPassword.getPassword();
-
-            try {
-                if (email.isEmpty() || passwordChars.length == 0) {
-                    CToast.warning(this,
-                            "Vui lòng nhập email và mật khẩu.");
-                    return;
-                }
-
-                if (tabletBUS.loginMember(email, new String(passwordChars))) {
-                    dialog.dispose();
-                    CToast.info(this,
-                            "Đang xác thực tài khoản thành viên...");
-                } else {
-                    CToast.error(this,
-                            "Không gửi được yêu cầu đăng nhập.");
-                }
-            } finally {
-                Arrays.fill(passwordChars, '\0');
-                txtPassword.setText("");
-            }
-        });
-
-        dialog.setContentPane(form);
-        dialog.getRootPane().setDefaultButton(btnLogin);
-        dialog.setVisible(true);
-    }
-
-    private void openMemberProfile() {
-        if (loggedInMember == null) {
-            openMemberLoginDialog();
-            return;
-        }
-
-        memberProfileDialog = new JDialog(
-                this, "Tài khoản thành viên", false);
-        memberProfileDialog.setSize(580, 470);
-        memberProfileDialog.setLocationRelativeTo(this);
-
-        memberProfileText = "Đang tải thông tin thành viên...";
-        memberHistoryText = "Đang tải lịch sử đặt món...";
-
-        memberProfileArea = new JTextArea();
-        memberProfileArea.setEditable(false);
-        memberProfileArea.setFont(
-                Utils.getCustomFont("Inter", Font.PLAIN, 14));
-        memberProfileArea.setBorder(
-                new EmptyBorder(18, 18, 18, 18));
-
-        JButton btnLogoutMember =
-                new JButton("Đăng xuất thành viên");
-
-        btnLogoutMember.addActionListener(e -> {
-            boolean sent = tabletBUS.logoutMember();
-
-            if (!sent) {
-                CToast.error(this,
-                        "Không gửi được yêu cầu đăng xuất.");
-            }
-        });
-
-        memberProfileDialog.setLayout(new BorderLayout());
-        memberProfileDialog.add(
-                new JScrollPane(memberProfileArea),
-                BorderLayout.CENTER
-        );
-        memberProfileDialog.add(
-                btnLogoutMember,
-                BorderLayout.SOUTH
-        );
-
-        updateMemberProfileText();
-        memberProfileDialog.setVisible(true);
-
-        tabletBUS.requestMemberProfile();
-        tabletBUS.requestMemberHistory();
-    }
-
-    private void updateMemberProfileText() {
-        if (memberProfileArea == null) return;
-
-        memberProfileArea.setText(
-                "THÔNG TIN THÀNH VIÊN\n\n"
-                        + memberProfileText
-                        + "\n\n-----------------------------\n"
-                        + "LỊCH SỬ ĐẶT MÓN\n\n"
-                        + memberHistoryText
-        );
-    }
 
     private OrderItemDTO getSelectedTrackedItem() {
         if (trackTable == null || tabletBUS == null) return null;

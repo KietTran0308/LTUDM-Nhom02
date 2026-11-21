@@ -35,8 +35,8 @@ public final class PosBUS {
     public OrderDTO preview(long tableId) { return orderBUS.getTableBillPreview(tableId); }
 
     public void pay(long tableId, BillDTO bill, String revision) {
-        PaymentMethod method = bill.getPaymentMethod();
-        if (method != PaymentMethod.CASH && method != PaymentMethod.BANK_TRANSFER)
+        dbEnums.PaymentMethod method = bill.getPaymentMethod();
+        if (method != dbEnums.PaymentMethod.CASH && method != dbEnums.PaymentMethod.BANK_TRANSFER)
             throw new IllegalArgumentException("Hãy chọn tiền mặt hoặc chuyển khoản ngân hàng.");
         if (revision == null || revision.isBlank())
             throw new IllegalArgumentException("Hãy tải và xem lại hóa đơn trước khi thanh toán.");

@@ -29,14 +29,14 @@ public class ClientTabletBUS {
         public final Type type;
         public final String message;
         public final Object data;
-        public final OrderStatus status;
+        public final dbEnums.OrderStatus status;
 
         private Event(Type type, SocketPacket packet) {
             this.type = type;
             this.message = packet.getMessage();
             this.data = packet.getData();
-            this.status = packet.getExtraData() instanceof OrderStatus
-                    ? (OrderStatus) packet.getExtraData() : null;
+            this.status = packet.getExtraData() instanceof dbEnums.OrderStatus
+                    ? (dbEnums.OrderStatus) packet.getExtraData() : null;
         }
     }
 
@@ -190,9 +190,9 @@ public class ClientTabletBUS {
                 break;
 
             case ITEM_STATUS_CHANGED:
-                if (packet.getData() instanceof Long && packet.getExtraData() instanceof OrderStatus) {
+                if (packet.getData() instanceof Long && packet.getExtraData() instanceof dbEnums.OrderStatus) {
                     Long updatedItemId = (Long) packet.getData();
-                    OrderStatus newStatus = (OrderStatus) packet.getExtraData();
+                    dbEnums.OrderStatus newStatus = (dbEnums.OrderStatus) packet.getExtraData();
                     for (OrderItemDTO item : trackedItems) {
                         if (Objects.equals(item.getId(), updatedItemId)) item.setStatus(newStatus);
                     }
@@ -391,7 +391,7 @@ public class ClientTabletBUS {
         }
         currentCart.add(new OrderItemDTO(
                 null, null, food.getId(), food.getName(),
-                food.getPrice(), 1, food.getPrice(), OrderStatus.PENDING
+                food.getPrice(), 1, food.getPrice(), dbEnums.OrderStatus.PENDING
         ));
     }
 
@@ -419,8 +419,8 @@ public class ClientTabletBUS {
         OrderDTO order = new OrderDTO();
         order.setUserId(this.defaultTableUserId);
         order.setTableId(this.tableId);
-        order.setOrderType(OrderType.DINE_IN);
-        order.setStatus(OrderStatus.PENDING);
+        order.setOrderType(dbEnums.OrderType.DINE_IN);
+        order.setStatus(dbEnums.OrderStatus.PENDING);
         order.setNote(buildOrderNote(itemNotes));
         for (OrderItemDTO item : currentCart) {
             String note = itemNotes == null ? null : itemNotes.get(item.getFoodsId());
@@ -491,8 +491,8 @@ public class ClientTabletBUS {
 
     public boolean canRequestCancelOrEdit(OrderItemDTO item) {
         if (item == null) return false;
-        OrderStatus status = item.getStatus();
-        return status == OrderStatus.PENDING || status == OrderStatus.RECEIVED;
+        dbEnums.OrderStatus status = item.getStatus();
+        return status == dbEnums.OrderStatus.PENDING || status == dbEnums.OrderStatus.RECEIVED;
     }
 
     public List<CategoryDTO> getCategories() {

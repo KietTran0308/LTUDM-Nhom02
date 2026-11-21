@@ -3,20 +3,13 @@ package dto;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 
-/**
- * Anh xa table_sessions. Mot ban chi duoc co mot phien ACTIVE
- * (UNIQUE tren cot GENERATED active_table_id).
- *
- * Quan trong: accessTokenHash chi dung o server de DOI CHIEU ma phien,
- * khong gui ve client qua Java ObjectOutputStream.
- */
 public class TableSessionDTO implements Serializable {
     private static final long serialVersionUID = 1L;
 
     private Long id;
     private Long tableId; // NOT NULL, FK restaurant_tables.id
     private Long openedBy; // NULL hoac FK users.id
-    private TableSessionStatus status; // NOT NULL, DEFAULT ACTIVE
+    private dbEnums.TableSessionStatus status; // NOT NULL, DEFAULT ACTIVE
     private transient String accessTokenHash; // CHAR(64) NOT NULL; SERVER-ONLY
     private LocalDateTime openedAt; // NOT NULL, DEFAULT CURRENT_TIMESTAMP(3)
     private LocalDateTime closedAt; // NULL neu dang ACTIVE
@@ -25,7 +18,7 @@ public class TableSessionDTO implements Serializable {
     public TableSessionDTO() {}
 
     public TableSessionDTO(Long id, Long tableId, Long openedBy,
-                           TableSessionStatus status, String accessTokenHash,
+                           dbEnums.TableSessionStatus status, String accessTokenHash,
                            LocalDateTime openedAt, LocalDateTime closedAt,
                            Long activeTableId) {
         this.id = id;
@@ -47,8 +40,8 @@ public class TableSessionDTO implements Serializable {
     public Long getOpenedBy() { return openedBy; }
     public void setOpenedBy(Long openedBy) { this.openedBy = openedBy; }
 
-    public TableSessionStatus getStatus() { return status; }
-    public void setStatus(TableSessionStatus status) { this.status = status; }
+    public dbEnums.TableSessionStatus getStatus() { return status; }
+    public void setStatus(dbEnums.TableSessionStatus status) { this.status = status; }
 
     /** Khong truyen gia tri nay qua SocketPacket cho client. */
     public String getAccessTokenHash() { return accessTokenHash; }

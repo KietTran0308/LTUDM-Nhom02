@@ -1,7 +1,7 @@
 package components;
 
 import dto.OrderItemDTO;
-import dto.OrderStatus;
+import dto.dbEnums;
 import utils.Utils;
 
 import javax.swing.*;
@@ -94,15 +94,15 @@ public class CTable extends JPanel {
         return rowItemIds.get(modelRow);
     }
 
-    private static String formatStatusVietnamese(OrderStatus status) {
+    private static String formatStatusVietnamese(dbEnums.OrderStatus status) {
         if (status == null) return "Chờ bếp nhận";
         switch (status) {
             case PENDING: return "Chờ bếp nhận";
-            case RECEIVED: return "📥 Bếp đã nhận";
-            case COOKING: return "🔥 Đang chế biến";
+            case RECEIVED: return "Bếp đã nhận";
+            case COOKING: return "Đang chế biến";
             case COMPLETED: return "Nấu xong — chờ phục vụ";
-            case SERVED: return "✅ Đã lên món";
-            case CANCELLED: return "❌ Đã hủy";
+            case SERVED: return "Đã lên món";
+            case CANCELLED: return "Đã hủy";
             default: return status.name();
         }
     }

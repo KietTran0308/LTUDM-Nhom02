@@ -36,7 +36,7 @@ public class KitchenGUI extends JFrame {
     private final CToggleButton waiting = new CToggleButton("Chờ nhận / đã nhận", 255, true);
     private final CToggleButton cooking = new CToggleButton("Đang chế biến", 220, false);
     private final CToggleButton ready = new CToggleButton("Chờ phục vụ", 220, false);
-    private final CToggleButton allTab = new CToggleButton("Tổng", 160, false);
+    private final CToggleButton allTab = new CToggleButton("Tất cả trong ngày", 210, false);
     private final JLabel queueSummary = new JLabel("Chưa có món trong hàng đợi");
 
     private static final int QUEUE_POLL_MS = 100;
@@ -125,11 +125,24 @@ public class KitchenGUI extends JFrame {
                 OrderItemDTO item = selectedItemAt(row);
                 setToolTipText(value == null ? null : value.toString());
                 setForeground(selected ? t.getSelectionForeground() : new Color(32, 43, 37));
-                if (!selected) setBackground(item != null && item.getStatus() == OrderStatus.COMPLETED
-                        ? new Color(220, 241, 225) : item != null && item.getStatus() == OrderStatus.COOKING
-                        ? new Color(255, 239, 211) : Color.WHITE);
-                if (t.convertColumnIndexToModel(col) == 5 && value != null && !value.toString().isBlank())
+                if (!selected && item != null && item.getStatus() != null) {
+                    switch (item.getStatus()) {
+                        case COMPLETED -> setBackground(new Color(220, 241, 225)); // Xanh lá nhạt: Nấu xong
+                        case COOKING   -> setBackground(new Color(255, 239, 211)); // Cam nhạt: Đang nấu
+                        case SERVED    -> {
+                            setBackground(new Color(238, 240, 239)); // Xám nhạt: Đã phục vụ
+                            setForeground(new Color(110, 120, 115));
+                        }
+                        case CANCELLED -> {
+                            setBackground(new Color(253, 232, 232)); // Đỏ nhạt: Đã hủy
+                            setForeground(new Color(160, 50, 50));
+                        }
+                        default        -> setBackground(Color.WHITE);
+                    }
+                }
+                if (t.convertColumnIndexToModel(col) == 5 && value != null && !value.toString().isBlank()) {
                     setForeground(selected ? t.getSelectionForeground() : new Color(170, 55, 30));
+                }
                 return this;
             }
         });
@@ -224,7 +237,7 @@ public class KitchenGUI extends JFrame {
 
     private void updateAction() {
         OrderItemDTO item = selectedItemAt(table.getSelectedRow());
-        OrderStatus next = kitchenBUS.nextStatus(item);
+        dbEnums.OrderStatus next = kitchenBUS.nextStatus(item);
         boolean pending = item != null && pendingUpdates.containsKey(item.getId());
         nextAction.setText(pending ? "Đang cập nhật..." : next == null ? "Chọn món để thao tác"
                 : switch (next) {
@@ -239,7 +252,7 @@ public class KitchenGUI extends JFrame {
 
     private void advanceSelectedItem() {
         OrderItemDTO item = selectedItemAt(table.getSelectedRow());
-        OrderStatus next = kitchenBUS.nextStatus(item);
+        dbEnums.OrderStatus next = kitchenBUS.nextStatus(item);
         if (next == null || pendingUpdates.containsKey(item.getId())) return;
         if (kitchenBUS.updateItemStatus(item.getId(), next)) {
             pendingUpdates.put(item.getId(), System.currentTimeMillis());
@@ -247,7 +260,7 @@ public class KitchenGUI extends JFrame {
         } else CToast.error(this, "Mất kết nối Server. Vui lòng kiểm tra mạng và đăng nhập lại.");
     }
 
-    private String statusText(OrderStatus value) {
+    private String statusText(dbEnums.OrderStatus value) {
         if (value == null) return "Chưa rõ trạng thái";
         return switch (value) {
             case PENDING -> "Chờ bếp nhận";
@@ -290,40 +303,48 @@ public class KitchenGUI extends JFrame {
         visibleItems.clear();
         int selectedRow = -1;
         int[] counts = new int[3];
-        int totalCount = 0;
+        int totalTodayCount = 0;
+
         for (OrderDTO o : orders) {
             if (o.getItems() == null) continue;
             for (OrderItemDTO item : o.getItems()) {
-                OrderStatus value = item.getStatus();
-                if (value == null || value == OrderStatus.CANCELLED) continue;
+                dbEnums.OrderStatus value = item.getStatus();
+                if (value == null) continue;
 
-                totalCount++;
+                totalTodayCount++;
 
                 int itemStage = -1;
-                if (value != OrderStatus.SERVED) {
-                    itemStage = value == OrderStatus.COOKING ? 1 : value == OrderStatus.COMPLETED ? 2 : 0;
+                if (value != dbEnums.OrderStatus.SERVED && value != dbEnums.OrderStatus.CANCELLED) {
+                    itemStage = (value == dbEnums.OrderStatus.COOKING) ? 1 : (value == dbEnums.OrderStatus.COMPLETED ? 2 : 0);
                     counts[itemStage]++;
                 }
 
-                if (stage != 3 && (value == OrderStatus.SERVED || itemStage != stage)) continue;
+                // Tab 3 ("Tất cả trong ngày") hiển thị toàn bộ, 3 tab đầu chỉ hiện món chưa SERVED/CANCELLED
+                if (stage != 3 && itemStage != stage) continue;
 
                 visibleItems.put(item.getId(), item);
                 if (Objects.equals(item.getId(), chosen)) selectedRow = model.getRowCount();
                 String tableName = o.getTableName() == null || o.getTableName().isBlank()
                         ? "Bàn #" + o.getTableId() : o.getTableName();
-                model.addRow(new Object[]{item.getId(), tableName,
+                model.addRow(new Object[]{
+                        item.getId(),
+                        tableName,
                         o.getOrderCode() == null ? "#" + o.getId() : o.getOrderCode(),
-                        item.getFoodsName(), item.getQuantity(), item.getNote(),
-                        o.getCreatedAt() == null ? "—" : o.getCreatedAt().format(DateTimeFormatter.ofPattern("dd/MM HH:mm")),
-                        statusText(value)});
+                        item.getFoodsName(),
+                        item.getQuantity(),
+                        item.getNote(),
+                        o.getCreatedAt() == null ? "—" : o.getCreatedAt().format(DateTimeFormatter.ofPattern("HH:mm:ss")),
+                        statusText(value)
+                });
             }
         }
         waiting.setText("Chờ nhận / đã nhận (" + counts[0] + ")");
         cooking.setText("Đang chế biến (" + counts[1] + ")");
         ready.setText("Chờ phục vụ (" + counts[2] + ")");
-        allTab.setText("Tổng (" + totalCount + ")");
-        queueSummary.setText(model.getRowCount() == 0 ? "Không có món trong nhóm này."
-                : model.getRowCount() + " dòng món — ưu tiên lượt gọi trước; đọc kỹ ghi chú chế biến.");
+        allTab.setText("Trong ngày (" + totalTodayCount + ")");
+        queueSummary.setText(model.getRowCount() == 0
+                ? "Không có món nào trong nhóm này."
+                : "Hiển thị " + model.getRowCount() + " món — Dữ liệu đồng bộ trực tiếp từ CSDL trong ngày.");
         if (selectedRow >= 0) table.setRowSelectionInterval(selectedRow, selectedRow);
         updateAction();
     }

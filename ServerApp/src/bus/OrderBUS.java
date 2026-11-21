@@ -17,13 +17,13 @@ public class OrderBUS {
 
         order.setOrderCode("ORD" + java.util.UUID.randomUUID().toString()
                 .replace("-", "").substring(0, 16).toUpperCase(java.util.Locale.ROOT));
-        order.setOrderType(OrderType.DINE_IN);
-        order.setStatus(OrderStatus.PENDING);
+        order.setOrderType(dbEnums.OrderType.DINE_IN);
+        order.setStatus(dbEnums.OrderStatus.PENDING);
         Long id = orderDAO.createTableOrderTransaction(order);
         return orderDAO.getOrderById(id); // Tra ve itemId that sau khi INSERT.
     }
 
-    public boolean changeDishStatusByKitchen(Long orderItemId, OrderStatus newStatus) {
+    public boolean changeDishStatusByKitchen(Long orderItemId, dbEnums.OrderStatus newStatus) {
         return orderDAO.updateOrderItemStatus(orderItemId, newStatus);
     }
 
@@ -68,5 +68,9 @@ public class OrderBUS {
 
     public void processTablePayment(BillDTO bill, long tableId, String revision) {
         BillDAO.createBillAndReleaseTable(bill, tableId, revision);
+    }
+
+    public boolean sessionBelongsToTable(Long tableId, Long sessionId) throws SQLException {
+        return isActiveTableSession(tableId, sessionId);
     }
 }

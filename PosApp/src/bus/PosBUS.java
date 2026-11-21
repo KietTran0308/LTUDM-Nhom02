@@ -112,10 +112,27 @@ public final class PosBUS {
                 tableId, null, null).getData();
     }
 
-    public void pay(long tableId, OrderDTO preview, PaymentMethod method) {
+    @SuppressWarnings("unchecked")
+    public List<UserDTO> listCustomers() {
+        Object data = request(SocketAction.ADMIN_GET_ACCOUNTS, null, null, null).getData();
+        List<UserDTO> customers = new java.util.ArrayList<>();
+        if (data instanceof List<?> list) {
+            for (Object item : list) {
+                if (item instanceof UserDTO u && "CUSTOMER".equalsIgnoreCase(u.getRoleName())) {
+                    customers.add(u);
+                }
+            }
+        }
+        return customers;
+    }
+
+    public void pay(long tableId, OrderDTO preview, dbEnums.PaymentMethod method, UserDTO customer) {
         BillDTO bill = new BillDTO();
         bill.setTableSessionId(preview.getTableSessionId());
         bill.setPaymentMethod(method);
+        if (customer != null) {
+            bill.setUserId(customer.getId());
+        }
         request(SocketAction.PAY_TABLE_BILL,
                 tableId, bill, preview.getCheckoutRevision());
     }

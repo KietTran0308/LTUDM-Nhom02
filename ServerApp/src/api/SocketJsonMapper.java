@@ -8,10 +8,6 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Đặt tại: ServerApp -> package api
- * Chuyên giải mã Request (Client -> Server) và đóng gói Response (Server -> Client)
- */
 public class SocketJsonMapper {
 
     // SERVER NHẬN PACKET JSON
@@ -68,7 +64,7 @@ public class SocketJsonMapper {
             case UPDATE_ITEM_STATUS:
                 if (root.has("data") && !root.isNull("data")) data = root.getLong("data");
                 if (root.has("extraData") && !root.isNull("extraData"))
-                    extraData = OrderStatus.valueOf(root.getString("extraData"));
+                    extraData = dbEnums.OrderStatus.valueOf(root.getString("extraData"));
                 break;
 
             case CALL_STAFF:
@@ -89,11 +85,6 @@ public class SocketJsonMapper {
             case ADMIN_UPDATE_FOOD:
                 if (root.has("data") && !root.isNull("data"))
                     data = jsonToFood(root.getJSONObject("data"));
-                break;
-            case ADMIN_ADD_INGREDIENT:
-            case ADMIN_RESTOCK_INGREDIENT:
-                if (root.has("data") && !root.isNull("data"))
-                    data = jsonToIngredient(root.getJSONObject("data"));
                 break;
             case ADMIN_DELETE_FOOD:
                 if (root.has("data") && !root.isNull("data")) data = root.getLong("data");
@@ -173,8 +164,8 @@ public class SocketJsonMapper {
 
                 case ITEM_STATUS_CHANGED:
                     if (data != null) root.put("data", data); // Long orderItemId
-                    if (extraData instanceof OrderStatus) {
-                        root.put("extraData", ((OrderStatus) extraData).name());
+                    if (extraData instanceof dbEnums.OrderStatus) {
+                        root.put("extraData", ((dbEnums.OrderStatus) extraData).name());
                     }
                     break;
 
@@ -194,7 +185,7 @@ public class SocketJsonMapper {
 
                 case UPDATE_ITEM_STATUS:
                     if (data != null) root.put("data", data);
-                    if (extraData instanceof OrderStatus) root.put("extraData", ((OrderStatus) extraData).name());
+                    if (extraData instanceof dbEnums.OrderStatus) root.put("extraData", ((dbEnums.OrderStatus) extraData).name());
                     break;
 
                 case LIST_TABLES:
@@ -210,9 +201,6 @@ public class SocketJsonMapper {
                     break;
                 case ADMIN_GET_CATEGORIES:
                     if (data instanceof List<?>) root.put("data", categoryListToJsonArray((List<CategoryDTO>) data));
-                    break;
-                case ADMIN_GET_INGREDIENTS:
-                    if (data instanceof List<?>) root.put("data", ingredientListToJsonArray((List<IngredientDTO>) data));
                     break;
                 case ADMIN_GET_BILLS:
                     if (data instanceof List<?>) root.put("data", billListToJsonArray((List<BillDTO>) data));
@@ -275,8 +263,8 @@ public class SocketJsonMapper {
         OrderDTO o = new OrderDTO();
         if (obj.has("userId") && !obj.isNull("userId")) o.setUserId(obj.getLong("userId"));
         if (obj.has("tableId") && !obj.isNull("tableId")) o.setTableId(obj.getLong("tableId"));
-        if (obj.has("orderType") && !obj.isNull("orderType")) o.setOrderType(OrderType.valueOf(obj.getString("orderType")));
-        if (obj.has("status") && !obj.isNull("status")) o.setStatus(OrderStatus.valueOf(obj.getString("status")));
+        if (obj.has("orderType") && !obj.isNull("orderType")) o.setOrderType(dbEnums.OrderType.valueOf(obj.getString("orderType")));
+        if (obj.has("status") && !obj.isNull("status")) o.setStatus(dbEnums.OrderStatus.valueOf(obj.getString("status")));
         o.setNote(obj.optString("note", ""));
 
         List<OrderItemDTO> items = new ArrayList<>();
@@ -293,7 +281,7 @@ public class SocketJsonMapper {
                         itemObj.optBigDecimal("unitPrice", BigDecimal.ZERO),
                         itemObj.optInt("quantity", 1),
                         itemObj.optBigDecimal("lineTotal", BigDecimal.ZERO),
-                        OrderStatus.PENDING
+                        dbEnums.OrderStatus.PENDING
                 );
                 item.setNote(itemObj.optString("note", ""));
                 items.add(item);
@@ -412,16 +400,21 @@ public class SocketJsonMapper {
             b.setTableSessionId(obj.getLong("tableSessionId"));
         }
 
+        if (obj.has("userId") && !obj.isNull("userId")) {
+            b.setUserId(obj.getLong("userId")); // <-- THÊM ĐOẠN NÀY ĐỂ SERVER NHẬN ID KHÁCH HÀNG
+        }
+
         b.setTotalAmount(obj.optBigDecimal("totalAmount", BigDecimal.ZERO));
         b.setDiscount(obj.optBigDecimal("discount", BigDecimal.ZERO));
         b.setTax(obj.optBigDecimal("tax", BigDecimal.ZERO));
 
         if (obj.has("paymentMethod") && !obj.isNull("paymentMethod")) {
-            b.setPaymentMethod(PaymentMethod.valueOf(obj.getString("paymentMethod")));
+            b.setPaymentMethod(dbEnums.PaymentMethod.valueOf(obj.getString("paymentMethod")));
         }
 
         return b;
     }
+
     private static FoodDTO jsonToFood(JSONObject obj) {
         FoodDTO f = new FoodDTO();
         if (obj.has("id") && !obj.isNull("id")) f.setId(obj.getLong("id"));

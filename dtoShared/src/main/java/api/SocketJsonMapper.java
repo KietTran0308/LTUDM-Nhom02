@@ -11,7 +11,6 @@ import java.util.Map;
 
 public class SocketJsonMapper {
 
-    // CLIENT GỬI GÓI TIN
     public static String toJsonString(SocketPacket packet) {
         JSONObject root = new JSONObject();
         root.put("action", packet.getAction().name());
@@ -78,13 +77,14 @@ public class SocketJsonMapper {
 
             case UPDATE_ITEM_STATUS:
                 if (data != null) root.put("data", data);  // itemId
-                if (extraData instanceof OrderStatus) root.put("extraData", ((OrderStatus) extraData).name());
+                if (extraData instanceof dbEnums.OrderStatus) root.put("extraData", ((dbEnums.OrderStatus) extraData).name());
                 break;
 
             case PAY_TABLE_BILL:
                 if (data instanceof BillDTO b) {
                     JSONObject obj = new JSONObject();
                     if (b.getTableSessionId() != null) obj.put("tableSessionId", b.getTableSessionId());
+                    if (b.getUserId() != null) obj.put("userId", b.getUserId()); // <-- THÊM DÒNG NÀY
                     obj.put("totalAmount", b.getTotalAmount());
                     obj.put("discount", b.getDiscount());
                     obj.put("tax", b.getTax());
@@ -105,19 +105,6 @@ public class SocketJsonMapper {
                     if (f.getPrice() != null) obj.put("price", f.getPrice());
                     if (f.getCoverImageUrl() != null) obj.put("coverImageUrl", f.getCoverImageUrl());
                     if (f.getIsPublished() != null) obj.put("isPublished", f.getIsPublished());
-                    root.put("data", obj);
-                }
-                break;
-
-            case ADMIN_ADD_INGREDIENT:
-            case ADMIN_RESTOCK_INGREDIENT:
-                if (data instanceof IngredientDTO ing) {
-                    JSONObject obj = new JSONObject();
-                    if (ing.getId() != null) obj.put("id", ing.getId());
-                    if (ing.getName() != null) obj.put("name", ing.getName());
-                    if (ing.getUnit() != null) obj.put("unit", ing.getUnit());
-                    if (ing.getStockQuantity() != null) obj.put("stockQuantity", ing.getStockQuantity());
-                    if (ing.getMinStockLevel() != null) obj.put("minStockLevel", ing.getMinStockLevel());
                     root.put("data", obj);
                 }
                 break;
@@ -234,14 +221,14 @@ public class SocketJsonMapper {
                         data = root.getLong("data"); // orderItemId
                     }
                     if (root.has("extraData") && !root.isNull("extraData")) {
-                        extraData = OrderStatus.valueOf(root.getString("extraData"));
+                        extraData = dbEnums.OrderStatus.valueOf(root.getString("extraData"));
                     }
                     break;
 
                 case UPDATE_ITEM_STATUS:
                     if (root.has("data") && !root.isNull("data")) data = root.getLong("data");
                     if (root.has("extraData") && !root.isNull("extraData"))
-                        extraData = OrderStatus.valueOf(root.getString("extraData"));
+                        extraData = dbEnums.OrderStatus.valueOf(root.getString("extraData"));
                     break;
 
                 case CALL_STAFF:
@@ -302,24 +289,6 @@ public class SocketJsonMapper {
                         data = jsonArrayToCategoryList(root.getJSONArray("data"));
                     break;
 
-                case ADMIN_GET_INGREDIENTS:
-                    if (root.has("data") && !root.isNull("data")) {
-                        JSONArray arr = root.getJSONArray("data");
-                        List<IngredientDTO> ingredients = new ArrayList<>();
-                        for (int i = 0; i < arr.length(); i++) {
-                            JSONObject obj = arr.getJSONObject(i);
-                            IngredientDTO ing = new IngredientDTO();
-                            if (obj.has("id") && !obj.isNull("id")) ing.setId(obj.getLong("id"));
-                            ing.setName(obj.optString("name", ""));
-                            ing.setUnit(obj.optString("unit", ""));
-                            ing.setStockQuantity(obj.optBigDecimal("stockQuantity", BigDecimal.ZERO));
-                            ing.setMinStockLevel(obj.optBigDecimal("minStockLevel", BigDecimal.ZERO));
-                            ingredients.add(ing);
-                        }
-                        data = ingredients;
-                    }
-                    break;
-
                 case ADMIN_GET_BILLS:
                     extraData = root.optJSONObject("extraData");
                     if (root.has("data") && !root.isNull("data")) {
@@ -335,9 +304,9 @@ public class SocketJsonMapper {
                             b.setDiscount(obj.optBigDecimal("discount", BigDecimal.ZERO));
                             b.setTax(obj.optBigDecimal("tax", BigDecimal.ZERO));
                             if (obj.has("paymentMethod") && !obj.isNull("paymentMethod"))
-                                b.setPaymentMethod(PaymentMethod.valueOf(obj.getString("paymentMethod")));
+                                b.setPaymentMethod(dbEnums.PaymentMethod.valueOf(obj.getString("paymentMethod")));
                             if (obj.has("paymentStatus") && !obj.isNull("paymentStatus"))
-                                b.setPaymentStatus(PaymentStatus.valueOf(obj.getString("paymentStatus")));
+                                b.setPaymentStatus(dbEnums.PaymentStatus.valueOf(obj.getString("paymentStatus")));
                             if (obj.has("paidAt") && !obj.isNull("paidAt"))
                                 b.setPaidAt(java.time.LocalDateTime.parse(obj.getString("paidAt")));
                             if (obj.has("createdAt") && !obj.isNull("createdAt"))
@@ -441,7 +410,7 @@ public class SocketJsonMapper {
                     obj.optBigDecimal("unitPrice", BigDecimal.ZERO),
                     obj.optInt("quantity", 1),
                     obj.optBigDecimal("lineTotal", BigDecimal.ZERO),
-                    OrderStatus.valueOf(obj.optString("status", "PENDING")),
+                    dbEnums.OrderStatus.valueOf(obj.optString("status", "PENDING")),
                     obj.has("note") && !obj.isNull("note") ? obj.getString("note") : null,
                     readDateTime(obj, "updatedAt"),
                     readDateTime(obj, "completedAt")
@@ -486,7 +455,6 @@ public class SocketJsonMapper {
         return list;
     }
 
-    // Dùng 2 lần trong jsonArrayToOrderItemList (updatedAt, completedAt)
     private static java.time.LocalDateTime readDateTime(JSONObject obj, String key) {
         if (!obj.has(key) || obj.isNull(key)) return null;
         return java.time.LocalDateTime.parse(obj.getString(key));

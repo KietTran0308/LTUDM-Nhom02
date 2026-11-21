@@ -222,7 +222,6 @@ public class AdminGUI extends JFrame {
 
     private void refreshAllData() {
         loadFoods();
-        loadInventory();
         loadRevenue();
         loadAccounts();
     }
@@ -673,18 +672,6 @@ public class AdminGUI extends JFrame {
         return i.getStockQuantity().compareTo(i.getMinStockLevel()) <= 0;
     }
 
-    private void loadInventory() {
-        new PageLoadWorker<List<IngredientDTO>>() {
-            @Override
-            protected List<IngredientDTO> doInBackground() {
-                return adminBUS.getAllIngredients();
-            }
-
-            @Override
-            protected void onLoaded(List<IngredientDTO> result) {
-            }
-        }.execute();
-    }
 
     // TRANG 3: THỐNG KÊ DOANH THU
     private JPanel createRevenuePage() {

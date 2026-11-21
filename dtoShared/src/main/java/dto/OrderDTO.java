@@ -16,8 +16,8 @@ public class OrderDTO implements Serializable {
     private Long tableId;       // orders.table_id, nullable
     private Long tableSessionId; // orders.table_session_id, nullable; phiên bàn gọi món
     private Long voucherId;
-    private OrderType orderType;
-    private OrderStatus status;
+    private dbEnums.OrderType orderType;
+    private dbEnums.OrderStatus status;
     private BigDecimal subtotal;
     private BigDecimal shippingFee;
     private BigDecimal discountAmount;
@@ -61,11 +61,11 @@ public class OrderDTO implements Serializable {
     public Long getVoucherId() { return voucherId; }
     public void setVoucherId(Long voucherId) { this.voucherId = voucherId; }
 
-    public OrderType getOrderType() { return orderType; }
-    public void setOrderType(OrderType orderType) { this.orderType = orderType; }
+    public dbEnums.OrderType getOrderType() { return orderType; }
+    public void setOrderType(dbEnums.OrderType orderType) { this.orderType = orderType; }
 
-    public OrderStatus getStatus() { return status; }
-    public void setStatus(OrderStatus status) { this.status = status; }
+    public dbEnums.OrderStatus getStatus() { return status; }
+    public void setStatus(dbEnums.OrderStatus status) { this.status = status; }
 
     public BigDecimal getSubtotal() { return subtotal; }
     public void setSubtotal(BigDecimal subtotal) { this.subtotal = subtotal; }
