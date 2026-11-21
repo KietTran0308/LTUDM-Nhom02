@@ -682,7 +682,7 @@ public final class PosGUI extends JFrame {
         bankButton.addActionListener(e -> refreshPaymentBoxes.run());
         refreshPaymentBoxes.run();
 
-        JPanel methods = new JPanel(new FlowLayout(FlowLayout.CENTER, 18, 4));
+        JPanel methods = new JPanel(new GridLayout(1, 2, 12, 0));
         methods.setOpaque(false);
         methods.add(cashButton);
         methods.add(bankButton);
@@ -731,10 +731,7 @@ public final class PosGUI extends JFrame {
     }
 
     private void styleSquarePaymentBox(CToggleButton button) {
-        Dimension squareSize = new Dimension(330, 135);
-        button.setPreferredSize(squareSize);
-        button.setMinimumSize(squareSize);
-        button.setMaximumSize(squareSize);
+        button.setPreferredSize(new Dimension(0, 64));
         button.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 14));
         button.setHorizontalAlignment(SwingConstants.CENTER);
         button.setVerticalAlignment(SwingConstants.CENTER);
@@ -1296,6 +1293,7 @@ public final class PosGUI extends JFrame {
                     + (customer != null ? " — Tích điểm cho " + customer.getFullName() : ""));
             showTableMap();
             refreshTables(false);
+            if (customer != null) loadCustomersAsync();
         }, () -> {
             clearInvoicePanel();
             refreshTables(false);
@@ -1618,7 +1616,8 @@ public final class PosGUI extends JFrame {
         txtCustomerSearch.setText(contact);
         lblCustomerInfo.setFont(Utils.getCustomFont("Inter", Font.BOLD, 12));
         lblCustomerInfo.setForeground(SELECT_COLOR);
-        lblCustomerInfo.setText("✓ Thành viên: " + customer.getFullName() + " (" + contact + ")");
+        lblCustomerInfo.setText("✓ Thành viên: " + customer.getFullName() + " (" + contact + ") — "
+                + (customer.getCurrentPoints() == null ? 0 : customer.getCurrentPoints()) + " điểm");
         btnClearCustomer.setVisible(true);
     }
 

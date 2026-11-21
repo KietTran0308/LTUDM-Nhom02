@@ -10,6 +10,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.LocalDate;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -40,17 +41,37 @@ public class BillDAO {
                 if (current == null || !revision.equals(current.getCheckoutRevision()))
                     throw new IllegalStateException("Hóa đơn đã thay đổi. Hãy xem lại trước khi thanh toán.");
 
+                Long customerId = bill.getUserId();
+                if (customerId != null) {
+                    try (PreparedStatement ps = conn.prepareStatement(
+                            "SELECT u.id FROM users u JOIN roles r ON r.roleID = u.roleID " +
+                                    "WHERE u.id = ? AND u.is_active = 1 AND r.nameRole = 'CUSTOMER'")) {
+                        ps.setLong(1, customerId);
+                        try (ResultSet rs = ps.executeQuery()) {
+                            if (!rs.next()) throw new IllegalArgumentException("Thành viên không hợp lệ hoặc đã bị khóa.");
+                        }
+                    }
+                }
+
                 // Giá trị ghi vào hóa đơn luôn lấy từ dữ liệu server vừa tính lại.
                 try (PreparedStatement ps = conn.prepareStatement(
-                        "INSERT INTO bill (table_session_id, total_amount, discount, tax, " +
+                        "INSERT INTO bill (table_session_id, user_id, total_amount, discount, tax, " +
                                 "payment_method, paid_at, payment_status) " +
-                                "VALUES (?, ?, ?, ?, ?, NOW(3), 'PAID')")) {
+                                "VALUES (?, ?, ?, ?, ?, ?, NOW(3), 'PAID')", PreparedStatement.RETURN_GENERATED_KEYS)) {
                     ps.setLong(1, sessionId);
-                    ps.setBigDecimal(2, current.getCheckoutTotal());
-                    ps.setBigDecimal(3, current.getDiscountAmount());
-                    ps.setBigDecimal(4, current.getCheckoutTax());
-                    ps.setString(5, bill.getPaymentMethod().name());
+                    if (customerId == null) ps.setNull(2, java.sql.Types.BIGINT);
+                    else ps.setLong(2, customerId);
+                    ps.setBigDecimal(3, current.getCheckoutTotal());
+                    ps.setBigDecimal(4, current.getDiscountAmount());
+                    ps.setBigDecimal(5, current.getCheckoutTax());
+                    ps.setString(6, bill.getPaymentMethod().name());
                     ps.executeUpdate();
+                    if (customerId != null) {
+                        try (ResultSet keys = ps.getGeneratedKeys()) {
+                            if (!keys.next()) throw new SQLException("Không lấy được mã hóa đơn.");
+                            earnPoints(conn, customerId, keys.getLong(1), current.getCheckoutTotal());
+                        }
+                    }
                 }
                 try (PreparedStatement ps = conn.prepareStatement(
                         "UPDATE orders SET status = 'COMPLETED' " +
@@ -79,6 +100,30 @@ public class BillDAO {
             }
         } catch (SQLException e) {
             throw new IllegalStateException("Không lưu được hóa đơn. Hãy tải lại bàn và kiểm tra trước khi thử lại.", e);
+        }
+    }
+
+    // 10.000 đồng thanh toán = 1 điểm; hóa đơn và điểm cùng commit hoặc cùng rollback.
+    private static void earnPoints(Connection conn, long customerId, long billId, BigDecimal paidAmount)
+            throws SQLException {
+        int earned = paidAmount.max(BigDecimal.ZERO).divideToIntegralValue(BigDecimal.valueOf(10000)).intValueExact();
+        if (earned == 0) return;
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO points (user_id, current_points, total_earned_points) VALUES (?, ?, ?) " +
+                        "ON DUPLICATE KEY UPDATE current_points = current_points + VALUES(current_points), " +
+                        "total_earned_points = total_earned_points + VALUES(total_earned_points)")) {
+            ps.setLong(1, customerId);
+            ps.setInt(2, earned);
+            ps.setInt(3, earned);
+            ps.executeUpdate();
+        }
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO point_transactions (user_id, bill_id, type, points_change, note) " +
+                        "VALUES (?, ?, 'EARN', ?, 'Tích điểm khi thanh toán tại POS')")) {
+            ps.setLong(1, customerId);
+            ps.setLong(2, billId);
+            ps.setInt(3, earned);
+            ps.executeUpdate();
         }
     }
 

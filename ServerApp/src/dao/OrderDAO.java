@@ -49,7 +49,6 @@ public class OrderDAO {
         try (Connection conn = dbConnection.getConnection()) {
             conn.setAutoCommit(false);
             try {
-                // Lock the physical table to serialize first orders and add-on orders.
                 try (PreparedStatement ps = conn.prepareStatement(
                         "SELECT id FROM tables WHERE id = ? FOR UPDATE")) {
                     ps.setLong(1, order.getTableId());
@@ -83,7 +82,6 @@ public class OrderDAO {
                             .replace("-", "").substring(0, 16).toUpperCase(Locale.ROOT));
                 }
 
-                Map<Long, BigDecimal> ingredientRequirements = new HashMap<>();
                 BigDecimal subtotal = BigDecimal.ZERO;
                 for (OrderItemDTO item : order.getItems()) {
                     if (item == null || item.getFoodsId() == null || item.getFoodsId() <= 0 ||
@@ -108,7 +106,6 @@ public class OrderDAO {
                     item.setLineTotal(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
                     item.setStatus(dbEnums.OrderStatus.PENDING);
                     subtotal = subtotal.add(item.getLineTotal());
-                    collectIngredients(conn, item.getFoodsId(), item.getQuantity(), ingredientRequirements);
                 }
 
                 // No voucher logic is provided here. The client cannot set discounts.
@@ -118,7 +115,6 @@ public class OrderDAO {
                 order.setDiscountAmount(BigDecimal.ZERO);
                 order.setTotalAmount(subtotal);
                 order.setStatus(dbEnums.OrderStatus.PENDING);
-                deductIngredients(conn, ingredientRequirements);
 
                 final String insertOrder =
                         "INSERT INTO orders (order_code, parent_order_id, user_id, table_id, " +
@@ -185,57 +181,6 @@ public class OrderDAO {
             ps.setLong(1, tableId);
             try (ResultSet rs = ps.executeQuery()) {
                 return rs.next() ? rs.getLong(1) : null;
-            }
-        }
-    }
-
-    private void collectIngredients(Connection conn, long foodId, int quantity,
-                                    Map<Long, BigDecimal> requirements) throws SQLException {
-        try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT ingredient_id, quantity_required FROM recipes WHERE foods_id = ?")) {
-            ps.setLong(1, foodId);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    long ingredientId = rs.getLong("ingredient_id");
-                    BigDecimal required = rs.getBigDecimal("quantity_required");
-                    if (required == null || required.signum() < 0) {
-                        throw new SQLException("Định lượng nguyên liệu không hợp lệ");
-                    }
-                    requirements.merge(ingredientId,
-                            required.multiply(BigDecimal.valueOf(quantity)), BigDecimal::add);
-                }
-            }
-        }
-    }
-
-    private void deductIngredients(Connection conn, Map<Long, BigDecimal> requirements) throws SQLException {
-        // Lock in ascending order to reduce the chance of deadlocks.
-        List<Long> ingredientIds = new ArrayList<>(requirements.keySet());
-        Collections.sort(ingredientIds);
-        for (Long id : ingredientIds) {
-            BigDecimal amount = requirements.get(id);
-            if (amount.signum() == 0) continue;
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "UPDATE ingredients SET stock_quantity = stock_quantity - ? " +
-                            "WHERE id = ? AND stock_quantity >= ?")) {
-                ps.setBigDecimal(1, amount);
-                ps.setLong(2, id);
-                ps.setBigDecimal(3, amount);
-                if (ps.executeUpdate() != 1) {
-                    throw new SQLException("Nguyên liệu ID " + id + " không đủ số lượng hoặc không tồn tại");
-                }
-            }
-        }
-    }
-
-    private void restoreIngredients(Connection conn, Map<Long, BigDecimal> requirements) throws SQLException {
-        for (Map.Entry<Long, BigDecimal> entry : requirements.entrySet()) {
-            if (entry.getValue().signum() == 0) continue;
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "UPDATE ingredients SET stock_quantity = stock_quantity + ? WHERE id = ?")) {
-                ps.setBigDecimal(1, entry.getValue());
-                ps.setLong(2, entry.getKey());
-                if (ps.executeUpdate() != 1) throw new SQLException("Không thể hoàn kho nguyên liệu");
             }
         }
     }
@@ -378,11 +323,9 @@ public class OrderDAO {
             conn.setAutoCommit(false);
             try {
                 long orderId;
-                long foodId;
-                int quantity;
                 dbEnums.OrderStatus oldStatus;
                 try (PreparedStatement ps = conn.prepareStatement(
-                        "SELECT oi.order_id, oi.foods_id, oi.quantity, oi.status, " +
+                        "SELECT oi.order_id, oi.status, " +
                                 "o.status AS order_status, ts.status AS session_status " +
                                 "FROM order_items oi JOIN orders o ON o.id = oi.order_id " +
                                 "LEFT JOIN table_sessions ts ON ts.id = o.table_session_id " +
@@ -394,8 +337,6 @@ public class OrderDAO {
                             return false;
                         }
                         orderId = rs.getLong("order_id");
-                        foodId = rs.getLong("foods_id");
-                        quantity = rs.getInt("quantity");
                         oldStatus = dbEnums.OrderStatus.valueOf(rs.getString("status"));
                         String orderStatus = rs.getString("order_status");
                         String sessionStatus = rs.getString("session_status");
@@ -428,11 +369,6 @@ public class OrderDAO {
                     return false;
                 }
 
-                if (newStatus == dbEnums.OrderStatus.CANCELLED) {
-                    Map<Long, BigDecimal> ingredients = new HashMap<>();
-                    collectIngredients(conn, foodId, quantity, ingredients);
-                    restoreIngredients(conn, ingredients);
-                }
                 try (PreparedStatement ps = conn.prepareStatement(
                         "UPDATE order_items SET status = ?, " +
                                 "completed_at = CASE WHEN ? IN ('COMPLETED','SERVED') " +
@@ -664,9 +600,6 @@ public class OrderDAO {
         }
     }
 
-    /**
-     * Cancel only orders whose items have not begun cooking, and restore stock.
-     */
     public boolean cancelOrder(Long orderId, String reason) {
         if (reason == null || reason.trim().isEmpty()) {
             throw new IllegalArgumentException("Phải cung cấp lý do hủy đơn");
@@ -696,8 +629,6 @@ public class OrderDAO {
                         }
                     }
                 }
-                Map<Long, BigDecimal> requirements = new HashMap<>();
-                List<long[]> refundableItems = new ArrayList<>();
                 try (PreparedStatement ps = conn.prepareStatement(
                         "SELECT foods_id, quantity, status FROM order_items " +
                                 "WHERE order_id = ? FOR UPDATE")) {
@@ -710,16 +641,9 @@ public class OrderDAO {
                                 conn.rollback();
                                 return false;
                             }
-                            if (!"CANCELLED".equals(itemStatus)) {
-                                refundableItems.add(new long[]{rs.getLong("foods_id"), rs.getInt("quantity")});
-                            }
                         }
                     }
                 }
-                for (long[] item : refundableItems) {
-                    collectIngredients(conn, item[0], (int) item[1], requirements);
-                }
-                restoreIngredients(conn, requirements);
                 try (PreparedStatement ps = conn.prepareStatement(
                         "UPDATE order_items SET status = 'CANCELLED' WHERE order_id = ? " +
                                 "AND status <> 'CANCELLED'")) {

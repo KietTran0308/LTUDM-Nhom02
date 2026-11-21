@@ -3,6 +3,7 @@ package bus;
 import dao.BillDAO;
 import dao.CategoryDAO;
 import dao.IngredientDAO;
+import dao.dbConnection;
 import dto.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -138,6 +139,14 @@ public class AdminBUS {
     public List<UserDTO> getAllAccounts() throws SQLException {
         List<UserDTO> users = userBUS.getAllUsers();
         users.forEach(u -> u.setPasswordHash(null)); // không gửi mã băm mật khẩu về client
+        try (java.sql.Connection conn = dbConnection.getConnection();
+             java.sql.PreparedStatement ps = conn.prepareStatement("SELECT user_id, current_points FROM points");
+             java.sql.ResultSet rs = ps.executeQuery()) {
+            java.util.Map<Long, Integer> balances = new java.util.HashMap<>();
+            while (rs.next()) balances.put(rs.getLong(1), rs.getInt(2));
+            users.stream().filter(u -> "CUSTOMER".equalsIgnoreCase(u.getRoleName()))
+                    .forEach(u -> u.setCurrentPoints(balances.getOrDefault(u.getId(), 0)));
+        }
         return users;
     }
 

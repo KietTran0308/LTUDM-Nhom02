@@ -18,6 +18,7 @@ public class UserDTO implements Serializable {
 
     // Thuộc tính phụ trợ để hiển thị tên quyền trên GUI mà không cần join lại
     private String roleName;
+    private Integer currentPoints;
 
     public UserDTO() {}
 
@@ -63,4 +64,6 @@ public class UserDTO implements Serializable {
 
     public String getRoleName() { return roleName; }
     public void setRoleName(String roleName) { this.roleName = roleName; }
+    public Integer getCurrentPoints() { return currentPoints; }
+    public void setCurrentPoints(Integer currentPoints) { this.currentPoints = currentPoints; }
 }

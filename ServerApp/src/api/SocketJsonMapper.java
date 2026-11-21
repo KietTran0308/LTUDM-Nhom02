@@ -255,6 +255,7 @@ public class SocketJsonMapper {
         obj.put("fullName", u.getFullName());
         obj.put("phone", u.getPhone());
         if (u.getRoleName() != null) obj.put("roleName", u.getRoleName());
+        if (u.getCurrentPoints() != null) obj.put("currentPoints", u.getCurrentPoints());
         if (u.getIsActive() != null) obj.put("isActive", u.getIsActive());
         return obj;
     }
