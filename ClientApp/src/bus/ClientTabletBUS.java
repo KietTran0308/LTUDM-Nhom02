@@ -21,8 +21,7 @@ public class ClientTabletBUS {
 
     public enum Type {
         MENU, MENU_ERROR, ORDER_SENT, ORDER_ERROR, TRACKING, ITEM_STATUS,
-        STAFF_CALLED, ORDER_COMPLETED, BILL, MEMBER_LOGIN, MEMBER_PROFILE,
-        MEMBER_HISTORY, MEMBER_LOGOUT, SESSION_CLOSED, ERROR
+        STAFF_CALLED, ORDER_COMPLETED, BILL, SESSION_CLOSED, ERROR
     }
 
     public static final class Event {
@@ -122,18 +121,6 @@ public class ClientTabletBUS {
 
                 case VIEW_SESSION_BILL ->
                         type = Type.BILL;
-
-                case MEMBER_LOGIN ->
-                        type = Type.MEMBER_LOGIN;
-
-                case MEMBER_PROFILE ->
-                        type = Type.MEMBER_PROFILE;
-
-                case MEMBER_HISTORY ->
-                        type = Type.MEMBER_HISTORY;
-
-                case MEMBER_LOGOUT ->
-                        type = Type.MEMBER_LOGOUT;
 
                 case SESSION_CLOSED ->
                         type = Type.SESSION_CLOSED;
@@ -439,29 +426,6 @@ public class ClientTabletBUS {
 
     public boolean callStaffSupport(String message) {
         return tableRegistered && socketClient.callStaff(message);
-    }
-
-    public boolean loginMember(String email, String password) {
-        if (!tableRegistered || !socketClient.isConnected()) return false;
-        Map<String, String> credentials = new HashMap<>();
-        credentials.put("email", email);
-        credentials.put("password", password);
-        return socketClient.sendRequest(new SocketPacket(SocketAction.MEMBER_LOGIN, tableId, credentials, null));
-    }
-
-    public boolean logoutMember() {
-        return tableRegistered && socketClient.sendRequest(
-                new SocketPacket(SocketAction.MEMBER_LOGOUT, tableId, null, null));
-    }
-
-    public boolean requestMemberProfile() {
-        return tableRegistered && socketClient.sendRequest(
-                new SocketPacket(SocketAction.MEMBER_PROFILE, tableId, null, null));
-    }
-
-    public boolean requestMemberHistory() {
-        return tableRegistered && socketClient.sendRequest(
-                new SocketPacket(SocketAction.MEMBER_HISTORY, tableId, null, null));
     }
 
     public void logout() {

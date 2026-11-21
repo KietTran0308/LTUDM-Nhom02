@@ -48,11 +48,5 @@ public enum SocketAction{
     ADMIN_GET_ACCOUNTS,
     ADMIN_CREATE_ACCOUNT,
     ADMIN_UPDATE_ACCOUNT,
-    ADMIN_LOCK_ACCOUNT,
-
-    // 10. Tài khoản thành viên trên Tablet
-    MEMBER_LOGIN,
-    MEMBER_PROFILE,
-    MEMBER_HISTORY,
-    MEMBER_LOGOUT
+    ADMIN_LOCK_ACCOUNT
 }

@@ -148,15 +148,6 @@ public class SocketJsonMapper {
                 }
                 break;
 
-            case MEMBER_LOGIN:
-                if (data instanceof Map<?, ?> credentials) {
-                    JSONObject body = new JSONObject();
-                    body.put("email", credentials.get("email"));
-                    body.put("password", credentials.get("password"));
-                    root.put("data", body);
-                }
-                break;
-
             case CALL_STAFF:
                 if (data != null) {
                     root.put("data", data.toString());
@@ -233,19 +224,6 @@ public class SocketJsonMapper {
 
                 case CALL_STAFF:
                     data = root.optString("data", "");
-                    break;
-
-                case MEMBER_LOGIN:
-                    if (root.has("data") && !root.isNull("data")) {
-                        data = jsonToUser(root.getJSONObject("data"));
-                    }
-                    break;
-
-                case MEMBER_PROFILE, MEMBER_HISTORY:
-                    data = root.optString("data", "");
-                    break;
-
-                case MEMBER_LOGOUT:
                     break;
 
                 case ENTER_CUSTOMER_MODE, ORDER_COMPLETED, SESSION_CLOSED, OPEN_TABLE_SESSION:
@@ -355,6 +333,7 @@ public class SocketJsonMapper {
         if (u.getFullName() != null) obj.put("fullName", u.getFullName());
         if (u.getPhone() != null) obj.put("phone", u.getPhone());
         if (u.getIsActive() != null) obj.put("isActive", u.getIsActive());
+        if (u.getCurrentPoints() != null) obj.put("currentPoints", u.getCurrentPoints());
 
         return obj;
     }
@@ -370,6 +349,8 @@ public class SocketJsonMapper {
         u.setFullName(obj.optString("fullName", ""));
         u.setPhone(obj.optString("phone", ""));
         u.setRoleName(obj.optString("roleName", "CUSTOMER"));
+        if (obj.has("currentPoints") && !obj.isNull("currentPoints"))
+            u.setCurrentPoints(obj.getInt("currentPoints"));
 
         return u;
     }

@@ -345,7 +345,12 @@ public class KitchenGUI extends JFrame {
         queueSummary.setText(model.getRowCount() == 0
                 ? "Không có món nào trong nhóm này."
                 : "Hiển thị " + model.getRowCount() + " món — Dữ liệu đồng bộ trực tiếp từ CSDL trong ngày.");
-        if (selectedRow >= 0) table.setRowSelectionInterval(selectedRow, selectedRow);
+        if (selectedRow >= 0) {
+            int viewRow = table.convertRowIndexToView(selectedRow);
+            if (viewRow >= 0) table.setRowSelectionInterval(viewRow, viewRow);
+        } else if (table.getRowCount() > 0) {
+            table.setRowSelectionInterval(0, 0);
+        }
         updateAction();
     }
 

@@ -118,7 +118,8 @@ public final class PosBUS {
         List<UserDTO> customers = new java.util.ArrayList<>();
         if (data instanceof List<?> list) {
             for (Object item : list) {
-                if (item instanceof UserDTO u && "CUSTOMER".equalsIgnoreCase(u.getRoleName())) {
+                if (item instanceof UserDTO u && "CUSTOMER".equalsIgnoreCase(u.getRoleName())
+                        && Boolean.TRUE.equals(u.getIsActive())) {
                     customers.add(u);
                 }
             }
