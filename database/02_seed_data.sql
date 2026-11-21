@@ -1,70 +1,15 @@
--- phpMyAdmin SQL Dump
--- version 5.2.1
--- https://www.phpmyadmin.net/
---
--- Host: 127.0.0.1
--- Generation Time: Nov 08, 2026 at 09:03 PM
--- Server version: 10.4.32-MariaDB
--- PHP Version: 8.2.12
-USE annhien_datmon;
-
-SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
+-- Exported from VPS phpMyAdmin; run on a NEW/EMPTY local database.
+USE `annhien_datmon`;
+SET SQL_MODE = 'NO_AUTO_VALUE_ON_ZERO';
+SET time_zone = '+00:00';
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
 START TRANSACTION;
-SET time_zone = "+00:00";
 
-
-/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
-/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
-/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
-/*!40101 SET NAMES utf8mb4 */;
-
---
--- Database: `annhien_datmon`
---
-
--- --------------------------------------------------------
-
---
--- Table structure for table `bill`
---
-
-CREATE TABLE `bill` (
-  `id` bigint(20) NOT NULL,
-  `table_session_id` bigint(20) NOT NULL,
-  `total_amount` decimal(14,2) NOT NULL,
-  `discount` decimal(14,2) NOT NULL DEFAULT 0.00,
-  `tax` decimal(14,2) NOT NULL DEFAULT 0.00,
-  `payment_method` enum('CASH','CREDIT_CARD','E_WALLET','BANK_TRANSFER') DEFAULT NULL,
-  `paid_at` datetime(3) DEFAULT NULL,
-  `payment_status` enum('UNPAID','PAID','CANCELLED') NOT NULL DEFAULT 'UNPAID',
-  `created_at` datetime(3) NOT NULL DEFAULT current_timestamp(3)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `bill`
---
-
-INSERT INTO `bill` (`id`, `table_session_id`, `total_amount`, `discount`, `tax`, `payment_method`, `paid_at`, `payment_status`, `created_at`) VALUES
-(1, 65, 460080.00, 0.00, 34080.00, 'CASH', '2026-11-03 01:58:03.936', 'PAID', '2026-11-03 01:58:03.936'),
-(2, 64, 500040.00, 0.00, 37040.00, 'CASH', '2026-11-09 02:31:43.070', 'PAID', '2026-11-09 02:31:43.070');
-
--- --------------------------------------------------------
-
---
--- Table structure for table `categories`
---
-
-CREATE TABLE `categories` (
-  `id` bigint(20) NOT NULL,
-  `name` varchar(100) NOT NULL,
-  `slug` varchar(120) NOT NULL,
-  `description` varchar(500) DEFAULT NULL,
-  `created_at` datetime(3) NOT NULL DEFAULT current_timestamp(3)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `categories`
---
+INSERT INTO `bill` (`id`, `table_session_id`, `user_id`, `total_amount`, `discount`, `points_used`, `tax`, `payment_method`, `paid_at`, `payment_status`, `created_at`) VALUES
+(1, 65, NULL, 460080.00, 0.00, 0, 34080.00, 'CASH', '2026-11-03 01:58:03.936', 'PAID', '2026-11-03 01:58:03.936'),
+(2, 64, NULL, 500040.00, 0.00, 0, 37040.00, 'CASH', '2026-11-09 02:31:43.070', 'PAID', '2026-11-09 02:31:43.070'),
+(3, 66, NULL, 106920.00, 0.00, 0, 7920.00, 'CASH', '2026-11-19 02:40:19.465', 'PAID', '2026-11-19 02:40:19.465');
 
 INSERT INTO `categories` (`id`, `name`, `slug`, `description`, `created_at`) VALUES
 (1, 'Nước lẩu', 'nuoc-lau', 'Các loại nước lẩu: mala, cà chua, nấm, Thái, collagen, ớt xanh', '2026-11-01 13:28:33.441'),
@@ -78,30 +23,6 @@ INSERT INTO `categories` (`id`, `name`, `slug`, `description`, `created_at`) VAL
 (9, 'Món khai vị Trung', 'khai-vi-trung', 'Há cảo, xíu mại, dimsum, bánh bao, gyoza', '2026-11-01 13:28:33.441'),
 (10, 'Đồ uống', 'do-uong', 'Trà sữa, trà hoa quả, nước ngọt, bia, rượu', '2026-11-01 13:28:33.441'),
 (11, 'Tráng miệng', 'trang-mieng', 'Pudding xoài, bánh trôi, kem, chè', '2026-11-01 13:28:33.441');
-
--- --------------------------------------------------------
-
---
--- Table structure for table `foods`
---
-
-CREATE TABLE `foods` (
-  `id` bigint(20) NOT NULL,
-  `sku` varchar(50) NOT NULL,
-  `category_id` bigint(20) DEFAULT NULL,
-  `name` varchar(200) NOT NULL,
-  `slug` varchar(220) NOT NULL,
-  `description` text DEFAULT NULL,
-  `price` decimal(14,2) NOT NULL,
-  `is_published` tinyint(1) NOT NULL DEFAULT 1,
-  `is_deleted` tinyint(1) NOT NULL DEFAULT 0,
-  `created_at` datetime(3) NOT NULL DEFAULT current_timestamp(3),
-  `updated_at` datetime(3) NOT NULL DEFAULT current_timestamp(3) ON UPDATE current_timestamp(3)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `foods`
---
 
 INSERT INTO `foods` (`id`, `sku`, `category_id`, `name`, `slug`, `description`, `price`, `is_published`, `is_deleted`, `created_at`, `updated_at`) VALUES
 (1, 'SP-MALA', 1, 'Nước lẩu mala Tứ Xuyên (nồi 1 ngăn)', 'nuoc-lau-mala', 'Cốt lẩu mala cay tê đặc trưng Tứ Xuyên', 129000.00, 1, 0, '2026-11-01 13:28:33.498', '2026-11-01 13:28:33.498'),
@@ -160,26 +81,8 @@ INSERT INTO `foods` (`id`, `sku`, `category_id`, `name`, `slug`, `description`, 
 (54, 'SP-MANGO-PUD', 11, 'Pudding xoài (phần)', 'pudding-xoai', 'Pudding xoài tươi', 29000.00, 1, 0, '2026-11-01 13:28:33.498', '2026-11-01 13:28:33.498'),
 (55, 'SP-TANGYUAN', 11, 'Bánh trôi nước (chén)', 'banh-troi', 'Bánh trôi nước', 25000.00, 1, 0, '2026-11-01 13:28:33.498', '2026-11-01 13:28:33.498'),
 (56, 'SP-ICE-CREAM', 11, 'Kem matcha (phần)', 'kem-matcha', 'Kem matcha Nhật', 29000.00, 1, 0, '2026-11-01 13:28:33.498', '2026-11-01 13:28:33.498'),
-(57, 'SP-CHE', 11, 'Chè Thái (chén)', 'che-thai', 'Chè Thái', 25000.00, 1, 0, '2026-11-01 13:28:33.498', '2026-11-01 13:28:33.498');
-
--- --------------------------------------------------------
-
---
--- Table structure for table `food_images`
---
-
-CREATE TABLE `food_images` (
-  `id` bigint(20) NOT NULL,
-  `foods_id` bigint(20) NOT NULL,
-  `url` varchar(500) NOT NULL,
-  `is_cover` tinyint(1) NOT NULL DEFAULT 0,
-  `sort_order` int(11) NOT NULL DEFAULT 0,
-  `created_at` datetime(3) NOT NULL DEFAULT current_timestamp(3)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `food_images`
---
+(57, 'SP-CHE', 11, 'Chè Thái (chén)', 'che-thai', 'Chè Thái', 25000.00, 1, 0, '2026-11-01 13:28:33.498', '2026-11-19 22:47:58.585'),
+(58, 'SP-TS', 11, 'trà sữa', 'tra-sua-4337', 'Món ngon chuẩn vị', 50000.00, 0, 1, '2026-11-19 21:39:04.373', '2026-11-19 22:06:26.538');
 
 INSERT INTO `food_images` (`id`, `foods_id`, `url`, `is_cover`, `sort_order`, `created_at`) VALUES
 (2, 8, 'https://cdn.annhien.vn/foods/ba-chi-bo-my.jpg', 1, 1, '2026-11-01 13:28:33.672'),
@@ -240,138 +143,16 @@ INSERT INTO `food_images` (`id`, `foods_id`, `url`, `is_cover`, `sort_order`, `c
 (57, 27, 'https://cdn.annhien.vn/foods/vien-tom.jpg', 1, 1, '2026-11-01 13:28:33.672'),
 (58, 29, 'https://cdn.annhien.vn/foods/xiu-mai.jpg', 1, 1, '2026-11-01 13:28:33.672');
 
--- --------------------------------------------------------
-
---
--- Table structure for table `ingredients`
---
-
-CREATE TABLE `ingredients` (
-  `id` bigint(20) NOT NULL,
-  `name` varchar(200) NOT NULL,
-  `unit` varchar(50) NOT NULL,
-  `stock_quantity` decimal(10,2) NOT NULL DEFAULT 0.00,
-  `min_stock_level` decimal(10,2) NOT NULL DEFAULT 0.00,
-  `created_at` datetime(3) NOT NULL DEFAULT current_timestamp(3),
-  `updated_at` datetime(3) NOT NULL DEFAULT current_timestamp(3) ON UPDATE current_timestamp(3)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `ingredients`
---
-
-INSERT INTO `ingredients` (`id`, `name`, `unit`, `stock_quantity`, `min_stock_level`, `created_at`, `updated_at`) VALUES
-(1, 'Cốt lẩu mala', 'phần', 498.00, 20.00, '2026-11-01 13:28:33.475', '2026-11-08 23:44:07.968'),
-(2, 'Cốt lẩu cà chua', 'phần', 398.00, 20.00, '2026-11-01 13:28:33.475', '2026-11-08 23:44:07.970'),
-(3, 'Cốt lẩu nấm', 'phần', 398.00, 20.00, '2026-11-01 13:28:33.475', '2026-11-06 00:39:27.454'),
-(4, 'Cốt lẩu Thái', 'phần', 350.00, 20.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(5, 'Cốt lẩu collagen', 'phần', 300.00, 15.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(6, 'Cốt lẩu ớt xanh', 'phần', 300.00, 15.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(7, 'Cốt lẩu sữa', 'phần', 250.00, 15.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(8, 'Ba chỉ bò Mỹ', 'kg', 80.00, 10.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(9, 'Bò Úc cuộn', 'kg', 60.00, 10.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(10, 'Thịt cừu cuộn', 'kg', 50.00, 10.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(11, 'Ba chỉ heo', 'kg', 69.80, 10.00, '2026-11-01 13:28:33.475', '2026-11-03 01:57:25.454'),
-(12, 'Thịt gà', 'kg', 60.00, 10.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(13, 'Lòng heo', 'kg', 30.00, 5.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(14, 'Tôm sú', 'kg', 40.00, 5.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(15, 'Mực ống', 'kg', 35.00, 5.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(16, 'Cá hồi', 'kg', 30.00, 5.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(17, 'Bạch tuộc', 'kg', 25.00, 5.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(18, 'Sò điệp', 'kg', 20.00, 5.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(19, 'Tôm hùm', 'con', 50.00, 5.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(20, 'Viên cá', 'kg', 50.00, 10.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(21, 'Viên bò', 'kg', 50.00, 10.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(22, 'Viên tôm', 'kg', 45.00, 10.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(23, 'Chả cá', 'kg', 40.00, 10.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(24, 'Xíu mại', 'kg', 35.00, 10.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(25, 'Đậu phụ non', 'kg', 40.00, 10.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(26, 'Đậu phụ chiên', 'kg', 34.20, 10.00, '2026-11-01 13:28:33.475', '2026-11-09 02:24:06.669'),
-(27, 'Đậu phụ da', 'kg', 30.00, 10.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(28, 'Cải thảo', 'kg', 60.00, 15.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(29, 'Nấm kim châm', 'kg', 50.00, 10.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(30, 'Nấm đông cô', 'kg', 40.00, 10.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(31, 'Nấm linh chi', 'kg', 20.00, 5.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(32, 'Rau muống', 'kg', 45.00, 10.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(33, 'Cải xanh', 'kg', 45.00, 10.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(34, 'Bắp Mỹ', 'kg', 30.00, 10.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(35, 'Khoai tây', 'kg', 40.00, 10.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(36, 'Mì tươi', 'kg', 50.00, 10.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(37, 'Mì udon', 'kg', 40.00, 10.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(38, 'Bún tươi', 'kg', 40.00, 10.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(39, 'Miến', 'kg', 30.00, 10.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(40, 'Mì trứng', 'kg', 30.00, 10.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(41, 'Trà ô long', 'ly', 800.00, 50.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(42, 'Trà sữa', 'ly', 600.00, 50.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(43, 'Bia Tiger', 'lon', 500.00, 30.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(44, 'Nước suối', 'chai', 800.00, 50.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475'),
-(45, 'Pudding xoài', 'phần', 200.00, 20.00, '2026-11-01 13:28:33.475', '2026-11-01 13:28:33.475');
-
--- --------------------------------------------------------
-
---
--- Table structure for table `orders`
---
-
-CREATE TABLE `orders` (
-  `id` bigint(20) NOT NULL,
-  `order_code` varchar(30) NOT NULL,
-  `parent_order_id` bigint(20) DEFAULT NULL,
-  `user_id` bigint(20) DEFAULT NULL,
-  `table_id` bigint(20) DEFAULT NULL,
-  `table_session_id` bigint(20) DEFAULT NULL,
-  `voucher_id` bigint(20) DEFAULT NULL,
-  `order_type` enum('DINE_IN','TAKEAWAY','DELIVERY') NOT NULL DEFAULT 'DINE_IN',
-  `status` enum('PENDING','RECEIVED','COOKING','COMPLETED','SERVED','CANCELLED') NOT NULL DEFAULT 'PENDING',
-  `subtotal` decimal(14,2) NOT NULL,
-  `shipping_fee` decimal(14,2) NOT NULL DEFAULT 0.00,
-  `discount_amount` decimal(14,2) NOT NULL DEFAULT 0.00,
-  `total_amount` decimal(14,2) NOT NULL,
-  `receiver_name` varchar(150) DEFAULT NULL,
-  `receiver_phone` varchar(20) DEFAULT NULL,
-  `shipping_address` varchar(500) DEFAULT NULL,
-  `note` varchar(500) DEFAULT NULL,
-  `cancel_reason` varchar(255) DEFAULT NULL,
-  `cancelled_at` datetime(3) DEFAULT NULL,
-  `confirmed_by` bigint(20) DEFAULT NULL,
-  `created_at` datetime(3) NOT NULL DEFAULT current_timestamp(3),
-  `updated_at` datetime(3) NOT NULL DEFAULT current_timestamp(3) ON UPDATE current_timestamp(3)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `orders`
---
-
 INSERT INTO `orders` (`id`, `order_code`, `parent_order_id`, `user_id`, `table_id`, `table_session_id`, `voucher_id`, `order_type`, `status`, `subtotal`, `shipping_fee`, `discount_amount`, `total_amount`, `receiver_name`, `receiver_phone`, `shipping_address`, `note`, `cancel_reason`, `cancelled_at`, `confirmed_by`, `created_at`, `updated_at`) VALUES
 (1, 'ORD7F8BF5A1D26E44D9', NULL, NULL, 1, 65, NULL, 'DINE_IN', 'COMPLETED', 347000.00, 0.00, 0.00, 347000.00, NULL, NULL, NULL, '', NULL, NULL, NULL, '2026-11-03 01:55:55.535', '2026-11-03 01:58:03.940'),
 (2, 'ORDABBDE8C287F248FC', 1, NULL, 1, 65, NULL, 'DINE_IN', 'COMPLETED', 79000.00, 0.00, 0.00, 79000.00, NULL, NULL, NULL, '', NULL, NULL, NULL, '2026-11-03 01:57:25.459', '2026-11-03 01:58:03.940'),
 (3, 'ORD2830AD1450794BE0', NULL, NULL, 2, 64, NULL, 'DINE_IN', 'COMPLETED', 119000.00, 0.00, 0.00, 119000.00, NULL, NULL, NULL, '', NULL, NULL, NULL, '2026-11-06 00:39:27.461', '2026-11-09 02:31:43.072'),
 (4, 'ORDD9A006E7E17A4317', 3, NULL, 2, 64, NULL, 'DINE_IN', 'COMPLETED', 228000.00, 0.00, 0.00, 228000.00, NULL, NULL, NULL, '', NULL, NULL, NULL, '2026-11-08 23:44:07.983', '2026-11-09 02:31:43.072'),
-(5, 'ORD9B1ADBD016A44454', 3, NULL, 2, 64, NULL, 'DINE_IN', 'COMPLETED', 116000.00, 0.00, 0.00, 116000.00, NULL, NULL, NULL, 'Đậu phụ chiên (đĩa 200g) (x4): tét', NULL, NULL, NULL, '2026-11-09 02:24:06.681', '2026-11-09 02:31:43.072');
-
--- --------------------------------------------------------
-
---
--- Table structure for table `order_items`
---
-
-CREATE TABLE `order_items` (
-  `id` bigint(20) NOT NULL,
-  `order_id` bigint(20) NOT NULL,
-  `foods_id` bigint(20) NOT NULL,
-  `foods_name` varchar(200) NOT NULL,
-  `unit_price` decimal(14,2) NOT NULL,
-  `quantity` int(11) NOT NULL,
-  `line_total` decimal(14,2) NOT NULL,
-  `status` enum('PENDING','RECEIVED','COOKING','COMPLETED','SERVED','CANCELLED') NOT NULL DEFAULT 'PENDING',
-  `note` varchar(500) DEFAULT NULL,
-  `updated_at` datetime(3) NOT NULL DEFAULT current_timestamp(3) ON UPDATE current_timestamp(3),
-  `completed_at` datetime(3) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `order_items`
---
+(5, 'ORD9B1ADBD016A44454', 3, NULL, 2, 64, NULL, 'DINE_IN', 'COMPLETED', 116000.00, 0.00, 0.00, 116000.00, NULL, NULL, NULL, 'Đậu phụ chiên (đĩa 200g) (x4): tét', NULL, NULL, NULL, '2026-11-09 02:24:06.681', '2026-11-09 02:31:43.072'),
+(6, 'ORDFB81C408ADB447AE', NULL, NULL, 1, 66, NULL, 'DINE_IN', 'COMPLETED', 99000.00, 0.00, 0.00, 99000.00, NULL, NULL, NULL, '', NULL, NULL, NULL, '2026-11-19 02:38:32.804', '2026-11-19 02:40:19.466'),
+(7, 'ORDA6BED3B76C814F27', NULL, NULL, 3, 68, NULL, 'DINE_IN', 'PENDING', 307000.00, 0.00, 0.00, 307000.00, NULL, NULL, NULL, '', NULL, NULL, NULL, '2026-11-20 01:15:41.802', '2026-11-20 01:15:41.802'),
+(8, 'ORD0AAB1C9CA9054585', 7, NULL, 3, 68, NULL, 'DINE_IN', 'PENDING', 119000.00, 0.00, 0.00, 119000.00, NULL, NULL, NULL, '', NULL, NULL, NULL, '2026-11-20 15:31:06.796', '2026-11-20 15:31:06.796'),
+(9, 'ORDAAE92A2469204496', 7, NULL, 3, 68, NULL, 'DINE_IN', 'PENDING', 89000.00, 0.00, 0.00, 89000.00, NULL, NULL, NULL, '', NULL, NULL, NULL, '2026-11-20 15:32:46.176', '2026-11-20 15:32:46.176');
 
 INSERT INTO `order_items` (`id`, `order_id`, `foods_id`, `foods_name`, `unit_price`, `quantity`, `line_total`, `status`, `note`, `updated_at`, `completed_at`) VALUES
 (1, 1, 1, 'Nước lẩu mala Tứ Xuyên (nồi 1 ngăn)', 129000.00, 1, 129000.00, 'SERVED', NULL, '2026-11-03 01:58:03.940', '2026-11-03 01:58:03.940'),
@@ -381,113 +162,48 @@ INSERT INTO `order_items` (`id`, `order_id`, `foods_id`, `foods_name`, `unit_pri
 (5, 3, 3, 'Nước lẩu nấm (nồi 1 ngăn)', 119000.00, 1, 119000.00, 'SERVED', NULL, '2026-11-09 00:09:21.756', '2026-11-06 00:39:54.528'),
 (6, 4, 1, 'Nước lẩu mala Tứ Xuyên (nồi 1 ngăn)', 129000.00, 1, 129000.00, 'SERVED', '', '2026-11-09 00:09:56.575', '2026-11-08 23:44:43.857'),
 (7, 4, 2, 'Nước lẩu cà chua (nồi 1 ngăn)', 99000.00, 1, 99000.00, 'SERVED', '', '2026-11-09 00:10:03.283', '2026-11-08 23:44:59.166'),
-(8, 5, 31, 'Đậu phụ chiên (đĩa 200g)', 29000.00, 4, 116000.00, 'COMPLETED', 'tét', '2026-11-09 02:24:29.744', '2026-11-09 02:24:29.744');
+(8, 5, 31, 'Đậu phụ chiên (đĩa 200g)', 29000.00, 4, 116000.00, 'COMPLETED', 'tét', '2026-11-09 02:24:29.744', '2026-11-09 02:24:29.744'),
+(9, 6, 9, 'Bò Úc cuộn (đĩa 150g)', 99000.00, 1, 99000.00, 'SERVED', '', '2026-11-19 02:40:12.074', '2026-11-19 02:40:02.264'),
+(10, 7, 3, 'Nước lẩu nấm (nồi 1 ngăn)', 119000.00, 1, 119000.00, 'COMPLETED', '', '2026-11-20 01:15:54.527', '2026-11-20 01:15:54.527'),
+(11, 7, 15, 'Thịt gà (đĩa 200g)', 59000.00, 1, 59000.00, 'PENDING', '', '2026-11-20 01:15:41.805', NULL),
+(12, 7, 23, 'Sò điệp (đĩa 150g)', 129000.00, 1, 129000.00, 'COOKING', '', '2026-11-20 15:34:09.080', NULL),
+(13, 8, 3, 'Nước lẩu nấm (nồi 1 ngăn)', 119000.00, 1, 119000.00, 'PENDING', '', '2026-11-20 15:31:06.797', NULL),
+(14, 9, 8, 'Ba chỉ bò Mỹ cuộn (đĩa 150g)', 89000.00, 1, 89000.00, 'COOKING', '', '2026-11-20 15:34:23.247', NULL);
 
--- --------------------------------------------------------
-
---
--- Table structure for table `recipes`
---
-
-CREATE TABLE `recipes` (
-  `id` bigint(20) NOT NULL,
-  `foods_id` bigint(20) NOT NULL,
-  `ingredient_id` bigint(20) NOT NULL,
-  `quantity_required` decimal(10,2) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `recipes`
---
-
-INSERT INTO `recipes` (`id`, `foods_id`, `ingredient_id`, `quantity_required`) VALUES
-(1, 1, 1, 1.00),
-(2, 2, 2, 1.00),
-(3, 3, 3, 1.00),
-(4, 4, 4, 1.00),
-(5, 5, 5, 1.00),
-(6, 6, 6, 1.00),
-(7, 7, 7, 1.00),
-(8, 13, 8, 0.15),
-(9, 12, 8, 0.15),
-(10, 11, 8, 0.15),
-(11, 8, 8, 0.15),
-(12, 9, 9, 0.15),
-(13, 10, 10, 0.15),
-(14, 47, 11, 0.05),
-(15, 46, 11, 0.05),
-(16, 17, 11, 0.20),
-(17, 14, 11, 0.15),
-(18, 18, 12, 0.15),
-(19, 15, 12, 0.20),
-(20, 16, 13, 0.15),
-(21, 48, 14, 0.05),
-(22, 45, 14, 0.05),
-(23, 19, 14, 0.20),
-(24, 20, 15, 0.15),
-(25, 21, 16, 0.15),
-(26, 22, 17, 0.15),
-(27, 23, 18, 0.15),
-(28, 24, 19, 1.00),
-(29, 25, 20, 0.15),
-(30, 26, 21, 0.15),
-(31, 27, 22, 0.15),
-(32, 28, 23, 0.15),
-(33, 29, 24, 0.15),
-(34, 30, 25, 0.20),
-(35, 33, 26, 0.15),
-(36, 31, 26, 0.20),
-(37, 32, 27, 0.15),
-(38, 34, 28, 0.20),
-(39, 35, 29, 0.15),
-(40, 36, 30, 0.15),
-(41, 37, 32, 0.20),
-(42, 38, 33, 0.20),
-(43, 39, 34, 0.20),
-(44, 40, 36, 0.15),
-(45, 41, 37, 0.15),
-(46, 42, 38, 0.15),
-(47, 43, 39, 0.10),
-(48, 44, 40, 0.15),
-(49, 53, 41, 1.00),
-(50, 49, 41, 1.00),
-(51, 50, 42, 1.00),
-(52, 51, 43, 1.00),
-(53, 52, 44, 1.00),
-(54, 57, 45, 1.00),
-(55, 56, 45, 1.00),
-(56, 55, 45, 1.00),
-(57, 54, 45, 1.00);
-
--- --------------------------------------------------------
-
---
--- Table structure for table `reviews`
---
-
-CREATE TABLE `reviews` (
-  `id` bigint(20) NOT NULL,
-  `user_id` bigint(20) NOT NULL,
-  `foods_id` bigint(20) NOT NULL,
-  `rating` int(11) NOT NULL CHECK (`rating` >= 1 and `rating` <= 5),
-  `comment` text DEFAULT NULL,
-  `created_at` datetime(3) NOT NULL DEFAULT current_timestamp(3)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Table structure for table `roles`
---
-
-CREATE TABLE `roles` (
-  `roleID` bigint(20) NOT NULL,
-  `nameRole` varchar(255) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `roles`
---
+INSERT INTO `points` (`user_id`, `current_points`, `total_earned_points`, `tier`, `updated_at`) VALUES
+(16, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(17, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(18, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(19, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(20, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(21, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(22, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(23, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(24, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(25, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(26, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(27, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(28, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(29, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(30, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(31, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(32, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(33, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(34, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(35, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(36, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(37, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(38, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(39, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(40, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(41, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(42, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(43, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(44, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(45, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(49, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(50, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440'),
+(51, 0, 0, 'ĐỒNG', '2026-11-21 16:57:43.440');
 
 INSERT INTO `roles` (`roleID`, `nameRole`) VALUES
 (1, 'ADMIN'),
@@ -495,28 +211,10 @@ INSERT INTO `roles` (`roleID`, `nameRole`) VALUES
 (4, 'KITCHEN'),
 (2, 'STAFF');
 
--- --------------------------------------------------------
-
---
--- Table structure for table `tables`
---
-
-CREATE TABLE `tables` (
-  `id` bigint(20) NOT NULL,
-  `table_name` varchar(200) NOT NULL,
-  `capacity` int(11) NOT NULL,
-  `floor_number` int(11) NOT NULL DEFAULT 1,
-  `status` tinyint(1) NOT NULL DEFAULT 1
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `tables`
---
-
 INSERT INTO `tables` (`id`, `table_name`, `capacity`, `floor_number`, `status`) VALUES
-(1, 'Bàn 01', 2, 1, 0),
-(2, 'Bàn 02', 2, 1, 1),
-(3, 'Bàn 03', 4, 1, 1),
+(1, 'Bàn 01', 2, 1, 1),
+(2, 'Bàn 02', 2, 1, 0),
+(3, 'Bàn 03', 4, 1, 0),
 (4, 'Bàn 04', 4, 1, 1),
 (5, 'Bàn 05', 4, 1, 1),
 (6, 'Bàn 06', 4, 1, 1),
@@ -554,27 +252,6 @@ INSERT INTO `tables` (`id`, `table_name`, `capacity`, `floor_number`, `status`) 
 (38, 'Bàn Tầng 3 - 03', 10, 3, 1),
 (39, 'Bàn Tầng 3 - 04', 10, 3, 1),
 (40, 'Bàn Tầng 3 - 05', 12, 3, 1);
-
--- --------------------------------------------------------
-
---
--- Table structure for table `table_sessions`
---
-
-CREATE TABLE `table_sessions` (
-  `id` bigint(20) NOT NULL,
-  `table_id` bigint(20) NOT NULL,
-  `opened_by` bigint(20) DEFAULT NULL,
-  `status` enum('ACTIVE','CLOSED') NOT NULL DEFAULT 'ACTIVE',
-  `access_token_hash` char(64) NOT NULL,
-  `opened_at` datetime(3) NOT NULL DEFAULT current_timestamp(3),
-  `closed_at` datetime(3) DEFAULT NULL,
-  `active_table_id` bigint(20) GENERATED ALWAYS AS (case when `status` = 'ACTIVE' then `table_id` else NULL end) STORED
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `table_sessions`
---
 
 INSERT INTO `table_sessions` (`id`, `table_id`, `opened_by`, `status`, `access_token_hash`, `opened_at`, `closed_at`) VALUES
 (1, 1, 3, 'CLOSED', '774340be2bf3be55b40693dc6968f7d85271540f933a3642c26cd7ac72aa6eac', '2026-11-01 12:28:33.841', '2026-11-01 14:28:33.841'),
@@ -615,33 +292,13 @@ INSERT INTO `table_sessions` (`id`, `table_id`, `opened_by`, `status`, `access_t
 (36, 25, 3, 'CLOSED', 'e1c6517589d982d71fe331f5d3c95a99ce3231f96aee9b214398106678d2fc1c', '2026-10-31 12:28:33.841', '2026-10-31 14:28:33.841'),
 (64, 2, 1, 'CLOSED', '0f1dfdf13ebb3ef2b26536e4e71aac954080efae3b152997221f685309b14fe5', '2026-11-02 18:52:05.400', '2026-11-09 02:31:43.073'),
 (65, 1, 1, 'CLOSED', '0892b41e6a84f5afb7126039cf5c4760277dbc5cda6cbc1d21bb756ac80b95e8', '2026-11-02 18:52:11.901', '2026-11-03 01:58:03.943'),
-(66, 1, 46, 'ACTIVE', 'e8cf250903f923e7cb0fcf20aebac187b8e6dec5e79e4afb948269a1999e7cfb', '2026-11-09 02:34:42.271', NULL);
-
--- --------------------------------------------------------
-
---
--- Table structure for table `users`
---
-
-CREATE TABLE `users` (
-  `id` bigint(20) NOT NULL,
-  `roleID` bigint(20) NOT NULL,
-  `email` varchar(255) NOT NULL,
-  `password_hash` varchar(255) NOT NULL,
-  `full_name` varchar(150) NOT NULL,
-  `phone` varchar(20) DEFAULT NULL,
-  `is_active` tinyint(1) NOT NULL DEFAULT 1,
-  `created_at` datetime(3) NOT NULL DEFAULT current_timestamp(3),
-  `updated_at` datetime(3) NOT NULL DEFAULT current_timestamp(3) ON UPDATE current_timestamp(3)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `users`
---
+(66, 1, 46, 'CLOSED', 'e8cf250903f923e7cb0fcf20aebac187b8e6dec5e79e4afb948269a1999e7cfb', '2026-11-09 02:34:42.271', '2026-11-19 02:40:19.467'),
+(67, 2, 46, 'ACTIVE', '71461e9af9fcced1009d2b248954e5184ea5f15e8361e34373b4e4ee255ab365', '2026-11-16 10:41:55.109', NULL),
+(68, 3, 46, 'ACTIVE', '6d0c87fd3e5616e1f05feefe0a3d50b858177b01c4dc750cebe87cf1da816a77', '2026-11-19 23:33:52.319', NULL);
 
 INSERT INTO `users` (`id`, `roleID`, `email`, `password_hash`, `full_name`, `phone`, `is_active`, `created_at`, `updated_at`) VALUES
 (1, 4, 'tuankiet21950@gmail.com', 'pbkdf2$210000$sQ+575GIEC5cAjTKsrcWLQ==$iDrodCe7s59koUf2Jo0nH5yTa9mt7KNqznVV1iuurHg=', 'Trần Giang Tuấn Kiệt', '0906628992', 1, '2026-11-01 13:28:33.352', '2026-11-09 02:23:21.215'),
-(2, 1, 'tranthuylinh@annhien.vn', 'pbkdf2$210000$b8zQLUOXy5BDUARGobmp0g==$SG4HqRkxYQXRUHQuihM5f5x/7pR43dLvoKlHu/yT6Xc=', 'Trần Thùy Linh', '0912345678', 1, '2026-11-01 13:28:33.352', '2026-11-01 13:28:33.352'),
+(2, 1, 'tranthuylinh@annhien.vn', 'pbkdf2$210000$b8zQLUOXy5BDUARGobmp0g==$SG4HqRkxYQXRUHQuihM5f5x/7pR43dLvoKlHu/yT6Xc=', 'Trần Thùy Linh', '0912345678', 0, '2026-11-01 13:28:33.352', '2026-11-19 21:29:15.038'),
 (3, 2, 'levanhung@annhien.vn', 'pbkdf2$210000$9Picb6rIeGCtn41gecSm6Q==$r8ri3BgY8TPAcsTJAGAno46A175uX0S0n4QxVtNFPBM=', 'Lê Văn Hùng', '0923456789', 1, '2026-11-01 13:28:33.352', '2026-11-01 13:28:33.352'),
 (4, 2, 'phamthimaianh@annhien.vn', 'pbkdf2$210000$9Picb6rIeGCtn41gecSm6Q==$r8ri3BgY8TPAcsTJAGAno46A175uX0S0n4QxVtNFPBM=', 'Phạm Thị Mai Anh', '0934567890', 1, '2026-11-01 13:28:33.352', '2026-11-01 13:28:33.352'),
 (5, 2, 'hoangvannam@annhien.vn', 'pbkdf2$210000$9Picb6rIeGCtn41gecSm6Q==$r8ri3BgY8TPAcsTJAGAno46A175uX0S0n4QxVtNFPBM=', 'Hoàng Văn Nam', '0945678901', 1, '2026-11-01 13:28:33.352', '2026-11-01 13:28:33.352'),
@@ -688,35 +345,9 @@ INSERT INTO `users` (`id`, `roleID`, `email`, `password_hash`, `full_name`, `pho
 (46, 1, 'annhien_admin@gmail.com', 'pbkdf2$210000$ZQLaL6QSjY4Y8lQi9LXOfA==$hzZJmRcYNPRXaaaP69FzOiT1HqBTXNBFQBYNtVo3Lk4=', 'Quản trị viên thử nghiệm', NULL, 1, '2026-11-09 02:29:35.427', '2026-11-09 02:29:35.427'),
 (47, 2, 'annhien_staff@gmail.com', 'pbkdf2$210000$tTtsUqAJzVfM452/PlfmtQ==$fzYXcUgOAQ7PPkk2G7xoyuMduMAvM0s7Jya3vfAxEeQ=', 'Nhân viên phục vụ thử nghiệm', NULL, 1, '2026-11-09 02:29:35.461', '2026-11-09 02:29:35.461'),
 (48, 4, 'annhien_kitchen@gmail.com', 'pbkdf2$210000$e2zlOYEXnknujQV1q2oWmA==$kewztsBO9XfpyNdBkRjy+fwn9OScMUb6Pm4freJH858=', 'Nhân viên bếp thử nghiệm', NULL, 1, '2026-11-09 02:29:35.482', '2026-11-09 02:29:35.482'),
-(49, 3, 'annhien_customer@gmail.com', 'pbkdf2$210000$arzmKkdkTpe5raPAsnVumA==$rMbmMYMWdEJ7KPkCzuxeFmw+H/h7iKlopTr9L2QmPWw=', 'Khách hàng thử nghiệm', NULL, 1, '2026-11-09 02:29:35.509', '2026-11-09 02:29:35.509');
-
--- --------------------------------------------------------
-
---
--- Table structure for table `vouchers`
---
-
-CREATE TABLE `vouchers` (
-  `id` bigint(20) NOT NULL,
-  `code` varchar(50) NOT NULL,
-  `name` varchar(255) DEFAULT NULL,
-  `description` varchar(500) DEFAULT NULL,
-  `discount_type` enum('PERCENT','FIXED') NOT NULL,
-  `discount_value` decimal(15,2) NOT NULL,
-  `min_order_amount` decimal(15,2) DEFAULT 0.00,
-  `max_discount_amount` decimal(15,2) DEFAULT NULL,
-  `start_at` datetime(3) NOT NULL,
-  `end_at` datetime(3) NOT NULL,
-  `usage_limit` int(11) DEFAULT NULL,
-  `used_count` int(11) DEFAULT 0,
-  `is_active` tinyint(1) DEFAULT 1,
-  `created_at` datetime(3) NOT NULL DEFAULT current_timestamp(3),
-  `updated_at` datetime(3) NOT NULL DEFAULT current_timestamp(3)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `vouchers`
---
+(49, 3, 'annhien_customer@gmail.com', 'pbkdf2$210000$arzmKkdkTpe5raPAsnVumA==$rMbmMYMWdEJ7KPkCzuxeFmw+H/h7iKlopTr9L2QmPWw=', 'Khách hàng thử nghiệm', NULL, 1, '2026-11-09 02:29:35.509', '2026-11-09 02:29:35.509'),
+(50, 3, 'vuive@gmail.com', 'pbkdf2$210000$8nGB+AmzusvmrjEIuncVeA==$v5iW/jXtnZsaZvT1c7ECbvo7TKOAkKJRaTfek7Oclbs=', 'Dương Gia Huy', '0999999999', 1, '2026-11-19 21:33:03.781', '2026-11-19 21:33:03.781'),
+(51, 3, 'alo@gmail.com', 'pbkdf2$210000$M2QpY65ent0OkCmMZCXOBw==$mfGaNnvzM4GRxrOzQ9W8zzB/IJw8s1hbowWAEqVELMs=', 'nhan vien 1', '0797987899', 1, '2026-11-19 21:34:47.922', '2026-11-19 21:34:47.922');
 
 INSERT INTO `vouchers` (`id`, `code`, `name`, `description`, `discount_type`, `discount_value`, `min_order_amount`, `max_discount_amount`, `start_at`, `end_at`, `usage_limit`, `used_count`, `is_active`, `created_at`, `updated_at`) VALUES
 (1, 'WELCOME10', 'Chào mừng khách mới', 'Giảm 10% cho đơn đầu tiên', 'PERCENT', 10.00, 200000.00, 50000.00, '2026-10-31 13:28:33.000', '2027-11-01 13:28:33.000', 500, 0, 1, '2026-11-01 13:28:33.761', '2026-11-01 13:28:33.761'),
@@ -756,286 +387,5 @@ INSERT INTO `vouchers` (`id`, `code`, `name`, `description`, `discount_type`, `d
 (35, 'NEWSTORE', 'Khai trương chi nhánh mới', 'Giảm 25% khai trương', 'PERCENT', 25.00, 300000.00, 150000.00, '2026-10-31 13:28:33.000', '2026-12-01 13:28:33.000', 500, 0, 1, '2026-11-01 13:28:33.761', '2026-11-01 13:28:33.761'),
 (36, 'FLASHSALE', 'Flash sale 30 phút', 'Giảm 20% flash sale', 'PERCENT', 20.00, 200000.00, 100000.00, '2026-10-31 13:28:33.000', '2026-12-01 13:28:33.000', 100, 0, 1, '2026-11-01 13:28:33.761', '2026-11-01 13:28:33.761');
 
---
--- Indexes for dumped tables
---
-
---
--- Indexes for table `bill`
---
-ALTER TABLE `bill`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `uq_bill_session` (`table_session_id`),
-  ADD KEY `idx_bill_payment_date` (`payment_status`,`paid_at`);
-
---
--- Indexes for table `categories`
---
-ALTER TABLE `categories`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `name` (`name`),
-  ADD UNIQUE KEY `slug` (`slug`);
-
---
--- Indexes for table `foods`
---
-ALTER TABLE `foods`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `sku` (`sku`),
-  ADD UNIQUE KEY `slug` (`slug`),
-  ADD KEY `idx_foods_category` (`category_id`),
-  ADD KEY `idx_foods_price` (`price`),
-  ADD KEY `idx_foods_published` (`is_published`,`is_deleted`);
-
---
--- Indexes for table `food_images`
---
-ALTER TABLE `food_images`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `fk_foods_images_foods` (`foods_id`);
-
---
--- Indexes for table `ingredients`
---
-ALTER TABLE `ingredients`
-  ADD PRIMARY KEY (`id`);
-
---
--- Indexes for table `orders`
---
-ALTER TABLE `orders`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `order_code` (`order_code`),
-  ADD KEY `fk_orders_parent` (`parent_order_id`),
-  ADD KEY `fk_orders_admin` (`confirmed_by`),
-  ADD KEY `fk_orders_table` (`table_id`),
-  ADD KEY `fk_orders_voucher` (`voucher_id`),
-  ADD KEY `idx_orders_user` (`user_id`),
-  ADD KEY `idx_orders_status_created` (`status`,`created_at`),
-  ADD KEY `idx_orders_created_at` (`created_at`),
-  ADD KEY `idx_order_session` (`table_session_id`);
-
---
--- Indexes for table `order_items`
---
-ALTER TABLE `order_items`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `fk_oi_order` (`order_id`),
-  ADD KEY `fk_oi_foods` (`foods_id`),
-  ADD KEY `idx_order_items_status` (`status`);
-
---
--- Indexes for table `recipes`
---
-ALTER TABLE `recipes`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `uq_food_ingredient` (`foods_id`,`ingredient_id`),
-  ADD KEY `fk_recipes_ingredients` (`ingredient_id`);
-
---
--- Indexes for table `reviews`
---
-ALTER TABLE `reviews`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `fk_reviews_user` (`user_id`),
-  ADD KEY `fk_reviews_food` (`foods_id`);
-
---
--- Indexes for table `roles`
---
-ALTER TABLE `roles`
-  ADD PRIMARY KEY (`roleID`),
-  ADD UNIQUE KEY `nameRole` (`nameRole`);
-
---
--- Indexes for table `tables`
---
-ALTER TABLE `tables`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `uq_table_name` (`table_name`),
-  ADD KEY `idx_tables_floor_number` (`floor_number`,`id`);
-
---
--- Indexes for table `table_sessions`
---
-ALTER TABLE `table_sessions`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `uq_session_token` (`access_token_hash`),
-  ADD UNIQUE KEY `uq_active_table` (`active_table_id`),
-  ADD KEY `idx_session_table` (`table_id`,`opened_at`),
-  ADD KEY `fk_session_employee` (`opened_by`);
-
---
--- Indexes for table `users`
---
-ALTER TABLE `users`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `email` (`email`),
-  ADD KEY `fk_users_roles` (`roleID`);
-
---
--- Indexes for table `vouchers`
---
-ALTER TABLE `vouchers`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `code` (`code`);
-
---
--- AUTO_INCREMENT for dumped tables
---
-
---
--- AUTO_INCREMENT for table `bill`
---
-ALTER TABLE `bill`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
-
---
--- AUTO_INCREMENT for table `categories`
---
-ALTER TABLE `categories`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=37;
-
---
--- AUTO_INCREMENT for table `foods`
---
-ALTER TABLE `foods`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=58;
-
---
--- AUTO_INCREMENT for table `food_images`
---
-ALTER TABLE `food_images`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=65;
-
---
--- AUTO_INCREMENT for table `ingredients`
---
-ALTER TABLE `ingredients`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=46;
-
---
--- AUTO_INCREMENT for table `orders`
---
-ALTER TABLE `orders`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
-
---
--- AUTO_INCREMENT for table `order_items`
---
-ALTER TABLE `order_items`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=9;
-
---
--- AUTO_INCREMENT for table `recipes`
---
-ALTER TABLE `recipes`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=64;
-
---
--- AUTO_INCREMENT for table `reviews`
---
-ALTER TABLE `reviews`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `roles`
---
-ALTER TABLE `roles`
-  MODIFY `roleID` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
-
---
--- AUTO_INCREMENT for table `tables`
---
-ALTER TABLE `tables`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=41;
-
---
--- AUTO_INCREMENT for table `table_sessions`
---
-ALTER TABLE `table_sessions`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=67;
-
---
--- AUTO_INCREMENT for table `users`
---
-ALTER TABLE `users`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=50;
-
---
--- AUTO_INCREMENT for table `vouchers`
---
-ALTER TABLE `vouchers`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=37;
-
---
--- Constraints for dumped tables
---
-
---
--- Constraints for table `bill`
---
-ALTER TABLE `bill`
-  ADD CONSTRAINT `fk_bill_session` FOREIGN KEY (`table_session_id`) REFERENCES `table_sessions` (`id`);
-
---
--- Constraints for table `foods`
---
-ALTER TABLE `foods`
-  ADD CONSTRAINT `fk_food_category` FOREIGN KEY (`category_id`) REFERENCES `categories` (`id`);
-
---
--- Constraints for table `food_images`
---
-ALTER TABLE `food_images`
-  ADD CONSTRAINT `fk_foods_images_foods` FOREIGN KEY (`foods_id`) REFERENCES `foods` (`id`) ON DELETE CASCADE;
-
---
--- Constraints for table `orders`
---
-ALTER TABLE `orders`
-  ADD CONSTRAINT `fk_order_session` FOREIGN KEY (`table_session_id`) REFERENCES `table_sessions` (`id`),
-  ADD CONSTRAINT `fk_orders_admin` FOREIGN KEY (`confirmed_by`) REFERENCES `users` (`id`),
-  ADD CONSTRAINT `fk_orders_parent` FOREIGN KEY (`parent_order_id`) REFERENCES `orders` (`id`),
-  ADD CONSTRAINT `fk_orders_table` FOREIGN KEY (`table_id`) REFERENCES `tables` (`id`),
-  ADD CONSTRAINT `fk_orders_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`),
-  ADD CONSTRAINT `fk_orders_voucher` FOREIGN KEY (`voucher_id`) REFERENCES `vouchers` (`id`);
-
---
--- Constraints for table `order_items`
---
-ALTER TABLE `order_items`
-  ADD CONSTRAINT `fk_oi_foods` FOREIGN KEY (`foods_id`) REFERENCES `foods` (`id`),
-  ADD CONSTRAINT `fk_oi_order` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`) ON DELETE CASCADE;
-
---
--- Constraints for table `recipes`
---
-ALTER TABLE `recipes`
-  ADD CONSTRAINT `fk_recipes_foods` FOREIGN KEY (`foods_id`) REFERENCES `foods` (`id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_recipes_ingredients` FOREIGN KEY (`ingredient_id`) REFERENCES `ingredients` (`id`) ON DELETE CASCADE;
-
---
--- Constraints for table `reviews`
---
-ALTER TABLE `reviews`
-  ADD CONSTRAINT `fk_reviews_food` FOREIGN KEY (`foods_id`) REFERENCES `foods` (`id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_reviews_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
-
---
--- Constraints for table `table_sessions`
---
-ALTER TABLE `table_sessions`
-  ADD CONSTRAINT `fk_session_employee` FOREIGN KEY (`opened_by`) REFERENCES `users` (`id`),
-  ADD CONSTRAINT `fk_session_table` FOREIGN KEY (`table_id`) REFERENCES `tables` (`id`);
-
---
--- Constraints for table `users`
---
-ALTER TABLE `users`
-  ADD CONSTRAINT `fk_users_roles` FOREIGN KEY (`roleID`) REFERENCES `roles` (`roleID`);
 COMMIT;
-
-/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
-/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
-/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+SET FOREIGN_KEY_CHECKS = 1;
