@@ -6,13 +6,17 @@ import utils.PasswordReset;
 import utils.PasswordUtil;
 
 import java.sql.SQLException;
+import java.util.regex.Pattern;
 
 public class AuthBUS {
 
-    private final UserDAO userDAO = new UserDAO();
-
+    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
+    private static final Pattern PHONE_10_DIGITS = Pattern.compile("0\\d{9}");
+    private static final Pattern PHONE_PLUS84 = Pattern.compile("\\+84\\d{9}");
     private static final PasswordReset RESET_SERVICE = new PasswordReset();
     private static final Object REGISTER_LOCK = new Object();
+
+    private final UserDAO userDAO = new UserDAO();
 
     public UserDTO login(String emailOrPhone, String password) throws Exception {
         if (emailOrPhone == null || emailOrPhone.trim().isEmpty() || password == null || password.isEmpty()) {
@@ -35,6 +39,14 @@ public class AuthBUS {
     }
 
     public UserDTO register(UserDTO reqUser) throws Exception {
+        return createAccountInternal(reqUser, null);
+    }
+
+    public UserDTO registerWithRole(UserDTO reqUser, String roleName) throws Exception {
+        return createAccountInternal(reqUser, roleName);
+    }
+
+    private UserDTO createAccountInternal(UserDTO reqUser, String roleName) throws Exception {
         synchronized (REGISTER_LOCK) {
             validateRequiredContact(reqUser);
             if (userDAO.existsByEmail(reqUser.getEmail())) {
@@ -45,24 +57,13 @@ public class AuthBUS {
                 throw new IllegalArgumentException("Số điện thoại đã được sử dụng.");
             }
             reqUser.setPasswordHash(PasswordUtil.encode(reqUser.getPasswordHash()));
-            UserDTO created = userDAO.registerUser(reqUser);
-            if (created == null) throw new IllegalStateException("Không thể tạo tài khoản.");
-            created.setPasswordHash(null);
-            return created;
-        }
-    }
 
-    public UserDTO registerWithRole(UserDTO reqUser, String roleName) throws Exception {
-        synchronized (REGISTER_LOCK) {
-            validateRequiredContact(reqUser);
-            if (userDAO.existsByEmail(reqUser.getEmail()))
-                throw new IllegalArgumentException("Email đã được sử dụng.");
-            String phone = reqUser.getPhone();
-            if (phone != null && !phone.isBlank() && isPhoneRegistered(phone.trim()))
-                throw new IllegalArgumentException("Số điện thoại đã được sử dụng.");
-            reqUser.setPasswordHash(PasswordUtil.encode(reqUser.getPasswordHash()));
-            UserDTO created = userDAO.registerUserWithRole(reqUser, roleName);
-            if (created == null) throw new IllegalStateException("Không thể tạo tài khoản.");
+            UserDTO created = roleName == null
+                    ? userDAO.registerUser(reqUser)
+                    : userDAO.registerUserWithRole(reqUser, roleName);
+            if (created == null) {
+                throw new IllegalStateException("Không thể tạo tài khoản.");
+            }
             created.setPasswordHash(null);
             return created;
         }
@@ -70,16 +71,16 @@ public class AuthBUS {
 
     private boolean isPhoneRegistered(String phone) throws SQLException {
         if (userDAO.existsByPhone(phone)) return true;
-        if (phone.matches("0\\d{9}")) {
+        if (PHONE_10_DIGITS.matcher(phone).matches()) {
             return userDAO.existsByPhone("+84" + phone.substring(1));
         }
-        if (phone.matches("\\+84\\d{9}")) {
+        if (PHONE_PLUS84.matcher(phone).matches()) {
             return userDAO.existsByPhone("0" + phone.substring(3));
         }
         return false;
     }
 
-    private void validateRequiredContact(UserDTO reqUser) {
+    private static void validateRequiredContact(UserDTO reqUser) {
         if (reqUser == null) {
             throw new IllegalArgumentException("Thông tin đăng ký không hợp lệ.");
         }
@@ -87,12 +88,11 @@ public class AuthBUS {
             throw new IllegalArgumentException("Họ tên không được để trống.");
         }
         String email = reqUser.getEmail();
-        if (email == null || email.isBlank()
-                || !email.trim().matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+        if (email == null || email.isBlank() || !EMAIL_PATTERN.matcher(email.trim()).matches()) {
             throw new IllegalArgumentException("Email bắt buộc nhập và phải đúng định dạng.");
         }
         String phone = reqUser.getPhone();
-        if (phone == null || !phone.trim().matches("0\\d{9}")) {
+        if (phone == null || !PHONE_10_DIGITS.matcher(phone.trim()).matches()) {
             throw new IllegalArgumentException("Số điện thoại bắt buộc nhập (10 chữ số, bắt đầu bằng 0).");
         }
         reqUser.setFullName(reqUser.getFullName().trim());

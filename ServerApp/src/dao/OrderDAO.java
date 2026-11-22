@@ -532,6 +532,159 @@ public class OrderDAO {
         }
     }
 
+    public OrderDTO applyVoucherToTableSession(long tableId, String rawCode) {
+        String code = rawCode == null ? "" : rawCode.trim().toUpperCase(Locale.ROOT);
+        try (Connection conn = dbConnection.getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                // 1. Khóa bàn và lấy phiên ACTIVE
+                try (PreparedStatement ps = conn.prepareStatement("SELECT id FROM tables WHERE id = ? FOR UPDATE")) {
+                    ps.setLong(1, tableId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (!rs.next()) throw new IllegalArgumentException("Bàn không tồn tại.");
+                    }
+                }
+                Long sessionId = findActiveSession(conn, tableId);
+                if (sessionId == null) {
+                    throw new IllegalStateException("Bàn chưa mở phiên phục vụ.");
+                }
+
+                // 2. Khóa các đơn trong phiên và tính tổng tiền món hiện tại
+                Long rootOrderId = null;
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "SELECT id, parent_order_id FROM orders WHERE table_session_id = ? AND status <> 'CANCELLED' ORDER BY id FOR UPDATE")) {
+                    ps.setLong(1, sessionId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        while (rs.next()) {
+                            if (rootOrderId == null && rs.getObject("parent_order_id") == null) {
+                                rootOrderId = rs.getLong("id");
+                            }
+                        }
+                    }
+                }
+                if (rootOrderId == null) {
+                    throw new IllegalStateException("Bàn chưa có đơn gọi món nào để áp mã giảm giá.");
+                }
+
+                BigDecimal subtotal = BigDecimal.ZERO;
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "SELECT COALESCE(SUM(oi.line_total), 0) FROM order_items oi " +
+                                "JOIN orders o ON oi.order_id = o.id " +
+                                "WHERE o.table_session_id = ? AND o.status <> 'CANCELLED' AND oi.status <> 'CANCELLED'")) {
+                    ps.setLong(1, sessionId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (rs.next()) subtotal = rs.getBigDecimal(1);
+                    }
+                }
+                if (subtotal.compareTo(BigDecimal.ZERO) <= 0) {
+                    throw new IllegalStateException("Hóa đơn chưa có món hợp lệ để áp mã.");
+                }
+
+                // 3. Nếu mã rỗng -> Gỡ bỏ voucher đang áp dụng
+                if (code.isEmpty()) {
+                    try (PreparedStatement ps = conn.prepareStatement(
+                            "UPDATE orders SET voucher_id = NULL, discount_amount = 0, total_amount = subtotal " +
+                                    "WHERE table_session_id = ? AND status <> 'CANCELLED'")) {
+                        ps.setLong(1, sessionId);
+                        ps.executeUpdate();
+                    }
+                    OrderDTO updated = readCheckout(conn, tableId, sessionId, false);
+                    conn.commit();
+                    return updated;
+                }
+
+                // 4. Kiểm tra điều kiện mã Voucher trong bảng vouchers
+                long voucherId;
+                String discountType;
+                BigDecimal discountValue;
+                BigDecimal minOrderAmount;
+                BigDecimal maxDiscountAmount;
+
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "SELECT id, discount_type, discount_value, min_order_amount, max_discount_amount, " +
+                                "start_at, end_at, usage_limit, used_count, is_active " +
+                                "FROM vouchers WHERE UPPER(code) = ? FOR UPDATE")) {
+                    ps.setString(1, code);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (!rs.next()) {
+                            throw new IllegalArgumentException("Mã giảm giá \"" + code + "\" không tồn tại.");
+                        }
+                        if (!rs.getBoolean("is_active")) {
+                            throw new IllegalArgumentException("Mã giảm giá \"" + code + "\" đã bị vô hiệu hóa.");
+                        }
+                        Timestamp now = new Timestamp(System.currentTimeMillis());
+                        Timestamp startAt = rs.getTimestamp("start_at");
+                        Timestamp endAt = rs.getTimestamp("end_at");
+                        if (startAt != null && now.before(startAt)) {
+                            throw new IllegalArgumentException("Mã giảm giá \"" + code + "\" chưa đến thời gian áp dụng.");
+                        }
+                        if (endAt != null && now.after(endAt)) {
+                            throw new IllegalArgumentException("Mã giảm giá \"" + code + "\" đã hết hạn sử dụng.");
+                        }
+                        Integer usageLimit = (Integer) rs.getObject("usage_limit");
+                        int usedCount = rs.getInt("used_count");
+                        if (usageLimit != null && usedCount >= usageLimit) {
+                            throw new IllegalArgumentException("Mã giảm giá \"" + code + "\" đã hết lượt sử dụng.");
+                        }
+
+                        minOrderAmount = rs.getBigDecimal("min_order_amount");
+                        if (minOrderAmount != null && subtotal.compareTo(minOrderAmount) < 0) {
+                            throw new IllegalArgumentException("Đơn tối thiểu phải từ "
+                                    + minOrderAmount.stripTrailingZeros().toPlainString() + " VNĐ để dùng mã này.");
+                        }
+
+                        voucherId = rs.getLong("id");
+                        discountType = rs.getString("discount_type");
+                        discountValue = rs.getBigDecimal("discount_value");
+                        maxDiscountAmount = rs.getBigDecimal("max_discount_amount");
+                    }
+                }
+
+                // 5. Tính số tiền được giảm
+                BigDecimal discount;
+                if ("PERCENT".equalsIgnoreCase(discountType)) {
+                    discount = subtotal.multiply(discountValue)
+                            .divide(BigDecimal.valueOf(100), 0, RoundingMode.HALF_UP);
+                    if (maxDiscountAmount != null && maxDiscountAmount.compareTo(BigDecimal.ZERO) > 0
+                            && discount.compareTo(maxDiscountAmount) > 0) {
+                        discount = maxDiscountAmount;
+                    }
+                } else {
+                    discount = discountValue == null ? BigDecimal.ZERO : discountValue;
+                }
+                if (discount.compareTo(subtotal) > 0) {
+                    discount = subtotal; // Không giảm vượt quá tổng tiền món
+                }
+
+                // 6. Reset giảm giá các đơn phụ và gắn voucher vào đơn gốc của phiên bàn
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE orders SET voucher_id = NULL, discount_amount = 0, total_amount = subtotal " +
+                                "WHERE table_session_id = ? AND status <> 'CANCELLED'")) {
+                    ps.setLong(1, sessionId);
+                    ps.executeUpdate();
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE orders SET voucher_id = ?, discount_amount = ?, " +
+                                "total_amount = GREATEST(subtotal - ?, 0) WHERE id = ?")) {
+                    ps.setLong(1, voucherId);
+                    ps.setBigDecimal(2, discount);
+                    ps.setBigDecimal(3, discount);
+                    ps.setLong(4, rootOrderId);
+                    ps.executeUpdate();
+                }
+
+                OrderDTO updated = readCheckout(conn, tableId, sessionId, false);
+                conn.commit();
+                return updated;
+            } catch (SQLException | RuntimeException ex) {
+                rollback(conn, ex);
+                throw ex;
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Lỗi khi áp dụng mã giảm giá", e);
+        }
+    }
+
     // Khi thanh toán, đọc và khóa dữ liệu trong chính giao dịch ghi hóa đơn.
     static OrderDTO readCheckout(Connection conn, long tableId, long sessionId, boolean lock)
             throws SQLException {

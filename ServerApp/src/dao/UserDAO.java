@@ -10,49 +10,6 @@ import java.util.List;
 
 public class UserDAO {
 
-    /**
-     * Kiểm tra đăng nhập bằng Email HOẶC Số điện thoại kèm mật khẩu
-     */
-    public UserDTO authenticate(String emailOrPhone, String passwordHash) {
-        String sql = "SELECT u.*, r.nameRole FROM users u " +
-                "JOIN roles r ON u.roleID = r.roleID " +
-                "WHERE (u.email = ? OR u.phone = ?) AND u.is_active = TRUE";
-
-        Connection conn = null;
-        PreparedStatement ps = null;
-        ResultSet rs = null;
-
-        try {
-            conn = dbConnection.getConnection();
-            ps = conn.prepareStatement(sql);
-            ps.setString(1, emailOrPhone.trim());
-            ps.setString(2, emailOrPhone.trim());
-            rs = ps.executeQuery();
-
-            if (rs.next() && PasswordUtil.matches(passwordHash, rs.getString("password_hash"))) {
-                UserDTO user = new UserDTO(
-                        rs.getLong("id"),
-                        rs.getLong("roleID"),
-                        rs.getString("email"),
-                        rs.getString("password_hash"),
-                        rs.getString("full_name"),
-                        rs.getString("phone"),
-                        rs.getBoolean("is_active"),
-                        rs.getObject("created_at", LocalDateTime.class),
-                        rs.getObject("updated_at", LocalDateTime.class)
-                );
-                user.setRoleName(rs.getString("nameRole"));
-                return user;
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        } finally {
-            dbConnection.closeConnection(conn, ps, rs);
-        }
-        return null;
-    }
-
-
     private UserDTO mapUser(ResultSet rs) throws SQLException {
         UserDTO user = new UserDTO(
                 rs.getLong("id"),

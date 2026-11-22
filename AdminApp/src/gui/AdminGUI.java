@@ -1,24 +1,18 @@
 package gui;
 
 import api.ImageSocketClient;
-import java.awt.image.BufferedImage;
-
 import api.SocketClient;
 import bus.AdminBUS;
-
-import components.CToast;
-import components.CButton;
-import components.CCheckBox;
-import components.CPasswordField;
-import components.CTable;
-import components.CTextField;
-import components.CToggleButton;
+import components.*;
 import dto.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import utils.Utils;
 
 import javax.swing.*;
-import javax.swing.border.*;
+import javax.swing.border.EmptyBorder;
+import javax.swing.border.LineBorder;
+import javax.swing.border.MatteBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -28,65 +22,73 @@ import javax.swing.table.TableCellRenderer;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.Path2D;
+import java.awt.image.BufferedImage;
 import java.math.BigDecimal;
 import java.text.DecimalFormat;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
+import java.util.*;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeMap;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
+import java.util.function.BiConsumer;
 import java.util.function.IntFunction;
 import java.util.function.Supplier;
 
-import utils.Utils;
-
 public class AdminGUI extends JFrame {
 
-    private static final Color BORDER_SOFT = new Color(232, 235, 232);
-    private static final Color HOVER_ROW = new Color(246, 247, 244);
-    private static final Color SELECT_BG = new Color(253, 237, 232);
-    private static final Color NEUTRAL_BTN = new Color(238, 241, 238);
-
+    // ==========================================================
+    // --- HẰNG SỐ ĐỊNH DẠNG & CẤU HÌNH ---
+    // ==========================================================
     private static final DecimalFormat SALES_MONEY_FMT = new DecimalFormat("#,##0.## 'VNĐ'");
     private static final DecimalFormat MONEY_FMT = new DecimalFormat("#,### VNĐ");
-    private static final DecimalFormat QTY_FMT = new DecimalFormat("#,##0.00");
     private static final DecimalFormat INT_FMT = new DecimalFormat("#,###");
+
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
+    private static final DateTimeFormatter INPUT_DT_FMT = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
     private static final DateTimeFormatter DAY_FMT = DateTimeFormatter.ofPattern("dd/MM");
     private static final DateTimeFormatter DAY_FULL_FMT = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
-    // Font
     private static final String FONT_FAMILY = resolveFontFamily();
+    private static final Font ACTION_FONT = font(Font.BOLD, 12);
+    private static final int ACTION_GAP = 8;
+    private static final int ACTION_PAD = 12;
+    private static final int ACTION_PAD_X = 12;
+    private static final int ACTION_H = 28;
+    private static final int AUTO_SYNC_INTERVAL_MS = 15_000;
 
-    private static String resolveFontFamily() {
-        Set<String> have = new HashSet<>(Arrays.asList(
-                GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames()));
-        for (String f : new String[]{"Be Vietnam Pro", "Inter", "Segoe UI", "Roboto"}) {
-            if (have.contains(f)) return f;
-        }
-        return Font.SANS_SERIF;
-    }
-
-    private static Font font(int style, int size) {
-        return new Font(FONT_FAMILY, style, size);
-    }
-
-    // Mạng & Dữ liệu
-    private final SocketClient socket;
-    private final AdminBUS adminBUS;
-
-    // Điều hướng
+    // Page IDs
     private static final String PAGE_FOODS = "FOODS";
-    private static final String PAGE_INVENTORY = "INVENTORY";
     private static final String PAGE_REVENUE = "REVENUE";
     private static final String PAGE_ACCOUNTS = "ACCOUNTS";
+    private static final String PAGE_POINTS = "POINTS";
+    private static final String PAGE_VOUCHERS = "VOUCHERS";
+
+    // Nhãn hiển thị
+    private static final String ROLE_MEMBER = "Thành viên";
+    private static final String ROLE_STAFF = "Nhân viên";
+    private static final String ROLE_KITCHEN = "Bếp";
+    private static final String ROLE_ADMIN = "Quản trị viên";
+    private static final String ST_ACTIVE = "Đang hoạt động";
+    private static final String ST_LOCKED = "Đã khóa";
+
+    private static final String TIER_DONG = "Đồng";
+    private static final String TIER_BAC = "Bạc";
+    private static final String TIER_VANG = "Vàng";
+    private static final String TIER_KIM_CUONG = "Kim cương";
+
+    private static final String V_ACTIVE = "Đang áp dụng";
+    private static final String V_UPCOMING = "Sắp diễn ra";
+    private static final String V_EXPIRED = "Hết hạn / Hết lượt";
+    private static final String V_PAUSED = "Tạm ngưng";
+
+    // ==========================================================
+    // --- MẠNG & ĐIỀU HƯỚNG ---
+    // ==========================================================
+    private final SocketClient socket;
+    private final AdminBUS adminBUS;
+    private javax.swing.Timer autoSyncTimer;
 
     private final CardLayout contentCardLayout = new CardLayout();
     private final JPanel contentCards = new JPanel(contentCardLayout);
@@ -103,10 +105,9 @@ public class AdminGUI extends JFrame {
     private JTextField txtFoodSearch;
     private JComboBox<String> cboFoodCat, cboFoodStatus;
     private JLabel kpiFoodTotal, kpiFoodOpen, kpiFoodPaused;
-    private Paging<FoodDTO> foodPaging;
+    private Paging foodPaging;
 
-
-    // Trang 3: Doanh thu
+    // Trang 2: Doanh thu
     private DefaultTableModel billModel, topFoodsModel;
     private JButton btnFilterRevenue;
     private JLabel lblRevenueStatus;
@@ -114,46 +115,53 @@ public class AdminGUI extends JFrame {
     private JComboBox<String> cboBillTime, cboBillPay;
     private JLabel kpiRevenue, kpiBills, kpiDiscount, kpiTax;
     private RevenueChart revenueChart;
-    private Paging<BillDTO> billPaging;
+    private Paging billPaging;
 
-    // Trang 4: Tài khoản
-    private static final String ROLE_MEMBER = "Thành viên";
-    private static final String ROLE_STAFF = "Nhân viên";
-    private static final String ROLE_KITCHEN = "Bếp";
-    private static final String ROLE_ADMIN = "Quản trị viên";
-    private static final String ST_ACTIVE = "Đang hoạt động";
-    private static final String ST_LOCKED = "Đã khóa";
-
-
+    // Trang 3: Tài khoản
     private List<UserDTO> allAccounts = new ArrayList<>();
     private List<UserDTO> pageAccounts = new ArrayList<>();
     private DefaultTableModel accModel;
     private JTextField txtAccSearch;
     private JComboBox<String> cboAccRole, cboAccStatus;
     private JLabel kpiAccTotal, kpiAccMember, kpiAccStaff, kpiAccLocked;
-    private Paging<UserDTO> accPaging;
+    private Paging accPaging;
 
-    // KHỞI TẠO
+    // Trang 4: Điểm thưởng
+    private List<PointDTO> allPoints = new ArrayList<>();
+    private List<PointDTO> pagePoints = new ArrayList<>();
+    private Map<Long, UserDTO> pointAccountMap = Collections.emptyMap();
+    private DefaultTableModel pointModel;
+    private JTextField txtPointSearch;
+    private JComboBox<String> cboPointTier;
+    private JLabel kpiPointMembers, kpiPointCurrent, kpiPointEarned;
+    private Paging pointPaging;
+
+    // Trang 5: Voucher
+    private List<VoucherDTO> allVouchers = new ArrayList<>();
+    private List<VoucherDTO> pageVouchers = new ArrayList<>();
+    private DefaultTableModel voucherModel;
+    private JTextField txtVoucherSearch;
+    private JComboBox<String> cboVoucherType, cboVoucherStatus;
+    private JLabel kpiVoucherTotal, kpiVoucherActive, kpiVoucherExpired, kpiVoucherUsed;
+    private Paging voucherPaging;
+
+    // ==========================================================
+    // --- KHỞI TẠO ---
+    // ==========================================================
     public AdminGUI(UserDTO admin, SocketClient authenticatedSocket) {
-        if (admin == null || !"ADMIN".equalsIgnoreCase(admin.getRoleName()))
+        if (admin == null || !"ADMIN".equalsIgnoreCase(admin.getRoleName())) {
             throw new SecurityException("Chỉ tài khoản ADMIN mới được mở giao diện quản trị");
+        }
 
         this.socket = authenticatedSocket;
         this.adminBUS = new AdminBUS(authenticatedSocket);
 
-        addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosed(WindowEvent e) {
-                socket.logout();
-                socket.close();
-            }
-        });
-
         setTitle("Bếp Nhà Restaurant - Admin Dashboard");
-        setSize(1440, 900);
-        setMinimumSize(new Dimension(1200, 720));
+        setUndecorated(true);
+        setExtendedState(JFrame.MAXIMIZED_BOTH);
+        setResizable(false);
         setLocationRelativeTo(null);
-        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE); // Chỉ đóng Client Admin, không tắt Server
+        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         setLayout(new BorderLayout());
         getContentPane().setBackground(Utils.CREAM_BG);
 
@@ -162,6 +170,8 @@ public class AdminGUI extends JFrame {
         contentCards.add(createFoodPage(), PAGE_FOODS);
         contentCards.add(createRevenuePage(), PAGE_REVENUE);
         contentCards.add(createAccountPage(), PAGE_ACCOUNTS);
+        contentCards.add(createPointPage(), PAGE_POINTS);
+        contentCards.add(createVoucherPage(), PAGE_VOUCHERS);
 
         JPanel main = new JPanel(new BorderLayout());
         main.setBackground(Utils.CREAM_BG);
@@ -172,15 +182,61 @@ public class AdminGUI extends JFrame {
         add(main, BorderLayout.CENTER);
 
         showPage(PAGE_FOODS);
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosed(WindowEvent e) {
+                if (autoSyncTimer != null) autoSyncTimer.stop();
+                socket.logout();
+                socket.close();
+            }
+        });
+        startAutoSync();
     }
 
-    // KẾT NỐI MẠNG (TCP & THREADING BẤT ĐỒNG BỘ)
+    private static String resolveFontFamily() {
+        Set<String> available = new HashSet<>(Arrays.asList(
+                GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames()));
+        for (String family : new String[]{"Be Vietnam Pro", "Inter", "Segoe UI", "Roboto"}) {
+            if (available.contains(family)) return family;
+        }
+        return Font.SANS_SERIF;
+    }
+
+    private static Font font(int style, int size) {
+        return new Font(FONT_FAMILY, style, size);
+    }
+
+    // ==========================================================
+    // --- ĐỒNG BỘ & NETWORK WORKERS ---
+    // ==========================================================
+    private void startAutoSync() {
+        autoSyncTimer = new javax.swing.Timer(AUTO_SYNC_INTERVAL_MS, e -> {
+            if (!isDisplayable() || !socket.isConnected()) return;
+            for (Window w : Window.getWindows()) {
+                if (w instanceof JDialog && w.isShowing()) return;
+            }
+            refreshCurrentPage();
+        });
+        autoSyncTimer.setRepeats(true);
+        autoSyncTimer.start();
+    }
+
+    private void refreshCurrentPage() {
+        switch (activePage) {
+            case PAGE_REVENUE -> loadRevenue();
+            case PAGE_ACCOUNTS -> loadAccounts();
+            case PAGE_POINTS -> loadPoints();
+            case PAGE_VOUCHERS -> loadVouchers();
+            default -> loadFoods();
+        }
+    }
+
     private void showNetworkError(Exception ex) {
-        Throwable cause = ex instanceof ExecutionException && ex.getCause() != null ? ex.getCause() : ex;
+        Throwable cause = (ex instanceof ExecutionException && ex.getCause() != null) ? ex.getCause() : ex;
         CToast.error(this, "Lỗi giao tiếp server: " + cause.getMessage());
     }
 
-    private void performUpdate(String name, java.util.concurrent.Callable<Boolean> operation, Runnable refresh) {
+    private void performUpdate(String name, Callable<Boolean> operation, Runnable refresh) {
         new SwingWorker<Boolean, Void>() {
             @Override
             protected Boolean doInBackground() throws Exception {
@@ -191,7 +247,9 @@ public class AdminGUI extends JFrame {
             protected void done() {
                 if (!isDisplayable()) return;
                 try {
-                    if (!Boolean.TRUE.equals(get())) throw new IllegalStateException("Server từ chối thao tác");
+                    if (!Boolean.TRUE.equals(get())) {
+                        throw new IllegalStateException("Server từ chối thao tác");
+                    }
                     CToast.success(AdminGUI.this, name + " thành công");
                     if (refresh != null) refresh.run();
                 } catch (Exception ex) {
@@ -201,9 +259,8 @@ public class AdminGUI extends JFrame {
         }.execute();
     }
 
-    /** Mẫu tải dữ liệu chung: chạy TCP ở worker, cập nhật Swing trên EDT. */
-    private abstract class PageLoadWorker<T> extends SwingWorker<T, Void> {
-        protected abstract void onLoaded(T result);
+    private abstract class PageLoadWorker extends SwingWorker<Object, Void> {
+        protected abstract void onLoaded(Object result);
 
         @Override
         protected final void done() {
@@ -216,17 +273,14 @@ public class AdminGUI extends JFrame {
         }
     }
 
-    private static <T> List<T> copyOrEmpty(List<T> values) {
+    @SuppressWarnings("rawtypes")
+    private static List copyOrEmpty(List values) {
         return values == null ? new ArrayList<>() : new ArrayList<>(values);
     }
 
-    private void refreshAllData() {
-        loadFoods();
-        loadRevenue();
-        loadAccounts();
-    }
-
-    // SIDEBAR & HEADER
+    // ==========================================================
+    // --- SIDEBAR & HEADER ---
+    // ==========================================================
     private JPanel createSidebar() {
         JPanel sidebar = new JPanel(new BorderLayout(0, 20)) {
             @Override
@@ -255,13 +309,14 @@ public class AdminGUI extends JFrame {
         logoRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 46));
         logoRow.setBorder(new EmptyBorder(0, 6, 0, 0));
         logoRow.add(createSocketLogo("things/logo.png", 46), BorderLayout.WEST);
+
         JPanel brandText = new JPanel();
         brandText.setLayout(new BoxLayout(brandText, BoxLayout.Y_AXIS));
         brandText.setOpaque(false);
-        JLabel lblBrand = new JLabel("BẾP NHÀ");
+        JLabel lblBrand = new JLabel("AN NHIÊN");
         lblBrand.setFont(font(Font.BOLD, 18));
         lblBrand.setForeground(Color.WHITE);
-        JLabel lblBrandSub = new JLabel("Restaurant Admin");
+        JLabel lblBrandSub = new JLabel("QUẢN LÝ NHÀ HÀNG");
         lblBrandSub.setFont(font(Font.PLAIN, 11));
         lblBrandSub.setForeground(Utils.GOLD_ACCENT);
         brandText.add(lblBrand);
@@ -282,9 +337,13 @@ public class AdminGUI extends JFrame {
         top.add(createNavButton("Thống kê doanh thu", NavIcon.CHART, PAGE_REVENUE));
         top.add(Box.createVerticalStrut(8));
         top.add(createNavButton("Quản lý tài khoản", NavIcon.USER, PAGE_ACCOUNTS));
+        top.add(Box.createVerticalStrut(8));
+        top.add(createNavButton("Quản lý điểm thưởng", NavIcon.RECEIPT, PAGE_POINTS));
+        top.add(Box.createVerticalStrut(8));
+        top.add(createNavButton("Quản lý voucher", NavIcon.PERCENT, PAGE_VOUCHERS));
         sidebar.add(top, BorderLayout.NORTH);
 
-        JPanel adminBox = new JPanel(new BorderLayout(12, 0)) {
+        JPanel clockCard = new JPanel(new BorderLayout()) {
             @Override
             protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
@@ -294,24 +353,16 @@ public class AdminGUI extends JFrame {
                 g2.dispose();
             }
         };
-        adminBox.setOpaque(false);
-        adminBox.setBorder(new EmptyBorder(12, 12, 12, 12));
-        adminBox.add(new JLabel(new AvatarIcon(38, "A", Utils.TERRACOTTA)), BorderLayout.WEST);
-        JPanel adminText = new JPanel();
-        adminText.setLayout(new BoxLayout(adminText, BoxLayout.Y_AXIS));
-        adminText.setOpaque(false);
-        JLabel lblName = new JLabel("Quản trị viên");
-        lblName.setFont(font(Font.BOLD, 13));
-        lblName.setForeground(Color.WHITE);
-        JLabel lblRole = new JLabel("ADMIN");
-        lblRole.setFont(font(Font.PLAIN, 11));
-        lblRole.setForeground(Utils.GOLD_ACCENT);
-        adminText.add(Box.createVerticalGlue());
-        adminText.add(lblName);
-        adminText.add(lblRole);
-        adminText.add(Box.createVerticalGlue());
-        adminBox.add(adminText, BorderLayout.CENTER);
-        sidebar.add(adminBox, BorderLayout.SOUTH);
+        clockCard.setOpaque(false);
+        clockCard.setBorder(new EmptyBorder(8, 10, 8, 10));
+
+        JLabel lblClock = Utils.createClockLabel();
+        lblClock.setHorizontalAlignment(SwingConstants.CENTER);
+        lblClock.setFont(font(Font.BOLD, 13));
+        lblClock.setForeground(Utils.GOLD_ACCENT);
+        clockCard.add(lblClock, BorderLayout.CENTER);
+        sidebar.add(clockCard, BorderLayout.SOUTH);
+
         return sidebar;
     }
 
@@ -321,8 +372,7 @@ public class AdminGUI extends JFrame {
             protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                boolean selected = pageId.equals(activePage);
-                if (selected) {
+                if (pageId.equals(activePage)) {
                     g2.setColor(Utils.TERRACOTTA);
                     g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
                 } else if (getModel().isRollover()) {
@@ -356,7 +406,9 @@ public class AdminGUI extends JFrame {
         header.setBackground(Color.WHITE);
         header.setPreferredSize(new Dimension(0, 84));
         header.setBorder(BorderFactory.createCompoundBorder(
-                new MatteBorder(0, 0, 1, 0, BORDER_SOFT), new EmptyBorder(0, 28, 0, 28)));
+                new MatteBorder(0, 0, 1, 0, Utils.BORDER_SOFT),
+                new EmptyBorder(0, 28, 0, 28)
+        ));
 
         lblPageTitle = new JLabel();
         lblPageTitle.setFont(font(Font.BOLD, 22));
@@ -377,17 +429,29 @@ public class AdminGUI extends JFrame {
 
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 16, 22));
         right.setOpaque(false);
-        JButton btnSync = createRoundedButton("Đồng bộ", Utils.TERRACOTTA, Color.WHITE, 120, 40);
-        btnSync.addActionListener(e -> refreshAllData());
-        right.add(btnSync);
 
-        JPanel adminInfo = new JPanel(new BorderLayout(10, 0));
+        JPanel adminInfo = new JPanel(new BorderLayout(10, 0)) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                if (Boolean.TRUE.equals(getClientProperty("hover"))) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(Utils.HOVER_ROW);
+                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
+                    g2.dispose();
+                }
+                super.paintComponent(g);
+            }
+        };
         adminInfo.setOpaque(false);
+        adminInfo.setBorder(new EmptyBorder(4, 10, 4, 10));
+        adminInfo.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         adminInfo.add(new JLabel(new AvatarIcon(38, "A", Utils.FOREST_BG)), BorderLayout.WEST);
+
         JPanel t = new JPanel();
         t.setLayout(new BoxLayout(t, BoxLayout.Y_AXIS));
         t.setOpaque(false);
-        JLabel n = new JLabel("Quản trị viên");
+        JLabel n = new JLabel("Quản trị viên  ▾");
         n.setFont(font(Font.BOLD, 13));
         n.setForeground(Utils.TEXT_DARK);
         JLabel r = new JLabel("ADMIN");
@@ -396,6 +460,44 @@ public class AdminGUI extends JFrame {
         t.add(n);
         t.add(r);
         adminInfo.add(t, BorderLayout.CENTER);
+
+        JPopupMenu adminMenu = new JPopupMenu();
+        adminMenu.setBackground(Color.WHITE);
+        adminMenu.setBorder(BorderFactory.createCompoundBorder(
+                new LineBorder(Utils.BORDER_SOFT, 1),
+                new EmptyBorder(6, 6, 6, 6)
+        ));
+
+        JButton btnLogout = createRoundedButton("Đăng xuất", Utils.DANGER_RED, Color.WHITE, 150, 36);
+        btnLogout.addActionListener(e -> {
+            adminMenu.setVisible(false);
+            if (confirmAction("Xác nhận đăng xuất", "Bạn có chắc muốn đăng xuất khỏi trang quản trị?")) {
+                dispose();
+                SwingUtilities.invokeLater(AdminGUI::showAdminLogin);
+            }
+        });
+        adminMenu.add(btnLogout);
+
+        adminInfo.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                adminInfo.putClientProperty("hover", true);
+                adminInfo.repaint();
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                adminInfo.putClientProperty("hover", false);
+                adminInfo.repaint();
+            }
+
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                int x = adminInfo.getWidth() - adminMenu.getPreferredSize().width;
+                adminMenu.show(adminInfo, Math.min(0, x), adminInfo.getHeight() + 6);
+            }
+        });
+
         right.add(adminInfo);
         header.add(right, BorderLayout.EAST);
         return header;
@@ -410,26 +512,37 @@ public class AdminGUI extends JFrame {
         }
 
         switch (pageId) {
-            case PAGE_REVENUE:
+            case PAGE_REVENUE -> {
                 lblPageTitle.setText("Thống kê doanh thu");
                 lblPageSubtitle.setText("Doanh thu theo ngày, món bán chạy và lịch sử hóa đơn.");
                 loadRevenue();
-                break;
-            case PAGE_ACCOUNTS:
+            }
+            case PAGE_ACCOUNTS -> {
                 lblPageTitle.setText("Quản lý tài khoản");
                 lblPageSubtitle.setText("Nhân viên cấp thẻ thành viên, quản lý tài khoản nhân viên và khách hàng.");
                 loadAccounts();
-                break;
-            case PAGE_FOODS:
-            default:
+            }
+            case PAGE_POINTS -> {
+                lblPageTitle.setText("Quản lý điểm thưởng");
+                lblPageSubtitle.setText("Theo dõi điểm tích lũy, hạng thành viên và lịch sử giao dịch điểm.");
+                loadPoints();
+            }
+            case PAGE_VOUCHERS -> {
+                lblPageTitle.setText("Quản lý voucher");
+                lblPageSubtitle.setText("Tạo mã khuyến mãi, giới hạn lượt dùng và theo dõi hiệu lực áp dụng.");
+                loadVouchers();
+            }
+            default -> {
                 lblPageTitle.setText("Quản lý thực đơn");
                 lblPageSubtitle.setText("Thêm, chỉnh sửa và quản lý trạng thái bán của các món ăn.");
                 loadFoods();
-                break;
+            }
         }
     }
 
-    // TRANG 1: QUẢN LÝ THỰC ĐƠN
+    // ==========================================================
+    // --- TRANG 1: QUẢN LÝ THỰC ĐƠN ---
+    // ==========================================================
     private JPanel createFoodPage() {
         JPanel page = new JPanel(new BorderLayout(0, 18));
         page.setOpaque(false);
@@ -447,12 +560,8 @@ public class AdminGUI extends JFrame {
         cboFoodCat = createFilterCombo("Danh mục", "Tất cả danh mục");
         cboFoodStatus = createFilterCombo("Trạng thái", "Tất cả trạng thái", "Đang mở bán", "Tạm ngưng");
         onTextChange(txtFoodSearch, () -> applyFoodFilter(true));
-        cboFoodCat.addActionListener(e -> {
-            if (!adjusting) applyFoodFilter(true);
-        });
-        cboFoodStatus.addActionListener(e -> {
-            if (!adjusting) applyFoodFilter(true);
-        });
+        cboFoodCat.addActionListener(e -> { if (!adjusting) applyFoodFilter(true); });
+        cboFoodStatus.addActionListener(e -> { if (!adjusting) applyFoodFilter(true); });
 
         JButton btnAdd = createRoundedButton("+  Thêm món mới", Utils.TERRACOTTA, Color.WHITE, 160, 40);
         btnAdd.addActionListener(e -> openFoodDialog(null));
@@ -472,30 +581,32 @@ public class AdminGUI extends JFrame {
         });
         setColumnWidths(foodTable, 70, 110, 220, 150, 140, 140, 250);
 
-        foodPaging = new Paging<>(8, this::renderFoodPage);
-        page.add(createTableCard(createToolbar(
-                flow(FlowLayout.LEFT, txtFoodSearch, cboFoodCat, cboFoodStatus),
-                flow(FlowLayout.RIGHT, btnAdd)), foodTableComponent, foodPaging.bar), BorderLayout.CENTER);
+        foodPaging = new Paging(10, this::renderFoodPage);
+        page.add(createTableCard(
+                createToolbar(flow(FlowLayout.LEFT, txtFoodSearch, cboFoodCat, cboFoodStatus), flow(FlowLayout.RIGHT, btnAdd)),
+                foodTableComponent,
+                foodPaging.bar
+        ), BorderLayout.CENTER);
         return page;
     }
 
     private void loadFoods() {
-        new PageLoadWorker<List<FoodDTO>>() {
+        new PageLoadWorker() {
             @Override
-            protected List<FoodDTO> doInBackground() {
+            protected Object doInBackground() {
                 return adminBUS.getAllFoods();
             }
 
             @Override
-            protected void onLoaded(List<FoodDTO> result) {
-                allFoods = copyOrEmpty(result);
+            @SuppressWarnings("unchecked")
+            protected void onLoaded(Object result) {
+                allFoods = copyOrEmpty((List<FoodDTO>) result);
                 updateComboItems(cboFoodCat, "Tất cả danh mục",
                         allFoods.stream()
                                 .map(f -> f.getCategoryName() != null ? f.getCategoryName() : "Chưa phân loại")
                                 .distinct().sorted().toList());
 
-                int open = 0;
-                for (FoodDTO f : allFoods) if (isOpen(f)) open++;
+                int open = (int) allFoods.stream().filter(AdminGUI::isOpen).count();
                 kpiFoodTotal.setText(String.valueOf(allFoods.size()));
                 kpiFoodOpen.setText(String.valueOf(open));
                 kpiFoodPaused.setText(String.valueOf(allFoods.size() - open));
@@ -505,41 +616,21 @@ public class AdminGUI extends JFrame {
     }
 
     private void applyFoodFilter(boolean resetPage) {
-        String q = txtFoodSearch.getText().trim().toLowerCase();
-
+        String q = txtFoodSearch.getText().trim().toLowerCase(Locale.ROOT);
         String cat = (String) cboFoodCat.getSelectedItem();
         String st = (String) cboFoodStatus.getSelectedItem();
 
         List<FoodDTO> res = new ArrayList<>();
-
         for (FoodDTO f : allFoods) {
-            String catN = f.getCategoryName() != null
-                    ? f.getCategoryName()
-                    : "Chưa phân loại";
-
-            // Lọc theo tên món hoặc SKU
+            String catN = f.getCategoryName() != null ? f.getCategoryName() : "Chưa phân loại";
             if (!q.isEmpty()
-                    && !String.valueOf(f.getName()).toLowerCase().contains(q)
-                    && !String.valueOf(f.getSku()).toLowerCase().contains(q)) {
+                    && !String.valueOf(f.getName()).toLowerCase(Locale.ROOT).contains(q)
+                    && !String.valueOf(f.getSku()).toLowerCase(Locale.ROOT).contains(q)) {
                 continue;
             }
-
-            // Chỉ lọc danh mục khi người dùng chọn danh mục cụ thể
-            if (cat != null
-                    && !cat.startsWith("Tất cả")
-                    && !cat.equals(catN)) {
-                continue;
-            }
-
-            // Chỉ lọc trạng thái khi người dùng chọn trạng thái cụ thể
-            if ("Đang mở bán".equals(st) && !isOpen(f)) {
-                continue;
-            }
-
-            if ("Tạm ngưng".equals(st) && isOpen(f)) {
-                continue;
-            }
-
+            if (cat != null && !cat.startsWith("Tất cả") && !cat.equals(catN)) continue;
+            if ("Đang mở bán".equals(st) && !isOpen(f)) continue;
+            if ("Tạm ngưng".equals(st) && isOpen(f)) continue;
             res.add(f);
         }
 
@@ -548,21 +639,24 @@ public class AdminGUI extends JFrame {
     }
 
     private void renderFoodPage() {
-        pageFoods = foodPaging.slice();
+        pageFoods = (List<FoodDTO>) (List<?>) foodPaging.slice();
         foodModel.setRowCount(0);
         for (FoodDTO f : pageFoods) {
+            boolean open = isOpen(f);
             foodModel.addRow(new Object[]{
-                    f.getName(), f.getSku(), f.getName(),
+                    f.getName(),
+                    f.getSku(),
+                    f.getName(),
                     f.getCategoryName() != null ? f.getCategoryName() : "Chưa phân loại",
                     MONEY_FMT.format(f.getPrice()),
-                    isOpen(f) ? "Đang mở bán" : "Tạm ngưng",
-                    isOpen(f) ? "Sửa|Tạm ngưng|Xóa" : "Sửa|Mở bán|Xóa"
+                    open ? "Đang mở bán" : "Tạm ngưng",
+                    open ? "Sửa|Tạm ngưng|Xóa" : "Sửa|Mở bán|Xóa"
             });
         }
         foodPaging.refreshBar();
     }
 
-    private boolean isOpen(FoodDTO f) {
+    private static boolean isOpen(FoodDTO f) {
         return Boolean.TRUE.equals(f.getIsPublished());
     }
 
@@ -578,25 +672,24 @@ public class AdminGUI extends JFrame {
                 try {
                     List<CategoryDTO> categories = get();
                     boolean edit = food != null;
+
                     JTextField sku = createStyledTextField(edit ? String.valueOf(food.getSku()) : "");
                     JTextField name = createStyledTextField(edit ? String.valueOf(food.getName()) : "");
                     JTextField price = createStyledTextField(edit && food.getPrice() != null
                             ? food.getPrice().toBigInteger().toString() : "");
-                    JTextField cover = createStyledTextField(edit && food.getCoverImageUrl() != null ? food.getCoverImageUrl() : "");
+                    JTextField cover = createStyledTextField(edit && food.getCoverImageUrl() != null
+                            ? food.getCoverImageUrl() : "");
+
                     JComboBox<CategoryDTO> catBox = new JComboBox<>();
                     styleCombo(catBox);
                     for (CategoryDTO c : categories) {
                         catBox.addItem(c);
-                        if (edit && String.valueOf(c).equals(food.getCategoryName())) catBox.setSelectedItem(c);
+                        if (edit && String.valueOf(c).equals(food.getCategoryName())) {
+                            catBox.setSelectedItem(c);
+                        }
                     }
-                    JCheckBox published = new JCheckBox("Mở bán trên Tablet của khách", !edit || isOpen(food));
-                    published.setIcon(new CCheckBox(false));
-                    published.setSelectedIcon(new CCheckBox(true));
-                    published.setIconTextGap(9);
-                    published.setFont(font(Font.PLAIN, 13));
-                    published.setForeground(Utils.TEXT_DARK);
-                    published.setOpaque(false);
-                    published.setFocusPainted(false);
+
+                    JCheckBox published = createCheckBox("Mở bán trên Tablet của khách", !edit || isOpen(food));
                     if (edit) {
                         sku.setEnabled(false);
                         cover.setEnabled(false);
@@ -610,9 +703,13 @@ public class AdminGUI extends JFrame {
                     addField(form, "Ảnh bìa (URL / tên file)", cover);
                     form.add(published);
 
-                    showModal(edit ? "Sửa món ăn" : "Thêm món mới",
+                    showModal(
+                            edit ? "Sửa món ăn" : "Thêm món mới",
                             edit ? "Cập nhật thông tin món đang chọn." : "Nhập thông tin món mới để đưa lên thực đơn.",
-                            form, edit ? "Lưu thay đổi" : "Thêm món", Utils.TERRACOTTA, () -> {
+                            form,
+                            edit ? "Lưu thay đổi" : "Thêm món",
+                            Utils.TERRACOTTA,
+                            () -> {
                                 String n = name.getText().trim();
                                 if (!edit && sku.getText().trim().isEmpty()) return "Vui lòng nhập mã SKU.";
                                 if (n.isEmpty()) return "Vui lòng nhập tên món ăn.";
@@ -623,16 +720,20 @@ public class AdminGUI extends JFrame {
                                     return "Đơn giá không hợp lệ.";
                                 }
                                 if (p.signum() <= 0) return "Đơn giá phải lớn hơn 0.";
+
                                 CategoryDTO cat = (CategoryDTO) catBox.getSelectedItem();
                                 Long catId = cat != null ? cat.getId() : null;
 
-                                performUpdate(edit ? "Cập nhật món" : "Thêm món", () -> {
-                                    return edit
-                                            ? adminBUS.updateFood(food.getId(), n, p, catId, published.isSelected())
-                                            : adminBUS.addNewFood(sku.getText().trim(), catId, n, p, cover.getText(), published.isSelected());
-                                }, AdminGUI.this::loadFoods);
+                                performUpdate(
+                                        edit ? "Cập nhật món" : "Thêm món",
+                                        () -> edit
+                                                ? adminBUS.updateFood(food.getId(), n, p, catId, published.isSelected())
+                                                : adminBUS.addNewFood(sku.getText().trim(), catId, n, p, cover.getText(), published.isSelected()),
+                                        AdminGUI.this::loadFoods
+                                );
                                 return null;
-                            });
+                            }
+                    );
                 } catch (Exception ex) {
                     showNetworkError(ex);
                 }
@@ -640,13 +741,13 @@ public class AdminGUI extends JFrame {
         }.execute();
     }
 
-    /** Đổi nhanh trạng thái bán: đang mở bán <-> tạm ngưng. */
     private void toggleFoodStatus(FoodDTO f) {
         boolean pause = isOpen(f);
         String msg = pause
                 ? "Tạm ngưng bán món '" + f.getName() + "'?\nMón sẽ không hiển thị trên Tablet của khách."
                 : "Mở bán lại món '" + f.getName() + "'?\nMón sẽ hiển thị trên Tablet của khách.";
         if (!confirmAction(pause ? "Xác nhận tạm ngưng" : "Xác nhận mở bán", msg)) return;
+
         performUpdate(pause ? "Tạm ngưng món" : "Mở bán món", () -> {
             Long catId = null;
             if (f.getCategoryName() != null) {
@@ -668,12 +769,9 @@ public class AdminGUI extends JFrame {
         }
     }
 
-    private boolean isLow(IngredientDTO i) {
-        return i.getStockQuantity().compareTo(i.getMinStockLevel()) <= 0;
-    }
-
-
-    // TRANG 3: THỐNG KÊ DOANH THU
+    // ==========================================================
+    // --- TRANG 2: THỐNG KÊ DOANH THU ---
+    // ==========================================================
     private JPanel createRevenuePage() {
         JPanel page = new JPanel(new BorderLayout(0, 18));
         page.setOpaque(false);
@@ -696,6 +794,7 @@ public class AdminGUI extends JFrame {
         chartGroup.add(segBar);
         segLine.addActionListener(e -> revenueChart.setLine(true));
         segBar.addActionListener(e -> revenueChart.setLine(false));
+
         JPanel chartHead = new JPanel(new BorderLayout());
         chartHead.setOpaque(false);
         JLabel chartTitle = new JLabel("Doanh thu theo ngày");
@@ -704,10 +803,12 @@ public class AdminGUI extends JFrame {
         chartTitle.setForeground(Utils.TEXT_DARK);
         chartHead.add(chartTitle, BorderLayout.WEST);
         chartHead.add(flow(FlowLayout.RIGHT, segLine, segBar), BorderLayout.EAST);
+
         JPanel chartCard = createCard();
         chartCard.setLayout(new BorderLayout(0, 8));
         chartCard.add(chartHead, BorderLayout.NORTH);
         chartCard.add(revenueChart, BorderLayout.CENTER);
+
         topFoodsModel = readOnlyModel("Món", "Số phần");
         CTable topTable = createStyledTable(topFoodsModel, 26);
         setColumnWidths(topTable.getTable(), 280, 72);
@@ -736,7 +837,9 @@ public class AdminGUI extends JFrame {
         txtBillSearch = createSearchField("Tìm theo mã hóa đơn...", 260);
         cboBillTime = createFilterCombo("Tất cả thời gian", "Hôm nay", "7 ngày qua", "30 ngày qua");
         cboBillPay = createFilterCombo("Tất cả thanh toán");
-        for (dbEnums.PaymentMethod payment : dbEnums.PaymentMethod.values()) cboBillPay.addItem(payment.name());
+        for (dbEnums.PaymentMethod payment : dbEnums.PaymentMethod.values()) {
+            cboBillPay.addItem(payment.name());
+        }
         btnFilterRevenue = createRoundedButton("Lọc", Utils.FOREST_BG, Color.WHITE, 84, 40);
         btnFilterRevenue.addActionListener(e -> loadRevenue());
         txtBillSearch.addActionListener(e -> loadRevenue());
@@ -749,9 +852,12 @@ public class AdminGUI extends JFrame {
         billTable.getColumnModel().getColumn(5).setCellRenderer(new BadgeRenderer());
         setColumnWidths(billTable, 80, 90, 100, 100, 155, 125, 100, 160);
 
-        billPaging = new Paging<>(6, this::renderBillPage);
-        page.add(createTableCard(createToolbar(flow(FlowLayout.LEFT, txtBillSearch, cboBillTime, cboBillPay),
-                flow(FlowLayout.RIGHT, btnFilterRevenue)), billTableComponent, billPaging.bar), BorderLayout.CENTER);
+        billPaging = new Paging(6, this::renderBillPage);
+        page.add(createTableCard(
+                createToolbar(flow(FlowLayout.LEFT, txtBillSearch, cboBillTime, cboBillPay), flow(FlowLayout.RIGHT, btnFilterRevenue)),
+                billTableComponent,
+                billPaging.bar
+        ), BorderLayout.CENTER);
         return page;
     }
 
@@ -816,12 +922,14 @@ public class AdminGUI extends JFrame {
     }
 
     private void renderBillPage() {
-        List<BillDTO> currentPage = billPaging.slice();
+        List<BillDTO> currentPage = (List<BillDTO>) (List<?>) billPaging.slice();
         billModel.setRowCount(0);
         for (BillDTO b : currentPage) {
             billModel.addRow(new Object[]{
-                    "#" + b.getId(), "Phiên #" + b.getTableSessionId(),
-                    SALES_MONEY_FMT.format(b.getDiscount()), SALES_MONEY_FMT.format(b.getTax()),
+                    "#" + b.getId(),
+                    "Phiên #" + b.getTableSessionId(),
+                    SALES_MONEY_FMT.format(b.getDiscount()),
+                    SALES_MONEY_FMT.format(b.getTax()),
                     SALES_MONEY_FMT.format(b.getTotalAmount()),
                     b.getPaymentMethod() != null ? b.getPaymentMethod().name() : "---",
                     switch (b.getPaymentStatus()) {
@@ -856,7 +964,9 @@ public class AdminGUI extends JFrame {
         revenueChart.setData(days, values);
     }
 
-    // TRANG 4: TÀI KHOẢN (dữ liệu lấy qua AdminBUS)
+    // ==========================================================
+    // --- TRANG 3: QUẢN LÝ TÀI KHOẢN ---
+    // ==========================================================
     private JPanel createAccountPage() {
         JPanel page = new JPanel(new BorderLayout(0, 18));
         page.setOpaque(false);
@@ -876,12 +986,8 @@ public class AdminGUI extends JFrame {
         cboAccRole = createFilterCombo("Tất cả vai trò", ROLE_MEMBER, ROLE_STAFF, ROLE_KITCHEN);
         cboAccStatus = createFilterCombo("Tất cả trạng thái", ST_ACTIVE, ST_LOCKED);
         onTextChange(txtAccSearch, () -> applyAccountFilter(true));
-        cboAccRole.addActionListener(e -> {
-            if (!adjusting) applyAccountFilter(true);
-        });
-        cboAccStatus.addActionListener(e -> {
-            if (!adjusting) applyAccountFilter(true);
-        });
+        cboAccRole.addActionListener(e -> { if (!adjusting) applyAccountFilter(true); });
+        cboAccStatus.addActionListener(e -> { if (!adjusting) applyAccountFilter(true); });
 
         JButton btnNew = createRoundedButton("+  Cấp tài khoản mới", Utils.TERRACOTTA, Color.WHITE, 190, 40);
         btnNew.addActionListener(e -> openAccountDialog(null));
@@ -889,8 +995,8 @@ public class AdminGUI extends JFrame {
         accModel = readOnlyModel("ID", "Họ tên", "SĐT", "Email", "Vai trò", "Trạng thái", "Thao tác");
         CTable accTableComponent = createStyledTable(accModel, 48);
         JTable accTable = accTableComponent.getTable();
-        accTable.getColumnModel().getColumn(4).setCellRenderer(new BadgeRenderer()); // Cột Vai trò
-        accTable.getColumnModel().getColumn(5).setCellRenderer(new BadgeRenderer()); // Cột Trạng thái
+        accTable.getColumnModel().getColumn(4).setCellRenderer(new BadgeRenderer());
+        accTable.getColumnModel().getColumn(5).setCellRenderer(new BadgeRenderer());
         installActionColumn(accTable, 6, (row, idx) -> {
             if (row < 0 || row >= pageAccounts.size()) return;
             UserDTO u = pageAccounts.get(row);
@@ -899,41 +1005,41 @@ public class AdminGUI extends JFrame {
         });
         setColumnWidths(accTable, 60, 200, 120, 200, 130, 140, 170);
 
-        accPaging = new Paging<>(8, this::renderAccountPage);
-        page.add(createTableCard(createToolbar(flow(FlowLayout.LEFT, txtAccSearch, cboAccRole, cboAccStatus),
-                flow(FlowLayout.RIGHT, btnNew)), accTableComponent, accPaging.bar), BorderLayout.CENTER);
+        accPaging = new Paging(10, this::renderAccountPage);
+        page.add(createTableCard(
+                createToolbar(flow(FlowLayout.LEFT, txtAccSearch, cboAccRole, cboAccStatus), flow(FlowLayout.RIGHT, btnNew)),
+                accTableComponent,
+                accPaging.bar
+        ), BorderLayout.CENTER);
         return page;
     }
 
     private void loadAccounts() {
-        new PageLoadWorker<List<UserDTO>>() {
+        new PageLoadWorker() {
             @Override
-            protected List<UserDTO> doInBackground() {
+            protected Object doInBackground() {
                 return adminBUS.getAllAccounts();
             }
 
             @Override
-            protected void onLoaded(List<UserDTO> result) {
-                allAccounts = copyOrEmpty(result);
-
-                allAccounts.removeIf(u ->
-                        "ADMIN".equalsIgnoreCase(u.getRoleName())
-                );
-
+            @SuppressWarnings("unchecked")
+            protected void onLoaded(Object result) {
+                allAccounts = copyOrEmpty((List<UserDTO>) result);
+                allAccounts.removeIf(u -> "ADMIN".equalsIgnoreCase(u.getRoleName()));
                 applyAccountFilter(false);
             }
         }.execute();
     }
 
-    /** Ánh xạ roleName trong DB sang nhãn hiển thị. */
     private static String accountRoleLabel(UserDTO account) {
         String role = account.getRoleName();
         if (role == null) return ROLE_MEMBER;
-        role = role.trim().toUpperCase(Locale.ROOT);
-        if (role.equals("ADMIN")) return ROLE_ADMIN;
-        if (role.equals("STAFF")) return ROLE_STAFF;
-        if (role.equals("KITCHEN")) return ROLE_KITCHEN;
-        return ROLE_MEMBER; // CUSTOMER / MEMBER / các role khác
+        return switch (role.trim().toUpperCase(Locale.ROOT)) {
+            case "ADMIN" -> ROLE_ADMIN;
+            case "STAFF" -> ROLE_STAFF;
+            case "KITCHEN" -> ROLE_KITCHEN;
+            default -> ROLE_MEMBER;
+        };
     }
 
     private void applyAccountFilter(boolean resetPage) {
@@ -942,7 +1048,6 @@ public class AdminGUI extends JFrame {
             String label = accountRoleLabel(u);
             if (ROLE_MEMBER.equals(label)) members++;
             else if (ROLE_STAFF.equals(label) || ROLE_KITCHEN.equals(label)) staff++;
-
             if (Boolean.FALSE.equals(u.getIsActive())) locked++;
         }
         kpiAccTotal.setText(String.valueOf(allAccounts.size()));
@@ -950,14 +1055,14 @@ public class AdminGUI extends JFrame {
         kpiAccStaff.setText(String.valueOf(staff));
         kpiAccLocked.setText(String.valueOf(locked));
 
-        String q = txtAccSearch.getText().trim().toLowerCase();
+        String q = txtAccSearch.getText().trim().toLowerCase(Locale.ROOT);
         String role = (String) cboAccRole.getSelectedItem();
         String st = (String) cboAccStatus.getSelectedItem();
 
         List<UserDTO> res = new ArrayList<>();
         for (UserDTO u : allAccounts) {
-            String name = u.getFullName() != null ? u.getFullName().toLowerCase() : "";
-            String phone = u.getPhone() != null ? u.getPhone().toLowerCase() : "";
+            String name = u.getFullName() != null ? u.getFullName().toLowerCase(Locale.ROOT) : "";
+            String phone = u.getPhone() != null ? u.getPhone().toLowerCase(Locale.ROOT) : "";
             String rName = accountRoleLabel(u);
             boolean isLocked = Boolean.FALSE.equals(u.getIsActive());
 
@@ -972,14 +1077,16 @@ public class AdminGUI extends JFrame {
     }
 
     private void renderAccountPage() {
-        pageAccounts = accPaging.slice();
+        pageAccounts = (List<UserDTO>) (List<?>) accPaging.slice();
         accModel.setRowCount(0);
         for (UserDTO u : pageAccounts) {
-            String rName = accountRoleLabel(u);
             boolean isLocked = Boolean.FALSE.equals(u.getIsActive());
-
             accModel.addRow(new Object[]{
-                    u.getId(), u.getFullName(), u.getPhone(), u.getEmail(), rName,
+                    u.getId(),
+                    u.getFullName(),
+                    u.getPhone(),
+                    u.getEmail(),
+                    accountRoleLabel(u),
                     isLocked ? ST_LOCKED : ST_ACTIVE,
                     isLocked ? "Cập nhật|Mở khóa" : "Cập nhật|Khóa"
             });
@@ -1000,19 +1107,21 @@ public class AdminGUI extends JFrame {
             String rName = accountRoleLabel(acc);
             if (ROLE_ADMIN.equals(rName)) roleBox.addItem(ROLE_ADMIN);
             roleBox.setSelectedItem(rName);
-            roleBox.setEnabled(true);
         }
 
         JPanel form = newFormPanel();
         addField(form, "Họ và tên", name);
         addField(form, "Số điện thoại", phone);
-        addField(form, "Địa chỉ Email (Tùy chọn)", email);
+        addField(form, "Địa chỉ Email", email);
         addField(form, "Vai trò", roleBox);
 
-        showModal(edit ? "Cập nhật tài khoản" : "Cấp tài khoản mới",
+        showModal(
+                edit ? "Cập nhật tài khoản" : "Cấp tài khoản mới",
                 edit ? "Chỉnh sửa thông tin liên hệ của tài khoản." : "Mật khẩu mặc định sẽ là số điện thoại của người dùng.",
-                form, edit ? "Lưu thay đổi" : "Cấp tài khoản", Utils.TERRACOTTA, () -> {
-
+                form,
+                edit ? "Lưu thay đổi" : "Cấp tài khoản",
+                Utils.TERRACOTTA,
+                () -> {
                     String n = name.getText().trim();
                     String p = phone.getText().trim();
                     String e = email.getText().trim();
@@ -1020,58 +1129,514 @@ public class AdminGUI extends JFrame {
 
                     if (n.isEmpty()) return "Vui lòng nhập họ tên.";
                     if (!p.matches("0\\d{9}")) return "Số điện thoại không hợp lệ (VD: 0901234567).";
+                    if (e.isEmpty() || !e.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+                        return "Email không hợp lệ.";
+                    }
 
-                    // Server tự tra roleID theo tên role (UserDAO.findRoleIdByName),
-                    // nên chỉ cần gửi đúng roleName; rId bên dưới chỉ là giá trị giữ chỗ.
-                    Long rId = 0L;
+                    String rNameDB = switch (String.valueOf(roleStr)) {
+                        case ROLE_STAFF -> "STAFF";
+                        case ROLE_KITCHEN -> "KITCHEN";
+                        default -> "CUSTOMER";
+                    };
 
-                    String rNameDB;
-
-                    if (ROLE_STAFF.equals(roleStr)) rNameDB = "STAFF";
-                    else if (ROLE_KITCHEN.equals(roleStr)) rNameDB = "KITCHEN";
-                    else rNameDB = "CUSTOMER";
-
-                    performUpdate(edit ? "Cập nhật tài khoản" : "Cấp tài khoản", () -> {
-                        if (edit) {
-                            return adminBUS.updateAccount(acc.getId(), n, p, e, rNameDB);
-                        } else {
-                            return adminBUS.createNewAccount(n, p, e, rId, rNameDB);
-                        }
-                    }, this::loadAccounts);
-
+                    performUpdate(
+                            edit ? "Cập nhật tài khoản" : "Cấp tài khoản",
+                            () -> edit
+                                    ? adminBUS.updateAccount(acc.getId(), n, p, e, rNameDB)
+                                    : adminBUS.createNewAccount(n, p, e, 0L, rNameDB),
+                            this::loadAccounts
+                    );
                     return null;
-                });
+                }
+        );
     }
 
     private void toggleLock(UserDTO u) {
         boolean isCurrentlyActive = Boolean.TRUE.equals(u.getIsActive());
-
-        String action = isCurrentlyActive ? "LOCK" : "UNLOCK";
+        String title = isCurrentlyActive ? "Khóa tài khoản" : "Mở khóa tài khoản";
         String message = isCurrentlyActive
-                ? "Bạn có chắc muốn khóa tài khoản này?"
-                : "Bạn có chắc muốn mở khóa tài khoản này?";
+                ? "Bạn có chắc muốn khóa tài khoản '" + u.getFullName() + "'?"
+                : "Bạn có chắc muốn mở khóa tài khoản '" + u.getFullName() + "'?";
+        if (!confirmAction(title, message)) return;
 
-        int confirm = JOptionPane.showConfirmDialog(
-                this,
-                message,
-                "Xác nhận",
-                JOptionPane.YES_NO_OPTION
+        performUpdate(title, () -> adminBUS.setAccountActive(u.getId(), !isCurrentlyActive), this::loadAccounts);
+    }
+
+    // ==========================================================
+    // --- TRANG 4: QUẢN LÝ ĐIỂM THƯỞNG ---
+    // ==========================================================
+    private static String tierLabel(dbEnums.PointTier tier) {
+        if (tier == null) return TIER_DONG;
+        return switch (tier) {
+            case BAC -> TIER_BAC;
+            case VANG -> TIER_VANG;
+            case KIM_CUONG -> TIER_KIM_CUONG;
+            default -> TIER_DONG;
+        };
+    }
+
+    private JPanel createPointPage() {
+        JPanel page = new JPanel(new BorderLayout(0, 18));
+        page.setOpaque(false);
+
+        kpiPointMembers = kpiLabel("0");
+        kpiPointCurrent = kpiLabel("0");
+        kpiPointEarned = kpiLabel("0");
+        JPanel kpis = kpiRow(3);
+        kpis.add(createKpiCard("TỔNG THÀNH VIÊN", kpiPointMembers, Utils.FOREST_BG, NavIcon.USER));
+        kpis.add(createKpiCard("ĐIỂM HIỆN CÓ", kpiPointCurrent, Utils.GOLD_ACCENT, NavIcon.RECEIPT));
+        kpis.add(createKpiCard("ĐIỂM ĐÃ TÍCH LŨY", kpiPointEarned, Utils.SAFE_GREEN, NavIcon.CHECK));
+        page.add(kpis, BorderLayout.NORTH);
+
+        txtPointSearch = createSearchField("Tìm theo tên, SĐT...", 300);
+        cboPointTier = createFilterCombo("Hạng thành viên", "Tất cả hạng",
+                TIER_DONG, TIER_BAC, TIER_VANG, TIER_KIM_CUONG);
+        onTextChange(txtPointSearch, () -> applyPointFilter(true));
+        cboPointTier.addActionListener(e -> { if (!adjusting) applyPointFilter(true); });
+
+        pointModel = readOnlyModel("ID", "Họ tên", "SĐT", "Điểm hiện có", "Tổng tích lũy",
+                "Hạng", "Cập nhật", "Thao tác");
+        CTable pointTableComponent = createStyledTable(pointModel, 48);
+        JTable pointTable = pointTableComponent.getTable();
+        pointTable.getColumnModel().getColumn(5).setCellRenderer(new BadgeRenderer());
+        installActionColumn(pointTable, 7, (row, idx) -> {
+            if (row < 0 || row >= pagePoints.size()) return;
+            openPointHistoryDialog(pagePoints.get(row));
+        });
+        setColumnWidths(pointTable, 60, 200, 120, 120, 120, 110, 160, 130);
+
+        pointPaging = new Paging(10, this::renderPointPage);
+        page.add(createTableCard(
+                createToolbar(flow(FlowLayout.LEFT, txtPointSearch, cboPointTier), null),
+                pointTableComponent,
+                pointPaging.bar
+        ), BorderLayout.CENTER);
+        return page;
+    }
+
+    private void loadPoints() {
+        new PageLoadWorker() {
+            @Override
+            protected Object doInBackground() {
+                return new Object[]{adminBUS.getAllMemberPoints(), adminBUS.getAllAccounts()};
+            }
+
+            @Override
+            @SuppressWarnings("unchecked")
+            protected void onLoaded(Object resObj) {
+                Object[] result = (Object[]) resObj;
+                allPoints = copyOrEmpty((List<PointDTO>) result[0]);
+                List<UserDTO> accounts = copyOrEmpty((List<UserDTO>) result[1]);
+                Map<Long, UserDTO> map = new HashMap<>(accounts.size());
+                for (UserDTO acc : accounts) {
+                    if (acc.getId() != null) map.put(acc.getId(), acc);
+                }
+                pointAccountMap = map;
+                applyPointFilter(false);
+            }
+        }.execute();
+    }
+
+    private void applyPointFilter(boolean resetPage) {
+        long totalCurrent = 0, totalEarned = 0;
+        for (PointDTO p : allPoints) {
+            totalCurrent += p.getCurrentPoints();
+            totalEarned += p.getTotalEarnedPoints();
+        }
+        kpiPointMembers.setText(String.valueOf(allPoints.size()));
+        kpiPointCurrent.setText(INT_FMT.format(totalCurrent));
+        kpiPointEarned.setText(INT_FMT.format(totalEarned));
+
+        String q = txtPointSearch.getText().trim().toLowerCase(Locale.ROOT);
+        String tier = (String) cboPointTier.getSelectedItem();
+
+        List<PointDTO> res = new ArrayList<>();
+        for (PointDTO p : allPoints) {
+            UserDTO acc = pointAccountMap.get(p.getUserId());
+            String name = acc != null && acc.getFullName() != null ? acc.getFullName().toLowerCase(Locale.ROOT) : "";
+            String phone = acc != null && acc.getPhone() != null ? acc.getPhone().toLowerCase(Locale.ROOT) : "";
+
+            if (!q.isEmpty() && !name.contains(q) && !phone.contains(q)) continue;
+            if (tier != null && !tier.startsWith("Tất cả") && !tier.equals(tierLabel(p.getTier()))) continue;
+            res.add(p);
+        }
+        pointPaging.setAll(res, resetPage);
+        renderPointPage();
+    }
+
+    private void renderPointPage() {
+        pagePoints = (List<PointDTO>) (List<?>) pointPaging.slice();
+        pointModel.setRowCount(0);
+        for (PointDTO p : pagePoints) {
+            UserDTO acc = pointAccountMap.get(p.getUserId());
+            pointModel.addRow(new Object[]{
+                    p.getUserId(),
+                    acc != null && acc.getFullName() != null ? acc.getFullName() : "---",
+                    acc != null && acc.getPhone() != null ? acc.getPhone() : "---",
+                    INT_FMT.format(p.getCurrentPoints()),
+                    INT_FMT.format(p.getTotalEarnedPoints()),
+                    tierLabel(p.getTier()),
+                    p.getUpdatedAt() == null ? "---" : p.getUpdatedAt().format(TIME_FMT),
+                    "Lịch sử"
+            });
+        }
+        pointPaging.refreshBar();
+    }
+
+    private void openPointHistoryDialog(PointDTO point) {
+        UserDTO acc = pointAccountMap.get(point.getUserId());
+        String who = acc != null && acc.getFullName() != null ? acc.getFullName() : "Thành viên #" + point.getUserId();
+
+        new PageLoadWorker() {
+            @Override
+            protected Object doInBackground() {
+                return adminBUS.getPointHistory(point.getUserId());
+            }
+
+            @Override
+            @SuppressWarnings("unchecked")
+            protected void onLoaded(Object result) {
+                DefaultTableModel model = readOnlyModel("Thời gian", "Loại", "Điểm", "Hóa đơn", "Ghi chú");
+                for (PointTransactionDTO t : (List<PointTransactionDTO>) copyOrEmpty((List<PointTransactionDTO>) result)) {
+                    int change = t.getPointsChange();
+                    model.addRow(new Object[]{
+                            t.getCreatedAt() == null ? "---" : t.getCreatedAt().format(TIME_FMT),
+                            t.getType() == null ? "---" : t.getType().name(),
+                            (change > 0 ? "+" : "") + INT_FMT.format(change),
+                            t.getBillId() == null ? "---" : "#" + t.getBillId(),
+                            t.getNote() == null ? "" : t.getNote()
+                    });
+                }
+                CTable tableComponent = createStyledTable(model, 40);
+                setColumnWidths(tableComponent.getTable(), 150, 80, 80, 80, 260);
+                tableComponent.setPreferredSize(new Dimension(660, 320));
+
+                JPanel form = newFormPanel();
+                form.add(tableComponent);
+                showModal(
+                        "Lịch sử điểm: " + who,
+                        "Hiện có " + INT_FMT.format(point.getCurrentPoints()) + " điểm, hạng " + tierLabel(point.getTier()) + ".",
+                        form,
+                        "Đóng",
+                        Utils.FOREST_BG,
+                        () -> null
+                );
+            }
+        }.execute();
+    }
+
+    // ==========================================================
+    // --- TRANG 5: QUẢN LÝ VOUCHER ---
+    // ==========================================================
+    private JPanel createVoucherPage() {
+        JPanel page = new JPanel(new BorderLayout(0, 18));
+        page.setOpaque(false);
+
+        kpiVoucherTotal = kpiLabel("0");
+        kpiVoucherActive = kpiLabel("0");
+        kpiVoucherExpired = kpiLabel("0");
+        kpiVoucherUsed = kpiLabel("0");
+        JPanel kpis = kpiRow(4);
+        kpis.add(createKpiCard("TỔNG MÃ VOUCHER", kpiVoucherTotal, Utils.FOREST_BG, NavIcon.PERCENT));
+        kpis.add(createKpiCard("ĐANG ÁP DỤNG", kpiVoucherActive, Utils.SAFE_GREEN, NavIcon.CHECK));
+        kpis.add(createKpiCard("HẾT HẠN / TẠM NGƯNG", kpiVoucherExpired, Utils.DANGER_RED, NavIcon.PAUSE));
+        kpis.add(createKpiCard("TỔNG LƯỢT ĐÃ DÙNG", kpiVoucherUsed, Utils.GOLD_ACCENT, NavIcon.RECEIPT));
+        page.add(kpis, BorderLayout.NORTH);
+
+        txtVoucherSearch = createSearchField("Tìm theo mã code hoặc tên chương trình...", 310);
+        cboVoucherType = createFilterCombo("Loại giảm", "Tất cả loại", "Giảm %", "Giảm tiền cố định");
+        cboVoucherStatus = createFilterCombo("Trạng thái", "Tất cả trạng thái",
+                V_ACTIVE, V_UPCOMING, V_EXPIRED, V_PAUSED);
+
+        onTextChange(txtVoucherSearch, () -> applyVoucherFilter(true));
+        cboVoucherType.addActionListener(e -> { if (!adjusting) applyVoucherFilter(true); });
+        cboVoucherStatus.addActionListener(e -> { if (!adjusting) applyVoucherFilter(true); });
+
+        JButton btnAdd = createRoundedButton("+  Tạo voucher mới", Utils.TERRACOTTA, Color.WHITE, 175, 40);
+        btnAdd.addActionListener(e -> openVoucherDialog(null));
+
+        voucherModel = readOnlyModel(
+                "Mã Code", "Tên chương trình", "Mức giảm", "Đơn tối thiểu",
+                "Lượt dùng", "Hiệu lực", "Trạng thái", "Thao tác"
         );
+        CTable voucherTableComponent = createStyledTable(voucherModel, 50);
+        JTable voucherTable = voucherTableComponent.getTable();
+        voucherTable.getColumnModel().getColumn(0).setCellRenderer(new RowRenderer(true));
+        voucherTable.getColumnModel().getColumn(2).setCellRenderer(new RowRenderer(true));
+        voucherTable.getColumnModel().getColumn(6).setCellRenderer(new BadgeRenderer());
 
-        if (confirm != JOptionPane.YES_OPTION) {
-            return;
+        installActionColumn(voucherTable, 7, (row, idx) -> {
+            if (row < 0 || row >= pageVouchers.size()) return;
+            VoucherDTO v = pageVouchers.get(row);
+            if (idx == 0) openVoucherDialog(v);
+            else toggleVoucherStatus(v);
+        });
+        setColumnWidths(voucherTable, 125, 200, 145, 125, 105, 195, 145, 175);
+
+        voucherPaging = new Paging(10, this::renderVoucherPage);
+        page.add(createTableCard(
+                createToolbar(flow(FlowLayout.LEFT, txtVoucherSearch, cboVoucherType, cboVoucherStatus), flow(FlowLayout.RIGHT, btnAdd)),
+                voucherTableComponent,
+                voucherPaging.bar
+        ), BorderLayout.CENTER);
+        return page;
+    }
+
+    private void loadVouchers() {
+        new PageLoadWorker() {
+            @Override
+            protected Object doInBackground() {
+                return adminBUS.getAllVouchers();
+            }
+
+            @Override
+            @SuppressWarnings("unchecked")
+            protected void onLoaded(Object result) {
+                allVouchers = copyOrEmpty((List<VoucherDTO>) result);
+                applyVoucherFilter(false);
+            }
+        }.execute();
+    }
+
+    private static String voucherStatusLabel(VoucherDTO v) {
+        if (!Boolean.TRUE.equals(v.getIsActive())) return V_PAUSED;
+        LocalDateTime now = LocalDateTime.now();
+        if (v.getStartAt() != null && now.isBefore(v.getStartAt())) return V_UPCOMING;
+        if (v.getEndAt() != null && now.isAfter(v.getEndAt())) return V_EXPIRED;
+        int used = v.getUsedCount() == null ? 0 : v.getUsedCount();
+        if (v.getUsageLimit() != null && used >= v.getUsageLimit()) return V_EXPIRED;
+        return V_ACTIVE;
+    }
+
+    private void applyVoucherFilter(boolean resetPage) {
+        int activeCount = 0;
+        long totalUsed = 0;
+        for (VoucherDTO v : allVouchers) {
+            if (V_ACTIVE.equals(voucherStatusLabel(v))) activeCount++;
+            totalUsed += (v.getUsedCount() == null ? 0 : v.getUsedCount());
+        }
+        kpiVoucherTotal.setText(String.valueOf(allVouchers.size()));
+        kpiVoucherActive.setText(String.valueOf(activeCount));
+        kpiVoucherExpired.setText(String.valueOf(allVouchers.size() - activeCount));
+        kpiVoucherUsed.setText(INT_FMT.format(totalUsed));
+
+        String q = txtVoucherSearch.getText().trim().toLowerCase(Locale.ROOT);
+        String type = (String) cboVoucherType.getSelectedItem();
+        String status = (String) cboVoucherStatus.getSelectedItem();
+
+        List<VoucherDTO> res = new ArrayList<>();
+        for (VoucherDTO v : allVouchers) {
+            String code = v.getCode() == null ? "" : v.getCode().toLowerCase(Locale.ROOT);
+            String name = v.getName() == null ? "" : v.getName().toLowerCase(Locale.ROOT);
+            if (!q.isEmpty() && !code.contains(q) && !name.contains(q)) continue;
+            if ("Giảm %".equals(type) && v.getDiscountType() != dbEnums.DiscountType.PERCENT) continue;
+            if ("Giảm tiền cố định".equals(type) && v.getDiscountType() != dbEnums.DiscountType.FIXED) continue;
+            if (status != null && !status.startsWith("Tất cả") && !status.equals(voucherStatusLabel(v))) continue;
+            res.add(v);
+        }
+        voucherPaging.setAll(res, resetPage);
+        renderVoucherPage();
+    }
+
+    private void renderVoucherPage() {
+        pageVouchers = (List<VoucherDTO>) (List<?>) voucherPaging.slice();
+        voucherModel.setRowCount(0);
+        for (VoucherDTO v : pageVouchers) {
+            String discountStr;
+            if (v.getDiscountType() == dbEnums.DiscountType.PERCENT) {
+                discountStr = v.getDiscountValue().stripTrailingZeros().toPlainString() + "%";
+                if (v.getMaxDiscountAmount() != null && v.getMaxDiscountAmount().signum() > 0) {
+                    discountStr += " (tối đa " + SALES_MONEY_FMT.format(v.getMaxDiscountAmount()) + ")";
+                }
+            } else {
+                discountStr = SALES_MONEY_FMT.format(v.getDiscountValue());
+            }
+
+            int used = v.getUsedCount() == null ? 0 : v.getUsedCount();
+            String usageStr = v.getUsageLimit() == null
+                    ? INT_FMT.format(used) + " / ∞"
+                    : INT_FMT.format(used) + " / " + INT_FMT.format(v.getUsageLimit());
+
+            String period = (v.getStartAt() != null ? v.getStartAt().format(INPUT_DT_FMT) : "---")
+                    + " → "
+                    + (v.getEndAt() != null ? v.getEndAt().format(INPUT_DT_FMT) : "---");
+
+            boolean active = Boolean.TRUE.equals(v.getIsActive());
+            voucherModel.addRow(new Object[]{
+                    v.getCode(),
+                    v.getName() == null || v.getName().isBlank() ? "---" : v.getName(),
+                    discountStr,
+                    v.getMinOrderAmount() != null ? SALES_MONEY_FMT.format(v.getMinOrderAmount()) : "0 VNĐ",
+                    usageStr,
+                    period,
+                    voucherStatusLabel(v),
+                    active ? "Sửa|Tạm ngưng" : "Sửa|Kích hoạt"
+            });
+        }
+        voucherPaging.refreshBar();
+    }
+
+    private void openVoucherDialog(VoucherDTO existing) {
+        boolean edit = existing != null;
+        LocalDateTime defaultStart = LocalDateTime.now().withSecond(0).withNano(0);
+        LocalDateTime defaultEnd = defaultStart.plusDays(7);
+
+        JTextField txtCode = createStyledTextField(edit ? existing.getCode() : "");
+        JTextField txtName = createStyledTextField(edit && existing.getName() != null ? existing.getName() : "");
+        JTextField txtDesc = createStyledTextField(edit && existing.getDescription() != null ? existing.getDescription() : "");
+
+        JComboBox<String> cboType = new JComboBox<>(new String[]{"Giảm theo phần trăm (%)", "Giảm tiền cố định (VNĐ)"});
+        styleCombo(cboType);
+        if (edit && existing.getDiscountType() == dbEnums.DiscountType.FIXED) {
+            cboType.setSelectedIndex(1);
         }
 
-        performUpdate(
-                isCurrentlyActive ? "Khóa tài khoản" : "Mở khóa tài khoản",
-                () -> adminBUS.setAccountActive(
-                        u.getId(),
-                        !isCurrentlyActive
-                ),
-                this::loadAccounts
+        JTextField txtValue = createStyledTextField(edit && existing.getDiscountValue() != null
+                ? existing.getDiscountValue().stripTrailingZeros().toPlainString() : "");
+        JTextField txtMinOrder = createStyledTextField(edit && existing.getMinOrderAmount() != null
+                ? existing.getMinOrderAmount().toBigInteger().toString() : "0");
+        JTextField txtMaxDiscount = createStyledTextField(edit && existing.getMaxDiscountAmount() != null
+                ? existing.getMaxDiscountAmount().toBigInteger().toString() : "");
+        JTextField txtLimit = createStyledTextField(edit && existing.getUsageLimit() != null
+                ? String.valueOf(existing.getUsageLimit()) : "");
+        JTextField txtStart = createStyledTextField(edit && existing.getStartAt() != null
+                ? existing.getStartAt().format(INPUT_DT_FMT) : defaultStart.format(INPUT_DT_FMT));
+        JTextField txtEnd = createStyledTextField(edit && existing.getEndAt() != null
+                ? existing.getEndAt().format(INPUT_DT_FMT) : defaultEnd.format(INPUT_DT_FMT));
+
+        JCheckBox chkActive = createCheckBox("Kích hoạt voucher ngay sau khi lưu",
+                !edit || Boolean.TRUE.equals(existing.getIsActive()));
+        if (edit) txtCode.setEnabled(false);
+
+        JPanel grid = new JPanel(new GridLayout(0, 2, 16, 0));
+        grid.setOpaque(false);
+
+        JPanel col1 = newFormPanel();
+        addField(col1, "Mã Voucher (VD: ANNHIEN20)", txtCode);
+        addField(col1, "Loại giảm giá", cboType);
+        addField(col1, "Đơn tối thiểu (VNĐ)", txtMinOrder);
+        addField(col1, "Bắt đầu (dd/MM/yyyy HH:mm)", txtStart);
+        addField(col1, "Mô tả ngắn", txtDesc);
+
+        JPanel col2 = newFormPanel();
+        addField(col2, "Tên chương trình", txtName);
+        addField(col2, "Giá trị giảm (% hoặc VNĐ)", txtValue);
+        addField(col2, "Giảm tối đa (VNĐ - bỏ trống nếu không giới hạn)", txtMaxDiscount);
+        addField(col2, "Kết thúc (dd/MM/yyyy HH:mm)", txtEnd);
+        addField(col2, "Giới hạn lượt dùng (bỏ trống = không giới hạn)", txtLimit);
+
+        grid.add(col1);
+        grid.add(col2);
+
+        JPanel wrapper = newFormPanel();
+        wrapper.add(grid);
+        wrapper.add(chkActive);
+
+        showModal(
+                edit ? "Cập nhật Voucher" : "Tạo Voucher mới",
+                edit ? "Chỉnh sửa thông tin khuyến mãi cho mã " + existing.getCode() : "Thiết lập mã giảm giá mới cho khách hàng.",
+                wrapper,
+                edit ? "Lưu thay đổi" : "Tạo voucher",
+                Utils.TERRACOTTA,
+                () -> {
+                    String code = txtCode.getText().trim().toUpperCase(Locale.ROOT);
+                    if (code.isEmpty()) return "Vui lòng nhập mã Voucher.";
+                    if (!code.matches("[A-Z0-9_-]{3,50}")) {
+                        return "Mã Voucher chỉ gồm chữ in hoa, số, gạch ngang/dưới (3–50 ký tự).";
+                    }
+                    String programName = txtName.getText().trim();
+                    if (programName.isEmpty()) return "Vui lòng nhập tên chương trình.";
+
+                    dbEnums.DiscountType type = cboType.getSelectedIndex() == 0
+                            ? dbEnums.DiscountType.PERCENT : dbEnums.DiscountType.FIXED;
+
+                    BigDecimal val, minOrder, maxDiscount = null;
+                    try {
+                        val = new BigDecimal(txtValue.getText().trim().replaceAll("[,\\s]", ""));
+                    } catch (NumberFormatException ex) {
+                        return "Giá trị giảm không hợp lệ.";
+                    }
+                    if (val.signum() <= 0) return "Giá trị giảm phải lớn hơn 0.";
+                    if (type == dbEnums.DiscountType.PERCENT && val.compareTo(BigDecimal.valueOf(100)) > 0) {
+                        return "Giảm theo phần trăm không được vượt quá 100%.";
+                    }
+
+                    try {
+                        String minStr = txtMinOrder.getText().trim().replaceAll("[,\\s]", "");
+                        minOrder = minStr.isEmpty() ? BigDecimal.ZERO : new BigDecimal(minStr);
+                        if (minOrder.signum() < 0) return "Đơn tối thiểu không được âm.";
+                    } catch (NumberFormatException ex) {
+                        return "Đơn tối thiểu không hợp lệ.";
+                    }
+
+                    String maxStr = txtMaxDiscount.getText().trim().replaceAll("[,\\s]", "");
+                    if (!maxStr.isEmpty()) {
+                        try {
+                            maxDiscount = new BigDecimal(maxStr);
+                            if (maxDiscount.signum() <= 0) return "Mức giảm tối đa phải lớn hơn 0.";
+                        } catch (NumberFormatException ex) {
+                            return "Mức giảm tối đa không hợp lệ.";
+                        }
+                    }
+
+                    Integer limit = null;
+                    String limitStr = txtLimit.getText().trim();
+                    if (!limitStr.isEmpty()) {
+                        try {
+                            limit = Integer.parseInt(limitStr);
+                            if (limit <= 0) return "Giới hạn lượt dùng phải lớn hơn 0.";
+                        } catch (NumberFormatException ex) {
+                            return "Giới hạn lượt dùng phải là số nguyên.";
+                        }
+                    }
+
+                    LocalDateTime startAt, endAt;
+                    try {
+                        startAt = LocalDateTime.parse(txtStart.getText().trim(), INPUT_DT_FMT);
+                        endAt = LocalDateTime.parse(txtEnd.getText().trim(), INPUT_DT_FMT);
+                    } catch (Exception ex) {
+                        return "Định dạng ngày giờ phải là dd/MM/yyyy HH:mm (VD: 25/11/2026 18:30).";
+                    }
+                    if (!endAt.isAfter(startAt)) return "Thời gian kết thúc phải sau thời gian bắt đầu.";
+
+                    VoucherDTO dto = new VoucherDTO();
+                    if (edit) dto.setId(existing.getId());
+                    dto.setCode(code);
+                    dto.setName(programName);
+                    dto.setDescription(txtDesc.getText().trim());
+                    dto.setDiscountType(type);
+                    dto.setDiscountValue(val);
+                    dto.setMinOrderAmount(minOrder);
+                    dto.setMaxDiscountAmount(maxDiscount);
+                    dto.setStartAt(startAt);
+                    dto.setEndAt(endAt);
+                    dto.setUsageLimit(limit);
+                    dto.setIsActive(chkActive.isSelected());
+
+                    performUpdate(
+                            edit ? "Cập nhật voucher" : "Tạo voucher",
+                            () -> edit ? adminBUS.updateVoucher(dto) : adminBUS.addNewVoucher(dto),
+                            this::loadVouchers
+                    );
+                    return null;
+                }
         );
     }
-    // THÀNH PHẦN DÙNG CHUNG: CARD, KPI, TOOLBAR, MODAL, FORM
+
+    private void toggleVoucherStatus(VoucherDTO v) {
+        boolean active = Boolean.TRUE.equals(v.getIsActive());
+        String title = active ? "Tạm ngưng voucher" : "Kích hoạt voucher";
+        String msg = active
+                ? "Tạm ngưng áp dụng mã '" + v.getCode() + "'?\nKhách hàng sẽ không thể áp mã này khi thanh toán."
+                : "Kích hoạt lại mã '" + v.getCode() + "'?";
+        if (!confirmAction(title, msg)) return;
+
+        performUpdate(title, () -> adminBUS.setVoucherActive(v.getId(), !active), this::loadVouchers);
+    }
+
+    // ==========================================================
+    // --- UI HELPERS: CARD, KPI, TOOLBAR, MODAL, FORM ---
+    // ==========================================================
     private JPanel createCard() {
         JPanel card = new JPanel() {
             @Override
@@ -1080,7 +1645,7 @@ public class AdminGUI extends JFrame {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 g2.setColor(Color.WHITE);
                 g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 16, 16);
-                g2.setColor(BORDER_SOFT);
+                g2.setColor(Utils.BORDER_SOFT);
                 g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 16, 16);
                 g2.dispose();
             }
@@ -1110,10 +1675,12 @@ public class AdminGUI extends JFrame {
         JPanel card = createCard();
         card.setLayout(new BorderLayout(12, 0));
         card.setBorder(new EmptyBorder(16, 20, 16, 18));
+
         JLabel lblTitle = new JLabel(title);
         lblTitle.setFont(font(Font.BOLD, 11));
         lblTitle.setForeground(Utils.TEXT_MUTED);
         lblTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
+
         JPanel text = new JPanel();
         text.setLayout(new BoxLayout(text, BoxLayout.Y_AXIS));
         text.setOpaque(false);
@@ -1122,6 +1689,7 @@ public class AdminGUI extends JFrame {
         text.add(Box.createVerticalStrut(6));
         text.add(value);
         text.add(Box.createVerticalGlue());
+
         card.add(text, BorderLayout.CENTER);
         card.add(new IconChip(iconType, accent), BorderLayout.EAST);
         return card;
@@ -1137,8 +1705,8 @@ public class AdminGUI extends JFrame {
     private JPanel createToolbar(JComponent left, JComponent right) {
         JPanel bar = new JPanel(new BorderLayout());
         bar.setOpaque(false);
-        bar.add(left, BorderLayout.WEST);
-        bar.add(right, BorderLayout.EAST);
+        if (left != null) bar.add(left, BorderLayout.WEST);
+        if (right != null) bar.add(right, BorderLayout.EAST);
         return bar;
     }
 
@@ -1147,7 +1715,7 @@ public class AdminGUI extends JFrame {
         card.setLayout(new BorderLayout(0, 14));
         if (toolbar != null) card.add(toolbar, BorderLayout.NORTH);
         tableComponent.setBackground(Color.WHITE);
-        tableComponent.setBorder(new LineBorder(BORDER_SOFT, 1));
+        tableComponent.setBorder(new LineBorder(Utils.BORDER_SOFT, 1));
         card.add(tableComponent, BorderLayout.CENTER);
         if (footer != null) card.add(footer, BorderLayout.SOUTH);
         return card;
@@ -1163,14 +1731,27 @@ public class AdminGUI extends JFrame {
     }
 
     private void setColumnWidths(JTable table, int... widths) {
-        for (int i = 0; i < widths.length; i++) table.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
+        for (int i = 0; i < widths.length; i++) {
+            table.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
+        }
     }
 
     private JTextField createSearchField(String placeholder, int width) {
         return new CTextField(placeholder, width, 40, font(Font.PLAIN, 13));
     }
 
-    /** Cập nhật lựa chọn bộ lọc từ dữ liệu server, tránh tự kích hoạt lọc giữa chừng. */
+    private JCheckBox createCheckBox(String text, boolean selected) {
+        JCheckBox cb = new JCheckBox(text, selected);
+        cb.setIcon(new CCheckBox(false));
+        cb.setSelectedIcon(new CCheckBox(true));
+        cb.setIconTextGap(9);
+        cb.setFont(font(Font.PLAIN, 13));
+        cb.setForeground(Utils.TEXT_DARK);
+        cb.setOpaque(false);
+        cb.setFocusPainted(false);
+        return cb;
+    }
+
     private void updateComboItems(JComboBox<String> combo, String allLabel, List<String> options) {
         Object selected = combo.getSelectedItem();
         boolean previousAdjusting = adjusting;
@@ -1181,7 +1762,7 @@ public class AdminGUI extends JFrame {
             for (String option : options) combo.addItem(option);
             boolean found = false;
             for (int i = 0; i < combo.getItemCount(); i++) {
-                if (java.util.Objects.equals(combo.getItemAt(i), selected)) {
+                if (Objects.equals(combo.getItemAt(i), selected)) {
                     found = true;
                     break;
                 }
@@ -1192,15 +1773,11 @@ public class AdminGUI extends JFrame {
         }
     }
 
-    /**
-     * Combo lọc: items[0] là nhãn hiển thị trong khung ("Danh mục", "Trạng thái"),
-     * các item còn lại là lựa chọn. Khung đóng hiển thị "Nhãn: giá trị".
-     * Nếu chỉ truyền 1 item (không có nhãn riêng) thì hiển thị như combo thường.
-     */
     private JComboBox<String> createFilterCombo(String... items) {
         boolean hasPrefix = items.length > 1 && items[1].startsWith("Tất cả");
         String prefix = hasPrefix ? items[0] : null;
         String[] options = hasPrefix ? Arrays.copyOfRange(items, 1, items.length) : items;
+
         JComboBox<String> c = new JComboBox<>(options);
         c.setFont(font(Font.PLAIN, 13));
         c.setBackground(Color.WHITE);
@@ -1217,74 +1794,20 @@ public class AdminGUI extends JFrame {
                 l.setBorder(new EmptyBorder(0, 14, 0, 10));
                 l.setPreferredSize(new Dimension(l.getPreferredSize().width, 34));
                 if (index < 0) {
-                    // Khung đang đóng
                     String v = String.valueOf(value);
                     boolean isAll = c.getSelectedIndex() <= 0;
-                    if (prefix != null) {
-                        l.setText(prefix + ":  " + (isAll ? "Tất cả" : v));
-                    }
+                    if (prefix != null) l.setText(prefix + ":  " + (isAll ? "Tất cả" : v));
                     l.setForeground(isAll ? Utils.TEXT_MUTED : Utils.TEXT_DARK);
                     l.setOpaque(false);
                 } else {
                     l.setOpaque(true);
-                    l.setBackground(sel ? SELECT_BG : Color.WHITE);
+                    l.setBackground(sel ? Utils.SELECT_BG : Color.WHITE);
                     l.setForeground(Utils.TEXT_DARK);
                 }
                 return l;
             }
         });
         return c;
-    }
-
-    /** Giao diện combo lọc: nền trắng bo góc, viền mảnh, mũi tên chevron. */
-    private static class FilterComboUI extends javax.swing.plaf.basic.BasicComboBoxUI {
-        @Override
-        protected JButton createArrowButton() {
-            JButton b = new JButton() {
-                @Override
-                protected void paintComponent(Graphics g) {
-                    Graphics2D g2 = (Graphics2D) g.create();
-                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    g2.setColor(Utils.TEXT_MUTED);
-                    g2.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                    int cx = getWidth() / 2, cy = getHeight() / 2;
-                    g2.drawLine(cx - 4, cy - 2, cx, cy + 2);
-                    g2.drawLine(cx, cy + 2, cx + 4, cy - 2);
-                    g2.dispose();
-                }
-            };
-            b.setBorder(BorderFactory.createEmptyBorder());
-            b.setContentAreaFilled(false);
-            b.setFocusPainted(false);
-            b.setOpaque(false);
-            b.setPreferredSize(new Dimension(30, 30));
-            return b;
-        }
-
-        @Override
-        public void paint(Graphics g, JComponent c) {
-            Graphics2D g2 = (Graphics2D) g.create();
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            boolean hot = comboBox.isPopupVisible() || comboBox.hasFocus();
-            g2.setColor(Color.WHITE);
-            g2.fillRoundRect(0, 0, c.getWidth() - 1, c.getHeight() - 1, 12, 12);
-            g2.setColor(hot ? Utils.TERRACOTTA : new Color(214, 219, 214));
-            g2.drawRoundRect(0, 0, c.getWidth() - 1, c.getHeight() - 1, 12, 12);
-            g2.dispose();
-            super.paint(g, c);
-        }
-
-        @Override
-        public void paintCurrentValueBackground(Graphics g, Rectangle bounds, boolean hasFocus) {
-            // nền đã được vẽ bo góc ở paint()
-        }
-
-        @Override
-        protected javax.swing.plaf.basic.ComboPopup createPopup() {
-            javax.swing.plaf.basic.BasicComboPopup p = new javax.swing.plaf.basic.BasicComboPopup(comboBox);
-            p.setBorder(new LineBorder(new Color(214, 219, 214), 1));
-            return p;
-        }
     }
 
     private void styleCombo(JComboBox<?> c) {
@@ -1297,20 +1820,9 @@ public class AdminGUI extends JFrame {
 
     private void onTextChange(JTextField f, Runnable r) {
         f.getDocument().addDocumentListener(new DocumentListener() {
-            @Override
-            public void insertUpdate(DocumentEvent e) {
-                r.run();
-            }
-
-            @Override
-            public void removeUpdate(DocumentEvent e) {
-                r.run();
-            }
-
-            @Override
-            public void changedUpdate(DocumentEvent e) {
-                r.run();
-            }
+            @Override public void insertUpdate(DocumentEvent e) { r.run(); }
+            @Override public void removeUpdate(DocumentEvent e) { r.run(); }
+            @Override public void changedUpdate(DocumentEvent e) { r.run(); }
         });
     }
 
@@ -1323,11 +1835,10 @@ public class AdminGUI extends JFrame {
     }
 
     private JButton createRoundedButton(String text, Color bg, Color fg, int w, int h) {
-        // CButton hiện có màu cam cố định; giữ màu riêng cho nút xanh/trung tính.
         if (Utils.TERRACOTTA.equals(bg) && Color.WHITE.equals(fg)) {
             return new CButton(text, w, h, font(Font.BOLD, 13));
         }
-        boolean neutral = NEUTRAL_BTN.equals(bg);
+        boolean neutral = Utils.NEUTRAL_BTN.equals(bg);
         JButton btn = new JButton(text) {
             @Override
             protected void paintComponent(Graphics g) {
@@ -1335,7 +1846,7 @@ public class AdminGUI extends JFrame {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 Color c;
                 if (!isEnabled()) c = new Color(232, 235, 233);
-                else if (getModel().isPressed()) c = neutral ? bg.darker() : bg.darker();
+                else if (getModel().isPressed()) c = bg.darker();
                 else if (getModel().isRollover()) c = neutral ? new Color(228, 232, 228) : bg.brighter();
                 else c = bg;
                 g2.setColor(c);
@@ -1377,7 +1888,6 @@ public class AdminGUI extends JFrame {
         form.add(Box.createVerticalStrut(14));
     }
 
-    /** Hộp xác nhận dùng JDialog và các component hiện có. */
     private boolean confirmAction(String title, String message) {
         JDialog dialog = new JDialog(this, title, true);
         dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
@@ -1402,7 +1912,7 @@ public class AdminGUI extends JFrame {
         detail.setWrapStyleWord(true);
         content.add(detail, BorderLayout.CENTER);
 
-        JButton cancel = createRoundedButton("Hủy", NEUTRAL_BTN, Utils.TEXT_DARK, 100, 40);
+        JButton cancel = createRoundedButton("Hủy", Utils.NEUTRAL_BTN, Utils.TEXT_DARK, 100, 40);
         JButton confirm = new CButton("Xác nhận", 132, 40, font(Font.BOLD, 13));
         boolean[] accepted = {false};
         cancel.addActionListener(e -> dialog.dispose());
@@ -1410,14 +1920,15 @@ public class AdminGUI extends JFrame {
             accepted[0] = true;
             dialog.dispose();
         });
-        JPanel controls = flow(FlowLayout.RIGHT, cancel, confirm);
-        content.add(controls, BorderLayout.SOUTH);
+        content.add(flow(FlowLayout.RIGHT, cancel, confirm), BorderLayout.SOUTH);
 
         dialog.setContentPane(content);
         dialog.getRootPane().setDefaultButton(confirm);
-        dialog.getRootPane().registerKeyboardAction(e -> dialog.dispose(),
+        dialog.getRootPane().registerKeyboardAction(
+                e -> dialog.dispose(),
                 KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
-                JComponent.WHEN_IN_FOCUSED_WINDOW);
+                JComponent.WHEN_IN_FOCUSED_WINDOW
+        );
         dialog.pack();
         dialog.setLocationRelativeTo(this);
         dialog.setVisible(true);
@@ -1425,68 +1936,46 @@ public class AdminGUI extends JFrame {
     }
 
     private void showModal(String title, String desc, JPanel form, String okText, Color okColor, Supplier<String> onSubmit) {
-        JDialog d = new JDialog(this, title, true);
-        JPanel root = new JPanel(new BorderLayout(0, 18));
-        root.setBackground(Color.WHITE);
-        root.setBorder(new EmptyBorder(26, 30, 22, 30));
-
-        JPanel head = new JPanel();
-        head.setLayout(new BoxLayout(head, BoxLayout.Y_AXIS));
-        head.setOpaque(false);
-        JLabel t = new JLabel(title);
-        t.setFont(font(Font.BOLD, 20));
-        t.setForeground(Utils.TEXT_DARK);
-        t.setAlignmentX(Component.LEFT_ALIGNMENT);
-        JLabel s = new JLabel(desc);
-        s.setFont(font(Font.PLAIN, 13));
-        s.setForeground(Utils.TEXT_MUTED);
-        s.setAlignmentX(Component.LEFT_ALIGNMENT);
-        head.add(t);
-        head.add(Box.createVerticalStrut(4));
-        head.add(s);
+        CDialog dialog = new CDialog(this, "AN NHIÊN  /  QUẢN TRỊ HỆ THỐNG", title, desc);
 
         JLabel err = new JLabel(" ");
         err.setFont(font(Font.PLAIN, 12));
         err.setForeground(Utils.DANGER_RED);
+        err.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JButton ok = createRoundedButton(okText, okColor, Color.WHITE, 150, 42);
-        JButton cancel = createRoundedButton("Hủy", NEUTRAL_BTN, Utils.TEXT_DARK, 96, 42);
-        cancel.addActionListener(e -> d.dispose());
+        JPanel body = new JPanel(new BorderLayout(0, 10));
+        body.setOpaque(false);
+        body.add(form, BorderLayout.CENTER);
+        body.add(err, BorderLayout.SOUTH);
+
+        CButton cancel = CDialog.createSecondaryButton("Hủy", 110, 42);
+        cancel.addActionListener(e -> dialog.dispose());
+
+        JButton ok = createRoundedButton(okText, okColor, Color.WHITE, 165, 42);
         ok.addActionListener(e -> {
-            String msg = null;
+            String msg;
             try {
                 msg = onSubmit.get();
             } catch (RuntimeException ex) {
                 msg = "Lỗi: " + ex.getMessage();
             }
-            if (msg == null) d.dispose();
-            else {
+            if (msg == null) {
+                dialog.dispose();
+            } else {
                 err.setText(msg);
-                d.pack();
+                dialog.pack();
             }
         });
-        JPanel btns = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
-        btns.setOpaque(false);
-        btns.add(cancel);
-        btns.add(ok);
-        JPanel foot = new JPanel(new BorderLayout(0, 8));
-        foot.setOpaque(false);
-        foot.add(err, BorderLayout.NORTH);
-        foot.add(btns, BorderLayout.CENTER);
 
-        root.add(head, BorderLayout.NORTH);
-        root.add(form, BorderLayout.CENTER);
-        root.add(foot, BorderLayout.SOUTH);
-        d.setContentPane(root);
-        d.getRootPane().setDefaultButton(ok);
-        d.getRootPane().registerKeyboardAction(e -> d.dispose(), KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), JComponent.WHEN_IN_FOCUSED_WINDOW);
-        d.setResizable(false);
-        d.pack();
-        d.setLocationRelativeTo(this);
-        d.setVisible(true);
+        dialog.setBody(body)
+                .setFooterButtons(ok, cancel, ok)
+                .setMinSize(520, 320)
+                .showModal();
     }
 
-    // BẢNG VÀ RENDERER
+    // ==========================================================
+    // --- BẢNG & RENDERER ---
+    // ==========================================================
     private CTable createStyledTable(DefaultTableModel model, int rowHeight) {
         CTable tableComponent = new CTable();
         JTable table = tableComponent.getTable();
@@ -1497,7 +1986,7 @@ public class AdminGUI extends JFrame {
         table.setShowHorizontalLines(true);
         table.setGridColor(new Color(238, 240, 238));
         table.setIntercellSpacing(new Dimension(0, 1));
-        table.setSelectionBackground(SELECT_BG);
+        table.setSelectionBackground(Utils.SELECT_BG);
         table.setSelectionForeground(Utils.TEXT_DARK);
         table.setFillsViewportHeight(true);
         table.setDefaultRenderer(Object.class, new RowRenderer(false));
@@ -1514,7 +2003,10 @@ public class AdminGUI extends JFrame {
                 l.setForeground(Utils.FOREST_BG);
                 l.setFont(font(Font.BOLD, 12));
                 l.setHorizontalAlignment(SwingConstants.LEFT);
-                l.setBorder(BorderFactory.createCompoundBorder(new MatteBorder(0, 0, 1, 0, BORDER_SOFT), new EmptyBorder(0, 12, 0, 8)));
+                l.setBorder(BorderFactory.createCompoundBorder(
+                        new MatteBorder(0, 0, 1, 0, Utils.BORDER_SOFT),
+                        new EmptyBorder(0, 12, 0, 8)
+                ));
                 return l;
             }
         });
@@ -1540,19 +2032,105 @@ public class AdminGUI extends JFrame {
     }
 
     @SuppressWarnings("unchecked")
-    private Color rowBackground(JTable t, boolean selected, int row) {
-        if (selected) return SELECT_BG;
+    private static Color rowBackground(JTable t, boolean selected, int row) {
+        if (selected) return Utils.SELECT_BG;
         Object tint = t.getClientProperty("rowTint");
         if (tint instanceof IntFunction) {
             Color c = ((IntFunction<Color>) tint).apply(row);
             if (c != null) return c;
         }
         Object h = t.getClientProperty("hoverRow");
-        if (h instanceof Integer && (Integer) h == row) return HOVER_ROW;
+        if (h instanceof Integer && (Integer) h == row) return Utils.HOVER_ROW;
         return Color.WHITE;
     }
 
-    private class RowRenderer extends DefaultTableCellRenderer {
+    private static Color[] badgeColors(String text) {
+        return switch (text) {
+            case "Đang mở bán", "Đủ hàng", ST_ACTIVE, V_ACTIVE ->
+                    new Color[]{new Color(226, 240, 232), Utils.SAFE_GREEN};
+            case "Sắp hết", ST_LOCKED, V_EXPIRED, "Tạm ngưng" ->
+                    new Color[]{new Color(252, 230, 230), Utils.DANGER_RED};
+            case V_UPCOMING, TIER_KIM_CUONG ->
+                    new Color[]{new Color(224, 240, 250), new Color(30, 110, 170)};
+            case ROLE_STAFF ->
+                    new Color[]{new Color(222, 232, 226), Utils.FOREST_BG};
+            case ROLE_KITCHEN ->
+                    new Color[]{new Color(253, 237, 232), Utils.TERRACOTTA};
+            case ROLE_ADMIN ->
+                    new Color[]{new Color(235, 230, 250), new Color(102, 51, 153)};
+            case TIER_BAC ->
+                    new Color[]{new Color(236, 239, 241), new Color(96, 110, 120)};
+            case TIER_VANG ->
+                    new Color[]{new Color(253, 243, 214), new Color(166, 118, 20)};
+            default ->
+                    new Color[]{new Color(250, 238, 224), new Color(150, 95, 40)};
+        };
+    }
+
+    private static Color actionColor(String label) {
+        return switch (label) {
+            case "Xóa", "Khóa" -> Utils.DANGER_RED;
+            case "Mở khóa", "Mở bán", "Kích hoạt" -> Utils.SAFE_GREEN;
+            case "Tạm ngưng" -> new Color(176, 112, 40);
+            default -> Utils.TERRACOTTA;
+        };
+    }
+
+    private static Color withAlpha(Color c, int a) {
+        return new Color(c.getRed(), c.getGreen(), c.getBlue(), a);
+    }
+
+    private static int actionIndexAt(JTable table, int r, int c, int mouseX) {
+        String[] labels = String.valueOf(table.getValueAt(r, c)).split("\\|");
+        FontMetrics fm = table.getFontMetrics(ACTION_FONT);
+        int x = table.getCellRect(r, c, false).x + ACTION_PAD;
+        for (int i = 0; i < labels.length; i++) {
+            int w = fm.stringWidth(labels[i]) + ACTION_PAD_X * 2;
+            if (mouseX >= x && mouseX <= x + w) return i;
+            x += w + ACTION_GAP;
+        }
+        return -1;
+    }
+
+    private void installActionColumn(JTable table, int col, BiConsumer<Integer, Integer> handler) {
+        table.getColumnModel().getColumn(col).setCellRenderer(new ActionRenderer());
+        table.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                int r = table.rowAtPoint(e.getPoint());
+                int c = table.columnAtPoint(e.getPoint());
+                if (r < 0 || c < 0 || table.convertColumnIndexToModel(c) != col) return;
+                int idx = actionIndexAt(table, r, c, e.getX());
+                if (idx >= 0) handler.accept(table.convertRowIndexToModel(r), idx);
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                table.putClientProperty("hoverAction", null);
+                table.repaint();
+            }
+        });
+        table.addMouseMotionListener(new MouseMotionAdapter() {
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                int r = table.rowAtPoint(e.getPoint());
+                int c = table.columnAtPoint(e.getPoint());
+                boolean inCol = r >= 0 && c >= 0 && table.convertColumnIndexToModel(c) == col;
+                int idx = inCol ? actionIndexAt(table, r, c, e.getX()) : -1;
+                table.setCursor(Cursor.getPredefinedCursor(idx >= 0 ? Cursor.HAND_CURSOR : Cursor.DEFAULT_CURSOR));
+                Object old = table.getClientProperty("hoverAction");
+                int[] now = idx >= 0 ? new int[]{r, c, idx} : null;
+                boolean same = (old == null && now == null)
+                        || (old instanceof int[] && now != null && Arrays.equals((int[]) old, now));
+                if (!same && (now != null || old != null)) {
+                    table.putClientProperty("hoverAction", now);
+                    table.repaint();
+                }
+            }
+        });
+    }
+
+    private static class RowRenderer extends DefaultTableCellRenderer {
         private final boolean bold;
 
         RowRenderer(boolean bold) {
@@ -1571,7 +2149,7 @@ public class AdminGUI extends JFrame {
         }
     }
 
-    private class BadgeRenderer extends JPanel implements TableCellRenderer {
+    private static class BadgeRenderer extends JPanel implements TableCellRenderer {
         private String text = "";
         private Color rowBg = Color.WHITE;
 
@@ -1606,29 +2184,7 @@ public class AdminGUI extends JFrame {
         }
     }
 
-    private static Color[] badgeColors(String text) {
-        switch (text) {
-            case "Đang mở bán":
-            case "Đủ hàng":
-            case ST_ACTIVE:
-                return new Color[]{new Color(226, 240, 232),Utils.SAFE_GREEN};
-            case "Sắp hết":
-            case ST_LOCKED:
-                return new Color[]{new Color(252, 230, 230), Utils.DANGER_RED};
-            case "Tạm ngưng":
-                return new Color[]{new Color(252, 230, 230),Utils.DANGER_RED};
-            case ROLE_STAFF:
-                return new Color[]{new Color(222, 232, 226), Utils.FOREST_BG};
-            case ROLE_KITCHEN:
-                return new Color[]{new Color(253, 237, 232), Utils.TERRACOTTA};
-            case ROLE_ADMIN:
-                return new Color[]{new Color(235, 230, 250), new Color(102, 51, 153)};
-            default:
-                return new Color[]{new Color(250, 238, 224), new Color(150, 95, 40)};
-        }
-    }
-
-    private class ThumbRenderer extends JPanel implements TableCellRenderer {
+    private static class ThumbRenderer extends JPanel implements TableCellRenderer {
         private String name = "";
         private Color rowBg = Color.WHITE;
 
@@ -1656,39 +2212,14 @@ public class AdminGUI extends JFrame {
             g2.fillRoundRect(x, y, size, size, 12, 12);
             g2.setColor(Color.WHITE);
             g2.setFont(font(Font.BOLD, 15));
-            String ch = name.isEmpty() ? "?" : name.substring(0, 1).toUpperCase();
+            String ch = name.isEmpty() ? "?" : name.substring(0, 1).toUpperCase(Locale.ROOT);
             FontMetrics fm = g2.getFontMetrics();
             g2.drawString(ch, x + (size - fm.stringWidth(ch)) / 2, y + (size + fm.getAscent() - fm.getDescent()) / 2);
             g2.dispose();
         }
     }
 
-    private static final Font ACTION_FONT = font(Font.BOLD, 12);
-    private static final int ACTION_GAP = 8;
-    private static final int ACTION_PAD = 12;
-    private static final int ACTION_PAD_X = 12;   // đệm ngang trong mỗi nút
-    private static final int ACTION_H = 28;       // chiều cao mỗi nút
-
-    private static Color actionColor(String label) {
-        switch (label) {
-            case "Xóa":
-            case "Khóa":
-                return Utils.DANGER_RED;
-            case "Mở khóa":
-            case "Mở bán":
-                return Utils.SAFE_GREEN;
-            case "Tạm ngưng":
-                return new Color(176, 112, 40);
-            default:
-                return Utils.TERRACOTTA;
-        }
-    }
-
-    private static Color withAlpha(Color c, int a) {
-        return new Color(c.getRed(), c.getGreen(), c.getBlue(), a);
-    }
-
-    private class ActionRenderer extends JPanel implements TableCellRenderer {
+    private static class ActionRenderer extends JPanel implements TableCellRenderer {
         private String labels = "";
         private Color cellBg = Color.WHITE;
         private int hoverIdx = -1;
@@ -1739,67 +2270,66 @@ public class AdminGUI extends JFrame {
         }
     }
 
-    /** Trả về chỉ số nút tại điểm chuột trong ô thao tác, hoặc -1. */
-    private static int actionIndexAt(JTable table, int r, int c, int mouseX) {
-        String[] labels = String.valueOf(table.getValueAt(r, c)).split("\\|");
-        FontMetrics fm = table.getFontMetrics(ACTION_FONT);
-        int x = table.getCellRect(r, c, false).x + ACTION_PAD;
-        for (int i = 0; i < labels.length; i++) {
-            int w = fm.stringWidth(labels[i]) + ACTION_PAD_X * 2;
-            if (mouseX >= x && mouseX <= x + w) return i;
-            x += w + ACTION_GAP;
-        }
-        return -1;
-    }
-
-    private void installActionColumn(JTable table, int col, java.util.function.BiConsumer<Integer, Integer> handler) {
-        table.getColumnModel().getColumn(col).setCellRenderer(new ActionRenderer());
-        table.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                int r = table.rowAtPoint(e.getPoint());
-                int c = table.columnAtPoint(e.getPoint());
-                if (r < 0 || c < 0 || table.convertColumnIndexToModel(c) != col) return;
-                int idx = actionIndexAt(table, r, c, e.getX());
-                if (idx >= 0) handler.accept(table.convertRowIndexToModel(r), idx);
-            }
-
-            @Override
-            public void mouseExited(MouseEvent e) {
-                table.putClientProperty("hoverAction", null);
-                table.repaint();
-            }
-        });
-        table.addMouseMotionListener(new MouseMotionAdapter() {
-            @Override
-            public void mouseMoved(MouseEvent e) {
-                int r = table.rowAtPoint(e.getPoint());
-                int c = table.columnAtPoint(e.getPoint());
-                boolean inCol = r >= 0 && c >= 0 && table.convertColumnIndexToModel(c) == col;
-                int idx = inCol ? actionIndexAt(table, r, c, e.getX()) : -1;
-                table.setCursor(Cursor.getPredefinedCursor(idx >= 0 ? Cursor.HAND_CURSOR : Cursor.DEFAULT_CURSOR));
-                Object old = table.getClientProperty("hoverAction");
-                int[] now = idx >= 0 ? new int[]{r, c, idx} : null;
-                boolean same = (old == null && now == null)
-                        || (old instanceof int[] && now != null && java.util.Arrays.equals((int[]) old, now));
-                if (!same && (now != null || old != null)) {
-                    table.putClientProperty("hoverAction", now);
-                    table.repaint();
+    private static class FilterComboUI extends javax.swing.plaf.basic.BasicComboBoxUI {
+        @Override
+        protected JButton createArrowButton() {
+            JButton b = new JButton() {
+                @Override
+                protected void paintComponent(Graphics g) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(Utils.TEXT_MUTED);
+                    g2.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    int cx = getWidth() / 2, cy = getHeight() / 2;
+                    g2.drawLine(cx - 4, cy - 2, cx, cy + 2);
+                    g2.drawLine(cx, cy + 2, cx + 4, cy - 2);
+                    g2.dispose();
                 }
-            }
-        });
+            };
+            b.setBorder(BorderFactory.createEmptyBorder());
+            b.setContentAreaFilled(false);
+            b.setFocusPainted(false);
+            b.setOpaque(false);
+            b.setPreferredSize(new Dimension(30, 30));
+            return b;
+        }
+
+        @Override
+        public void paint(Graphics g, JComponent c) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            boolean hot = comboBox.isPopupVisible() || comboBox.hasFocus();
+            g2.setColor(Color.WHITE);
+            g2.fillRoundRect(0, 0, c.getWidth() - 1, c.getHeight() - 1, 12, 12);
+            g2.setColor(hot ? Utils.TERRACOTTA : new Color(214, 219, 214));
+            g2.drawRoundRect(0, 0, c.getWidth() - 1, c.getHeight() - 1, 12, 12);
+            g2.dispose();
+            super.paint(g, c);
+        }
+
+        @Override
+        public void paintCurrentValueBackground(Graphics g, Rectangle bounds, boolean hasFocus) {}
+
+        @Override
+        protected javax.swing.plaf.basic.ComboPopup createPopup() {
+            javax.swing.plaf.basic.BasicComboPopup p = new javax.swing.plaf.basic.BasicComboPopup(comboBox);
+            p.setBorder(new LineBorder(new Color(214, 219, 214), 1));
+            return p;
+        }
     }
 
-    // PHÂN TRANG
-    private class Paging<T> {
+    // ==========================================================
+    // --- PHÂN TRANG ---
+    // ==========================================================
+    private class Paging {
         final int pageSize;
         final Runnable onChange;
-        List<T> all = new ArrayList<>();
+        List<Object> all = new ArrayList<>();
         int page = 0;
         final JPanel bar = new JPanel(new BorderLayout());
         final JLabel info = new JLabel(), pageLbl = new JLabel();
-        final JButton prev = createRoundedButton("‹ Trước", NEUTRAL_BTN, Utils.TEXT_DARK, 92, 34);
-        final JButton next = createRoundedButton("Sau ›", NEUTRAL_BTN, Utils.TEXT_DARK, 92, 34);
+        final JButton prev = createRoundedButton("‹ Trước", Utils.NEUTRAL_BTN, Utils.TEXT_DARK, 92, 34);
+        final JButton next = createRoundedButton("Sau ›", Utils.NEUTRAL_BTN, Utils.TEXT_DARK, 92, 34);
 
         Paging(int pageSize, Runnable onChange) {
             this.pageSize = pageSize;
@@ -1834,25 +2364,32 @@ public class AdminGUI extends JFrame {
             return Math.max(1, (all.size() + pageSize - 1) / pageSize);
         }
 
-        void setAll(List<T> items, boolean reset) {
-            all = items;
+        @SuppressWarnings("unchecked")
+        void setAll(List<?> items, boolean reset) {
+            all = (List<Object>) (List<?>) items;
             page = reset ? 0 : Math.min(page, totalPages() - 1);
         }
 
-        List<T> slice() {
-            return new ArrayList<>(all.subList(Math.min(page * pageSize, all.size()), Math.min((page + 1) * pageSize, all.size())));
+        List<Object> slice() {
+            int fromIdx = Math.min(page * pageSize, all.size());
+            int toIdx = Math.min((page + 1) * pageSize, all.size());
+            return new ArrayList<>(all.subList(fromIdx, toIdx));
         }
 
         void refreshBar() {
-            info.setText("Hiển thị " + (all.isEmpty() ? 0 : page * pageSize + 1) + "–" + Math.min((page + 1) * pageSize, all.size()) + " / " + all.size() + " bản ghi");
+            int start = all.isEmpty() ? 0 : page * pageSize + 1;
+            int end = Math.min((page + 1) * pageSize, all.size());
+            info.setText("Hiển thị " + start + "–" + end + " / " + all.size() + " bản ghi");
             pageLbl.setText("Trang " + (page + 1) + " / " + totalPages());
             prev.setEnabled(page > 0);
             next.setEnabled(page < totalPages() - 1);
         }
     }
 
-    // BIỂU ĐỒ DOANH THU
-    private class RevenueChart extends JPanel {
+    // ==========================================================
+    // --- BIỂU ĐỒ DOANH THU ---
+    // ==========================================================
+    private static class RevenueChart extends JPanel {
         private List<LocalDate> days = new ArrayList<>();
         private List<BigDecimal> values = new ArrayList<>();
         private boolean line = true;
@@ -1892,7 +2429,7 @@ public class AdminGUI extends JFrame {
         }
 
         private Rectangle plot() {
-            return new Rectangle(66, 10, Math.max(10, getWidth() - 66 - 12), Math.max(10, getHeight() - 10 - 28));
+            return new Rectangle(66, 10, Math.max(10, getWidth() - 78), Math.max(10, getHeight() - 38));
         }
 
         private int indexAt(int x) {
@@ -1902,13 +2439,13 @@ public class AdminGUI extends JFrame {
             return (x < p.x || i < 0 || i >= days.size()) ? -1 : i;
         }
 
-        private double niceCeil(double v) {
+        private static double niceCeil(double v) {
             double pow = Math.pow(10, Math.floor(Math.log10(v)));
             double n = v / pow;
             return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * pow;
         }
 
-        private String shortMoney(double v) {
+        private static String shortMoney(double v) {
             String s;
             if (v >= 1e9) {
                 s = String.format(Locale.US, "%.1f", v / 1e9);
@@ -1988,6 +2525,7 @@ public class AdminGUI extends JFrame {
                     g2.fillRect(xs[i] - bw / 2, ys[i] + Math.min(h, 8) - 1, bw, Math.max(0, h - Math.min(h, 8) + 1));
                 }
             }
+
             g2.setStroke(new BasicStroke(1f));
             g2.setColor(Utils.TEXT_MUTED);
             int every = (int) Math.ceil(n / Math.max(1.0, p.width / 62.0));
@@ -1997,7 +2535,8 @@ public class AdminGUI extends JFrame {
             }
 
             if (hover >= 0 && hover < n) {
-                String t1 = days.get(hover).format(DAY_FULL_FMT), t2 = SALES_MONEY_FMT.format(values.get(hover));
+                String t1 = days.get(hover).format(DAY_FULL_FMT);
+                String t2 = SALES_MONEY_FMT.format(values.get(hover));
                 g2.setFont(font(Font.BOLD, 12));
                 FontMetrics fb = g2.getFontMetrics();
                 int w = Math.max(fb.stringWidth(t1), fb.stringWidth(t2)) + 22, h = 46;
@@ -2014,9 +2553,12 @@ public class AdminGUI extends JFrame {
         }
     }
 
-    // ICONS (Đồ hoạ vẽ tay)
+    // ==========================================================
+    // --- ICONS ---
+    // ==========================================================
     static class NavIcon implements Icon {
-        static final int FOOD = 0, BOX = 1, CHART = 2, USER = 3, CHECK = 4, PAUSE = 5, ALERT = 6, RECEIPT = 7, PERCENT = 8, COIN = 9, LOCK = 10;
+        static final int FOOD = 0, CHART = 2, USER = 3, CHECK = 4, PAUSE = 5,
+                RECEIPT = 7, PERCENT = 8, COIN = 9, LOCK = 10;
         private final int type, size;
 
         NavIcon(int type, int size) {
@@ -2032,72 +2574,55 @@ public class AdminGUI extends JFrame {
             g2.setColor(c.getForeground());
             g2.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
             switch (type) {
-                case FOOD:
+                case FOOD -> {
                     g2.drawArc(x + 2, y + 4, 16, 14, 180, 180);
                     g2.drawLine(x + 1, y + 11, x + 19, y + 11);
                     g2.drawLine(x + 7, y + 1, x + 7, y + 5);
                     g2.drawLine(x + 13, y + 1, x + 13, y + 5);
-                    break;
-                case BOX:
-                    g2.drawRoundRect(x + 2, y + 5, 16, 12, 3, 3);
-                    g2.drawLine(x + 2, y + 9, x + 18, y + 9);
-                    g2.drawLine(x + 8, y + 12, x + 12, y + 12);
-                    break;
-                case CHART:
+                }
+                case CHART -> {
                     g2.fillRoundRect(x + 3, y + 10, 4, 8, 2, 2);
                     g2.fillRoundRect(x + 8, y + 4, 4, 14, 2, 2);
                     g2.fillRoundRect(x + 13, y + 7, 4, 11, 2, 2);
-                    break;
-                case USER:
+                }
+                case USER -> {
                     g2.drawOval(x + 6, y + 2, 8, 8);
                     g2.drawArc(x + 2, y + 12, 16, 14, 0, 180);
-                    break;
-                case CHECK:
+                }
+                case CHECK -> {
                     g2.drawOval(x + 2, y + 2, 16, 16);
                     g2.drawPolyline(new int[]{x + 6, x + 9, x + 14}, new int[]{y + 10, y + 13, y + 7}, 3);
-                    break;
-                case PAUSE:
+                }
+                case PAUSE -> {
                     g2.drawOval(x + 2, y + 2, 16, 16);
                     g2.fillRect(x + 7, y + 6, 2, 8);
                     g2.fillRect(x + 11, y + 6, 2, 8);
-                    break;
-                case ALERT:
-                    g2.drawPolygon(new int[]{x + 10, x + 2, x + 18}, new int[]{y + 2, y + 17, y + 17}, 3);
-                    g2.drawLine(x + 10, y + 7, x + 10, y + 12);
-                    g2.fillOval(x + 9, y + 14, 2, 2);
-                    break;
-                case RECEIPT:
+                }
+                case RECEIPT -> {
                     g2.drawRoundRect(x + 4, y + 2, 12, 16, 3, 3);
                     g2.drawLine(x + 7, y + 7, x + 13, y + 7);
                     g2.drawLine(x + 7, y + 11, x + 13, y + 11);
-                    break;
-                case PERCENT:
+                }
+                case PERCENT -> {
                     g2.drawLine(x + 15, y + 4, x + 5, y + 16);
                     g2.drawOval(x + 3, y + 3, 5, 5);
                     g2.drawOval(x + 12, y + 12, 5, 5);
-                    break;
-                case COIN:
+                }
+                case COIN -> {
                     g2.drawOval(x + 2, y + 2, 16, 16);
                     g2.drawLine(x + 10, y + 6, x + 10, y + 14);
                     g2.drawLine(x + 7, y + 8, x + 13, y + 8);
-                    break;
-                case LOCK:
+                }
+                case LOCK -> {
                     g2.drawRoundRect(x + 4, y + 9, 12, 8, 3, 3);
                     g2.drawArc(x + 6, y + 3, 8, 12, 0, 180);
-                    break;
+                }
             }
             g2.dispose();
         }
 
-        @Override
-        public int getIconWidth() {
-            return size;
-        }
-
-        @Override
-        public int getIconHeight() {
-            return size;
-        }
+        @Override public int getIconWidth() { return size; }
+        @Override public int getIconHeight() { return size; }
     }
 
     private static class IconChip extends JComponent {
@@ -2123,17 +2648,7 @@ public class AdminGUI extends JFrame {
         }
     }
 
-    private static class AvatarIcon implements Icon {
-        private final int size;
-        private final String letter;
-        private final Color bg;
-
-        AvatarIcon(int size, String letter, Color bg) {
-            this.size = size;
-            this.letter = letter;
-            this.bg = bg;
-        }
-
+    private record AvatarIcon(int size, String letter, Color bg) implements Icon {
         @Override
         public void paintIcon(Component c, Graphics g, int x, int y) {
             Graphics2D g2 = (Graphics2D) g.create();
@@ -2148,43 +2663,45 @@ public class AdminGUI extends JFrame {
             g2.dispose();
         }
 
-        @Override
-        public int getIconWidth() {
-            return size;
-        }
-
-        @Override
-        public int getIconHeight() {
-            return size;
-        }
+        @Override public int getIconWidth() { return size; }
+        @Override public int getIconHeight() { return size; }
     }
 
-    static class BrandLogoIcon implements Icon {
-        @Override
-        public void paintIcon(Component c, Graphics g, int x, int y) {
-            Graphics2D g2 = (Graphics2D) g.create();
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g2.setColor(Utils.TERRACOTTA);
-            g2.fillRoundRect(x, y, 42, 42, 12, 12);
-            g2.setColor(Color.WHITE);
-            g2.setFont(new Font("SansSerif", Font.BOLD, 22));
-            FontMetrics fm = g2.getFontMetrics();
-            g2.drawString("⌂", x + (42 - fm.stringWidth("⌂")) / 2, y + ((42 - fm.getHeight()) / 2) + fm.getAscent());
-            g2.dispose();
-        }
+    // ==========================================================
+    // --- ĐĂNG NHẬP & LOGO ---
+    // ==========================================================
+    private JLabel createSocketLogo(String imageKey, int size) {
+        JLabel label = new JLabel("AN", SwingConstants.CENTER);
+        Dimension dimension = new Dimension(size, size);
+        label.setPreferredSize(dimension);
+        label.setMinimumSize(dimension);
+        label.setMaximumSize(dimension);
+        label.setForeground(Color.WHITE);
+        label.setFont(new Font(Font.SANS_SERIF, Font.BOLD, Math.max(12, size / 3)));
 
-        @Override
-        public int getIconWidth() {
-            return 42;
-        }
+        new SwingWorker<BufferedImage, Void>() {
+            @Override
+            protected BufferedImage doInBackground() {
+                return ImageSocketClient.fetchImage(imageKey);
+            }
 
-        @Override
-        public int getIconHeight() {
-            return 42;
-        }
+            @Override
+            protected void done() {
+                try {
+                    BufferedImage received = get();
+                    if (received == null) return;
+                    label.setIcon(new ImageIcon(received.getScaledInstance(size, size, Image.SCALE_SMOOTH)));
+                    label.setText("");
+                    if ("things/logo.png".equals(imageKey)) setIconImage(received);
+                    label.revalidate();
+                    label.repaint();
+                } catch (Exception ignored) {
+                }
+            }
+        }.execute();
+        return label;
     }
 
-    // ĐĂNG NHẬP (TÍCH HỢP GỌI TCP SERVER)
     public static void showAdminLogin() {
         JDialog dialog = new JDialog((Frame) null, "Đăng nhập quản trị — An Nhiên", true);
         JPanel body = new JPanel(new BorderLayout(12, 12));
@@ -2211,12 +2728,12 @@ public class AdminGUI extends JFrame {
             char[] pass = password.getPassword();
             String user = account.getText().trim();
             if (user.isEmpty() || pass.length == 0) {
-                java.util.Arrays.fill(pass, '\0');
+                Arrays.fill(pass, '\0');
                 feedback.setText("Vui lòng điền tài khoản và mật khẩu");
                 return;
             }
             String secret = new String(pass);
-            java.util.Arrays.fill(pass, '\0');
+            Arrays.fill(pass, '\0');
             password.setText("");
             signIn.setEnabled(false);
             feedback.setText("Đang xác thực qua mạng...");
@@ -2227,8 +2744,6 @@ public class AdminGUI extends JFrame {
                     SocketClient socket = new SocketClient();
                     try {
                         UserDTO admin = AdminBUS.loginAdmin(socket, user, secret);
-                        if (!"ADMIN".equalsIgnoreCase(admin.getRoleName()))
-                            throw new SecurityException("Tài khoản không có quyền ADMIN");
                         return new Object[]{admin, socket};
                     } catch (RuntimeException ex) {
                         socket.close();
@@ -2250,7 +2765,8 @@ public class AdminGUI extends JFrame {
                         dialog.dispose();
                         new AdminGUI(admin, socket).setVisible(true);
                     } catch (Exception ex) {
-                        Throwable cause = ex instanceof ExecutionException && ex.getCause() != null ? ex.getCause() : ex;
+                        Throwable cause = (ex instanceof ExecutionException && ex.getCause() != null)
+                                ? ex.getCause() : ex;
                         feedback.setText("Lỗi: " + cause.getMessage());
                     }
                 }
@@ -2270,45 +2786,5 @@ public class AdminGUI extends JFrame {
 
     public static void main(String[] args) {
         SwingUtilities.invokeLater(AdminGUI::showAdminLogin);
-    }
-    /** Load logo via TCP IMG/2, khong doc file local va khong block Swing EDT. */
-    private JLabel createSocketLogo(String imageKey, int size) {
-        JLabel label = new JLabel("AN", SwingConstants.CENTER);
-        Dimension dimension = new Dimension(size, size);
-        label.setPreferredSize(dimension);
-        label.setMinimumSize(dimension);
-        label.setMaximumSize(dimension);
-        label.setForeground(Color.WHITE);
-        label.setFont(new Font(Font.SANS_SERIF, Font.BOLD, Math.max(12, size / 3)));
-
-        new SwingWorker<BufferedImage, Void>() {
-            @Override
-            protected BufferedImage doInBackground() {
-                // ImageSocketClient gui IMG/2 things/logo.png, nhan cac block byte nhi phan.
-                return ImageSocketClient.fetchImage(imageKey);
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    BufferedImage received = get();
-                    if (received == null) {
-                        System.err.println("[LOGO-TCP] Khong tai duoc " + imageKey);
-                        return;
-                    }
-                    label.setIcon(new ImageIcon(
-                            received.getScaledInstance(size, size, Image.SCALE_SMOOTH)));
-                    label.setText("");
-                    if ("things/logo.png".equals(imageKey)) setIconImage(received);
-                    label.revalidate();
-                    label.repaint();
-                    System.out.println("[LOGO-TCP] OK " + imageKey + " "
-                            + received.getWidth() + "x" + received.getHeight());
-                } catch (Exception ex) {
-                    System.err.println("[LOGO-TCP] Loi " + imageKey + ": " + ex.getMessage());
-                }
-            }
-        }.execute();
-        return label;
     }
 }

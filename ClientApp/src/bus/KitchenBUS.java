@@ -2,11 +2,8 @@ package bus;
 
 import api.SocketClient;
 import dto.*;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Objects;
-import java.util.Set;
+
+import java.util.*;
 
 public class KitchenBUS {
     public enum Type { QUEUE_UPDATED, ITEM_UPDATED, NEW_ORDER_ALERT, ERROR }
@@ -29,8 +26,10 @@ public class KitchenBUS {
     private boolean initialLoadDone = false;
 
     public KitchenBUS(SocketClient authenticatedSocket) {
-        socket = Objects.requireNonNull(authenticatedSocket, "Cần Socket đăng nhập");
-        if (!socket.isConnected()) throw new IllegalStateException("Mất kết nối Server");
+        this.socket = Objects.requireNonNull(authenticatedSocket, "Cần Socket đăng nhập");
+        if (!socket.isConnected()) {
+            throw new IllegalStateException("Mất kết nối Server");
+        }
     }
 
     public dbEnums.OrderStatus nextStatus(OrderItemDTO item) {
@@ -57,32 +56,29 @@ public class KitchenBUS {
     public Event pollEvent() {
         SocketPacket p;
         while ((p = socket.pollPacket()) != null) {
-            if (!p.isSuccess()) return new Event(Type.ERROR, p.getMessage(), null);
+            if (!p.isSuccess()) {
+                return new Event(Type.ERROR, p.getMessage(), null);
+            }
 
             switch (p.getAction()) {
-                case GET_KITCHEN_QUEUE:
-                    if (!(p.getData() instanceof List<?>))
+                case GET_KITCHEN_QUEUE -> {
+                    if (!(p.getData() instanceof List<?> rawList)) {
                         return new Event(Type.ERROR, "Server trả về danh sách món trong ngày không hợp lệ", null);
-                    List<OrderDTO> updated = new ArrayList<>((List<OrderDTO>) p.getData());
+                    }
+                    List<OrderDTO> updated = new ArrayList<>((List<OrderDTO>) rawList);
                     boolean hasNewPending = detectNewPendingItems(updated);
                     dailyOrders = updated;
-                    if (hasNewPending) {
-                        return new Event(Type.NEW_ORDER_ALERT, "Có món mới vào bếp", null);
-                    }
-                    return new Event(Type.QUEUE_UPDATED, p.getMessage(), null);
-
-                case UPDATE_ITEM_STATUS:
+                    return hasNewPending
+                            ? new Event(Type.NEW_ORDER_ALERT, "Có món mới vào bếp", null)
+                            : new Event(Type.QUEUE_UPDATED, p.getMessage(), null);
+                }
+                case UPDATE_ITEM_STATUS -> {
                     refreshQueue();
-                    return new Event(Type.ITEM_UPDATED, p.getMessage(),
-                            p.getData() instanceof Long ? (Long) p.getData() : null);
-
-                case ORDER_CREATED:
-                case ITEM_STATUS_CHANGED:
-                case ORDER_COMPLETED:
-                    refreshQueue();
-                    continue;
-
-                default:
+                    Long updatedId = p.getData() instanceof Long id ? id : null;
+                    return new Event(Type.ITEM_UPDATED, p.getMessage(), updatedId);
+                }
+                case ORDER_CREATED, ITEM_STATUS_CHANGED, ORDER_COMPLETED -> refreshQueue();
+                default -> { }
             }
         }
         return null;
@@ -90,24 +86,17 @@ public class KitchenBUS {
 
     private boolean detectNewPendingItems(List<OrderDTO> orders) {
         Set<Long> currentPending = new HashSet<>();
-        for (OrderDTO o : orders) {
-            if (o.getItems() == null) continue;
-            for (OrderItemDTO item : o.getItems()) {
+        for (OrderDTO order : orders) {
+            if (order.getItems() == null) continue;
+            for (OrderItemDTO item : order.getItems()) {
                 if (item.getId() != null && item.getStatus() == dbEnums.OrderStatus.PENDING) {
                     currentPending.add(item.getId());
                 }
             }
         }
-        boolean foundNew = false;
-        // Chỉ phát chuông từ lần đồng bộ thứ 2 trở đi (lần đầu mở app load lịch sử ngày thì không kêu)
-        if (initialLoadDone) {
-            for (Long id : currentPending) {
-                if (!knownPendingIds.contains(id)) {
-                    foundNew = true;
-                    break;
-                }
-            }
-        }
+
+        // Chỉ báo chuông từ lần đồng bộ thứ 2 trở đi
+        boolean foundNew = initialLoadDone && !knownPendingIds.containsAll(currentPending);
         knownPendingIds.clear();
         knownPendingIds.addAll(currentPending);
         initialLoadDone = true;

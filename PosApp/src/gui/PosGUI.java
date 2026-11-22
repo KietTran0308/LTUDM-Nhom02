@@ -1,44 +1,51 @@
 package gui;
 
 import api.ImageSocketClient;
-import api.SocketClient;
-
-import java.awt.event.KeyEvent;
-import java.awt.geom.RoundRectangle2D;
-import java.awt.image.BufferedImage;
-
 import bus.PosBUS;
 import components.CButton;
+import components.CDialog;
 import components.CScrollBar;
 import components.CToast;
 import components.CToggleButton;
-import dto.*;
+import dto.OrderDTO;
+import dto.OrderItemDTO;
+import dto.TableDTO;
+import dto.UserDTO;
+import dto.dbEnums;
 import utils.Utils;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.JTableHeader;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.awt.image.BufferedImage;
 import java.math.BigDecimal;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Consumer;
 
 public final class PosGUI extends JFrame {
-    // Màu sơ đồ bàn lấy từ StaffGUI
-    private static final Color ACTIVE_COLOR = new Color(202, 227, 207);
-    private static final Color EMPTY_COLOR = new Color(244, 231, 224);
-    private static final Color SELECT_COLOR = new Color(35, 101, 66);
+
+    private static final String CARD_MAP = "map";
+    private static final String CARD_DETAIL = "detail";
+
     private static final DecimalFormat MONEY = new DecimalFormat("#,##0.## 'VNĐ'",
             DecimalFormatSymbols.getInstance(Locale.forLanguageTag("vi-VN")));
 
@@ -48,8 +55,10 @@ public final class PosGUI extends JFrame {
     private final JPanel tableGridPanel = new JPanel(new GridLayout(0, 4, 14, 14));
     private final JPanel floorList = new JPanel();
     private final JLabel floorHeading = new JLabel("Đang tải các tầng...");
+
     private List<TableDTO> tableSnapshot = new ArrayList<>();
     private Integer selectedFloor;
+
     private final DefaultTableModel billItemsModel = new DefaultTableModel(
             new String[]{"Lượt gọi", "Tên món ăn", "Đơn giá", "Số lượng", "Thành tiền", "Trạng thái"}, 0) {
         @Override
@@ -57,17 +66,18 @@ public final class PosGUI extends JFrame {
             return false;
         }
     };
+
     private final JLabel lblSelectedTableInfo = new JLabel();
     private final JLabel lblSessionInfo = new JLabel();
     private final JLabel lblSubtotal = valueLabel("0 VNĐ", 14, Utils.TEXT_DARK);
     private final JLabel lblDiscount = valueLabel("0 VNĐ", 14, new Color(46, 125, 50));
     private final JLabel lblTaxVAT = valueLabel("0 VNĐ", 14, Utils.TEXT_DARK);
     private final JLabel lblFinalTotal = valueLabel("0 VNĐ", 22, Utils.TERRACOTTA);
+
     private final ButtonGroup paymentMethods = new ButtonGroup();
     private final CToggleButton cashButton = new CToggleButton("Tiền mặt", 100, false);
     private final CToggleButton bankButton = new CToggleButton("Chuyển khoản ngân hàng", 205, false);
     private final CButton btnCreateCustomer = new CButton("Tạo tài khoản khách", 205, 42);
-
     private final CButton btnCheckout = new CButton("Xuất hóa đơn", 490, 52);
     private final CButton btnBack = new CButton("Quay lại sơ đồ", 160, 40);
 
@@ -84,17 +94,18 @@ public final class PosGUI extends JFrame {
     private final JLabel lblCustomerInfo = new JLabel("Khách lẻ (Không tích điểm)");
     private final JButton btnClearCustomer = new JButton("✕");
 
-    private final Timer refreshTimer;
-    private final JLabel lblClock = new JLabel("", SwingConstants.RIGHT);
-    private static final java.time.format.DateTimeFormatter CLOCK_FORMAT =
-            java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss  |  dd/MM/yyyy");
-    private Timer clockTimer;
+    private final JTextField txtVoucherCode = new JTextField();
+    private final CButton btnApplyVoucher = new CButton("Áp dụng", 95, 34);
+    private final JLabel lblVoucherStatus = new JLabel("Nhập mã ưu đãi (nếu có)");
 
+    private final Timer refreshTimer;
+    private final JLabel lblClock = Utils.createClockLabel();
 
     public static void showPosLogin() {
         JDialog dialog = new JDialog((Frame) null, "Đăng nhập POS — An Nhiên", true);
         JPanel content = new JPanel(new BorderLayout(12, 12));
         content.setBorder(new EmptyBorder(20, 22, 20, 22));
+
         JPanel form = new JPanel(new GridLayout(2, 2, 12, 12));
         JTextField username = new JTextField(23);
         JPasswordField password = new JPasswordField(23);
@@ -102,27 +113,31 @@ public final class PosGUI extends JFrame {
         form.add(username);
         form.add(new JLabel("Mật khẩu:"));
         form.add(password);
+
         JLabel feedback = new JLabel("Chỉ tài khoản ADMIN trên máy POS được cấp phép mới có quyền thu ngân.");
         feedback.setForeground(new Color(135, 72, 42));
+
         JButton submit = new JButton("Đăng nhập POS");
         JButton cancel = new JButton("Hủy");
         JPanel footer = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         footer.add(cancel);
         footer.add(submit);
+
         cancel.addActionListener(e -> dialog.dispose());
         submit.addActionListener(e -> {
             char[] typed = password.getPassword();
             String account = username.getText().trim();
             if (account.isEmpty() || typed.length == 0) {
-                java.util.Arrays.fill(typed, '\0');
+                Arrays.fill(typed, '\0');
                 feedback.setText("Vui lòng nhập đủ tài khoản và mật khẩu.");
                 return;
             }
             String secret = new String(typed);
-            java.util.Arrays.fill(typed, '\0');
+            Arrays.fill(typed, '\0');
             password.setText("");
             submit.setEnabled(false);
             feedback.setText("Đang xác thực trên Server...");
+
             new SwingWorker<PosBUS, Void>() {
                 @Override
                 protected PosBUS doInBackground() {
@@ -148,8 +163,9 @@ public final class PosGUI extends JFrame {
                 }
             }.execute();
         });
-        content.add(form, BorderLayout.CENTER);
+
         content.add(feedback, BorderLayout.NORTH);
+        content.add(form, BorderLayout.CENTER);
         content.add(footer, BorderLayout.SOUTH);
         dialog.setContentPane(content);
         dialog.getRootPane().setDefaultButton(submit);
@@ -171,34 +187,31 @@ public final class PosGUI extends JFrame {
         setSize(1360, 820);
         setMinimumSize(new Dimension(1040, 680));
         setLocationRelativeTo(null);
-        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE); // Không tắt ServerApp
+        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         setLayout(new BorderLayout());
 
         initBrandHeader();
         initMainWorkspace();
         updateButtons();
 
-        refreshTimer = new Timer(6000, e -> refreshTables(false));
+        refreshTimer = new Timer(6000, e -> refreshTables());
         refreshTimer.start();
+
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowOpened(WindowEvent e) {
-                refreshTables(true);
+                refreshTables();
                 loadCustomersAsync();
             }
 
             @Override
             public void windowClosed(WindowEvent e) {
                 refreshTimer.stop();
-                if (clockTimer != null) clockTimer.stop();
                 pos.close();
             }
         });
     }
 
-    /**
-     * Phan header lay tu StaffGUI cu, duoc doi ten cho POS.
-     */
     private void initBrandHeader() {
         JPanel header = new JPanel(new BorderLayout()) {
             @Override
@@ -218,24 +231,21 @@ public final class PosGUI extends JFrame {
         JPanel leftBrand = new JPanel();
         leftBrand.setLayout(new BoxLayout(leftBrand, BoxLayout.X_AXIS));
         leftBrand.setOpaque(false);
+
         JLabel lblIcon = createSocketLogo("things/logo.png", 40);
         lblIcon.setBorder(new EmptyBorder(0, 0, 0, 10));
-        JPanel titleCol = new JPanel();
-        titleCol.setLayout(new BoxLayout(titleCol, BoxLayout.Y_AXIS));
-        titleCol.setOpaque(false);
+
         JLabel brand = new JLabel("Nhà hàng An Nhiên  |  QUẢN LÝ BÀN & THU NGÂN");
         brand.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 20));
         brand.setForeground(Color.WHITE);
 
-        titleCol.add(brand);
-        titleCol.add(Box.createVerticalStrut(3));
-
         leftBrand.add(lblIcon);
-        leftBrand.add(titleCol);
+        leftBrand.add(brand);
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 4));
         actions.setOpaque(false);
         btnCreateCustomer.addActionListener(e -> showCreateCustomerDialog());
+
         JButton btnLogout = new JButton("Đăng xuất");
         btnLogout.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 13));
         btnLogout.setForeground(Color.WHITE);
@@ -245,14 +255,7 @@ public final class PosGUI extends JFrame {
         btnLogout.setBorder(new LineBorder(new Color(80, 95, 86), 1, true));
         btnLogout.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         btnLogout.addActionListener(e -> dispose());
-        // Đồng hồ: giờ:phút:giây | ngày/tháng/năm, đặt trước nút Tạo tài khoản khách và Đăng xuất.
-        lblClock.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 15));
-        lblClock.setForeground(Color.WHITE);
-        lblClock.setPreferredSize(new Dimension(220, 42));
-        lblClock.setBorder(new EmptyBorder(0, 0, 0, 6));
-        updateClock();
-        clockTimer = new Timer(1000, e -> updateClock());
-        clockTimer.start();
+
         actions.add(lblClock);
         actions.add(btnCreateCustomer);
         actions.add(btnLogout);
@@ -262,140 +265,41 @@ public final class PosGUI extends JFrame {
         add(header, BorderLayout.NORTH);
     }
 
-    private void updateClock() {
-        lblClock.setText(java.time.LocalDateTime.now().format(CLOCK_FORMAT));
-    }
-
     private void showCreateCustomerDialog() {
-        Component oldGlassPane = getGlassPane();
-        boolean oldGlassPaneVisible = oldGlassPane.isVisible();
-        JPanel dimOverlay = new JPanel() {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setColor(new Color(45, 45, 45, 155));
-                g2.fillRect(0, 0, getWidth(), getHeight());
-                g2.dispose();
-            }
-        };
-        dimOverlay.setOpaque(false);
+        CDialog dialog = new CDialog(
+                this,
+                "AN NHIÊN  /  KHÁCH HÀNG THÀNH VIÊN",
+                "Tạo tài khoản khách hàng",
+                "Nhập thông tin khách hàng mới để tích điểm thành viên."
+        );
 
-        JDialog dialog = new JDialog(this, "Tạo tài khoản khách hàng", true);
-        dialog.setUndecorated(true);
-        dialog.setResizable(false);
-        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-
-        Color darkText = new Color(39, 54, 44);
-        Color mutedText = new Color(107, 117, 110);
-        Color lineColor = new Color(226, 231, 225);
-        Color fieldBg = new Color(249, 251, 249);
-
-        final int cornerRadius = 28;
-        JPanel content = new JPanel(new BorderLayout()) {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(Color.WHITE);
-                g2.fill(new RoundRectangle2D.Double(0, 0, getWidth(), getHeight(),
-                        cornerRadius, cornerRadius));
-                g2.dispose();
-            }
-
-            @Override
-            protected void paintChildren(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setClip(new RoundRectangle2D.Double(0, 0, getWidth(), getHeight(),
-                        cornerRadius, cornerRadius));
-                super.paintChildren(g2);
-                g2.setClip(null);
-                g2.setColor(lineColor);
-                g2.setStroke(new BasicStroke(1f));
-                g2.draw(new RoundRectangle2D.Double(0.5, 0.5,
-                        getWidth() - 1.0, getHeight() - 1.0, cornerRadius, cornerRadius));
-                g2.dispose();
-            }
-        };
-        content.setOpaque(false);
-        content.setBorder(BorderFactory.createEmptyBorder());
-
-        // Header đồng bộ nhận diện nhà hàng
-        JPanel header = new JPanel(new BorderLayout(16, 0));
-        header.setBackground(Utils.FOREST_BG);
-        header.setBorder(new EmptyBorder(23, 28, 23, 24));
-
-        JPanel titleBox = new JPanel();
-        titleBox.setOpaque(false);
-        titleBox.setLayout(new BoxLayout(titleBox, BoxLayout.Y_AXIS));
-
-        JLabel brand = new JLabel("AN NHIÊN  /  KHÁCH HÀNG THÀNH VIÊN");
-        brand.setFont(Utils.getCustomFont("Inter", Font.BOLD, 11));
-        brand.setForeground(new Color(201, 222, 207));
-
-        JLabel title = new JLabel("Tạo tài khoản khách hàng");
-        title.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 21));
-        title.setForeground(Color.WHITE);
-
-        titleBox.add(brand);
-        titleBox.add(Box.createVerticalStrut(10));
-        titleBox.add(title);
-        titleBox.add(Box.createVerticalStrut(6));
-        header.add(titleBox, BorderLayout.CENTER);
-        content.add(header, BorderLayout.NORTH);
-
-        // Phần thân: thông tin nhập liệu
         JPanel body = new JPanel(new BorderLayout(0, 14));
-        body.setBackground(Color.WHITE);
-        body.setBorder(new EmptyBorder(22, 28, 18, 28));
+        body.setOpaque(false);
 
         JLabel sectionLbl = new JLabel("THÔNG TIN TÀI KHOẢN");
         sectionLbl.setFont(Utils.getCustomFont("Inter", Font.BOLD, 13));
-        sectionLbl.setForeground(darkText);
+        sectionLbl.setForeground(CDialog.DARK_TEXT);
 
         JTextField nameField = new JTextField(23);
         JTextField phoneField = new JTextField(23);
         JTextField emailField = new JTextField(23);
         for (JTextField field : new JTextField[]{nameField, phoneField, emailField}) {
-            field.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 14));
-            field.setForeground(darkText);
-            field.setBackground(fieldBg);
-            field.setCaretColor(darkText);
-            field.setBorder(BorderFactory.createCompoundBorder(
-                    new LineBorder(lineColor, 1, true),
-                    new EmptyBorder(8, 12, 8, 12)));
+            styleInputField(field, new Color(249, 251, 249), CDialog.LINE_COLOR, 8, 12, Font.PLAIN, 14);
         }
 
         JPanel form = new JPanel(new GridLayout(3, 2, 14, 12));
         form.setOpaque(false);
-        form.add(createCustomerFieldLabel("Họ và tên", darkText));
+        form.add(createCustomerFieldLabel("Họ và tên"));
         form.add(nameField);
-        form.add(createCustomerFieldLabel("Số điện thoại", darkText));
+        form.add(createCustomerFieldLabel("Số điện thoại"));
         form.add(phoneField);
-        form.add(createCustomerFieldLabel("Email (tùy chọn)", darkText));
+        form.add(createCustomerFieldLabel("Email (tùy chọn)"));
         form.add(emailField);
 
-        JPanel bodyCenter = new JPanel(new BorderLayout(0, 14));
-        bodyCenter.setOpaque(false);
-        bodyCenter.add(sectionLbl, BorderLayout.NORTH);
-        bodyCenter.add(form, BorderLayout.CENTER);
+        body.add(sectionLbl, BorderLayout.NORTH);
+        body.add(form, BorderLayout.CENTER);
 
-        body.add(bodyCenter, BorderLayout.CENTER);
-        content.add(body, BorderLayout.CENTER);
-
-        // Footer đồng bộ nút Hủy và Tạo tài khoản
-        JPanel footer = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 16));
-        footer.setBackground(new Color(249, 250, 249));
-        footer.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(1, 0, 0, 0, lineColor),
-                new EmptyBorder(0, 20, 0, 20)));
-
-        CButton cancel = new CButton("Hủy", 122, 44);
-        cancel.setForeground(darkText);
-        cancel.setBackground(Color.WHITE);
-        cancel.setFocusPainted(false);
-        cancel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        cancel.setBorder(new LineBorder(lineColor, 1, true));
+        CButton cancel = CDialog.createSecondaryButton("Hủy", 122, 44);
         cancel.addActionListener(e -> {
             if (cancel.isEnabled()) dialog.dispose();
         });
@@ -413,6 +317,7 @@ public final class PosGUI extends JFrame {
             phoneField.setEditable(false);
             emailField.setEditable(false);
             dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+
             new SwingWorker<Void, Void>() {
                 @Override
                 protected Void doInBackground() {
@@ -444,81 +349,60 @@ public final class PosGUI extends JFrame {
             }.execute();
         });
 
-        footer.add(cancel);
-        footer.add(submit);
-        content.add(footer, BorderLayout.SOUTH);
-
-        dialog.getRootPane().setOpaque(false);
-        dialog.getLayeredPane().setOpaque(false);
-        dialog.setContentPane(content);
-        dialog.getRootPane().setDefaultButton(submit);
-        dialog.getRootPane().registerKeyboardAction(e -> {
-            if (cancel.isEnabled()) dialog.dispose();
-        }, KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), JComponent.WHEN_IN_FOCUSED_WINDOW);
-
-        dialog.pack();
-        dialog.setSize(Math.max(580, dialog.getWidth()), Math.max(460, dialog.getHeight()));
-        dialog.setLocationRelativeTo(this);
-
-        try {
-            dialog.setBackground(new Color(0, 0, 0, 0));
-            dialog.setShape(new RoundRectangle2D.Double(0, 0,
-                    dialog.getWidth(), dialog.getHeight(), cornerRadius, cornerRadius));
-        } catch (UnsupportedOperationException ex) {
-            System.err.println("[PosGUI] Hệ điều hành không hỗ trợ dialog bo góc: " + ex.getMessage());
-        }
-
         busy = true;
         updateButtons();
         try {
-            setGlassPane(dimOverlay);
-            dimOverlay.setVisible(true);
-            dimOverlay.repaint();
-            dialog.setVisible(true);
+            dialog.setBody(body)
+                    .setFooterButtons(submit, cancel, submit)
+                    .setMinSize(580, 460)
+                    .showModal();
         } finally {
-            dialog.dispose();
-            dimOverlay.setVisible(false);
-            setGlassPane(oldGlassPane);
-            oldGlassPane.setVisible(oldGlassPaneVisible);
             busy = false;
             updateButtons();
         }
     }
 
-    private static JLabel createCustomerFieldLabel(String text, Color color) {
+    private static JLabel createCustomerFieldLabel(String text) {
         JLabel label = new JLabel(text);
         label.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 14));
-        label.setForeground(color);
+        label.setForeground(CDialog.DARK_TEXT);
         return label;
+    }
+
+    private static void styleInputField(JTextField field, Color bg, Color borderColor,
+                                        int vPad, int hPad, int fontStyle, int fontSize) {
+        field.setFont(Utils.getCustomFont("Inter", fontStyle, fontSize));
+        field.setForeground(Utils.TEXT_DARK);
+        field.setBackground(bg);
+        field.setCaretColor(Utils.TEXT_DARK);
+        field.setBorder(BorderFactory.createCompoundBorder(
+                new LineBorder(borderColor, 1, true),
+                new EmptyBorder(vPad, hPad, vPad, hPad)));
     }
 
     private void initMainWorkspace() {
         workspace.setBackground(Utils.CREAM_BG);
         workspace.setBorder(new EmptyBorder(22, 25, 18, 25));
-        workspace.add(createTableMap(), "map");
-        workspace.add(createTableDetail(), "detail");
+        workspace.add(createTableMap(), CARD_MAP);
+        workspace.add(createTableDetail(), CARD_DETAIL);
         add(workspace, BorderLayout.CENTER);
     }
 
     private JPanel createTableMap() {
-        // Bố cục lấy từ StaffGUI: sidebar chọn tầng (trái) + lưới bàn của tầng (giữa)
         JPanel mapPanel = new JPanel(new BorderLayout(18, 0));
         mapPanel.setOpaque(false);
-        mapPanel.add(menuFloor(), BorderLayout.WEST);
+        mapPanel.add(createFloorSidebar(), BorderLayout.WEST);
 
         JPanel tableArea = new JPanel(new BorderLayout(0, 12));
         tableArea.setBackground(Color.WHITE);
         tableArea.setBorder(new EmptyBorder(18, 18, 18, 18));
-        JPanel tableHeader = new JPanel(new GridLayout(0, 1, 0, 5));
-        tableHeader.setOpaque(false);
+
         floorHeading.setFont(Utils.getCustomFont("Inter", Font.BOLD, 20));
         floorHeading.setForeground(Utils.FOREST_BG);
-        tableHeader.add(floorHeading);
-        tableArea.add(tableHeader, BorderLayout.NORTH);
+        tableArea.add(floorHeading, BorderLayout.NORTH);
 
         tableGridPanel.setBackground(Color.WHITE);
         tableGridPanel.setBorder(new EmptyBorder(6, 4, 12, 4));
-        // Neo lưới lên đầu: 1-2 bàn không bị kéo cao theo toàn bộ vùng cuộn.
         JPanel tableAnchor = new JPanel(new BorderLayout());
         tableAnchor.setBackground(Color.WHITE);
         tableAnchor.add(tableGridPanel, BorderLayout.NORTH);
@@ -530,15 +414,17 @@ public final class PosGUI extends JFrame {
         scroll.setVerticalScrollBar(new CScrollBar());
         scroll.getVerticalScrollBar().setUnitIncrement(20);
         tableArea.add(scroll, BorderLayout.CENTER);
+
         mapPanel.add(tableArea, BorderLayout.CENTER);
         return mapPanel;
     }
 
-    private JPanel menuFloor() {
+    private JPanel createFloorSidebar() {
         JPanel sidebar = new JPanel(new BorderLayout(0, 14));
         sidebar.setBackground(Color.WHITE);
         sidebar.setBorder(new EmptyBorder(20, 12, 16, 12));
         sidebar.setPreferredSize(new Dimension(245, 0));
+
         JLabel label = new JLabel("CHỌN TẦNG");
         label.setFont(Utils.getCustomFont("Inter", Font.BOLD, 17));
         label.setForeground(Utils.FOREST_BG);
@@ -546,6 +432,7 @@ public final class PosGUI extends JFrame {
 
         floorList.setLayout(new BoxLayout(floorList, BoxLayout.Y_AXIS));
         floorList.setBackground(Color.WHITE);
+
         JScrollPane floorsScroll = new JScrollPane(floorList);
         floorsScroll.setBorder(BorderFactory.createEmptyBorder());
         floorsScroll.getViewport().setBackground(Color.WHITE);
@@ -563,7 +450,7 @@ public final class PosGUI extends JFrame {
     private void selectFloor(int floor) {
         if (Objects.equals(selectedFloor, floor)) return;
         selectedFloor = floor;
-        renderTableMap(tableSnapshot); // Chỉ render lại snapshot cục bộ, không gọi server.
+        renderTableMap(tableSnapshot);
     }
 
     private void renderFloorSidebar(List<TableDTO> tables, Set<Integer> floors) {
@@ -573,6 +460,7 @@ public final class PosGUI extends JFrame {
             empty.setBorder(new EmptyBorder(10, 7, 10, 7));
             floorList.add(empty);
         }
+
         for (int floor : floors) {
             int total = 0;
             int active = 0;
@@ -589,16 +477,17 @@ public final class PosGUI extends JFrame {
             button.setHorizontalAlignment(SwingConstants.LEFT);
             button.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 14));
             button.setForeground(picked ? Color.WHITE : new Color(37, 65, 49));
-            button.setBackground(picked ? SELECT_COLOR : new Color(244, 247, 243));
+            button.setBackground(picked ? Utils.SELECT_COLOR : new Color(244, 247, 243));
             button.setOpaque(true);
             button.setFocusPainted(false);
             button.setBorder(BorderFactory.createCompoundBorder(
-                    new LineBorder(picked ? SELECT_COLOR : new Color(224, 230, 223), 1, true),
+                    new LineBorder(picked ? Utils.SELECT_COLOR : new Color(224, 230, 223), 1, true),
                     new EmptyBorder(11, 14, 11, 8)));
             button.setPreferredSize(new Dimension(209, 65));
             button.setMaximumSize(new Dimension(Integer.MAX_VALUE, 65));
             button.setAlignmentX(Component.LEFT_ALIGNMENT);
             button.addActionListener(e -> selectFloor(floor));
+
             floorList.add(button);
             floorList.add(Box.createVerticalStrut(9));
         }
@@ -632,20 +521,28 @@ public final class PosGUI extends JFrame {
         JPanel columns = new JPanel(new GridLayout(1, 2, 22, 0));
         columns.setOpaque(false);
 
-        // Cột trái: danh sách món đã gọi
-        JPanel items = createWhiteCard(20, 20, 20, 20);
-        items.setLayout(new BorderLayout(0, 15));
-        items.add(sectionTitle("Danh sách các món đã gọi:"), BorderLayout.NORTH);
-        items.add(createBillScroll(), BorderLayout.CENTER);
-        columns.add(items);
+        JPanel itemsCard = createWhiteCard(20, 20, 20, 20);
+        itemsCard.setLayout(new BorderLayout(0, 15));
+        itemsCard.add(sectionTitle("Danh sách các món đã gọi:"), BorderLayout.NORTH);
+        itemsCard.add(createBillScroll(), BorderLayout.CENTER);
+        columns.add(itemsCard);
 
-        // Cột phải: thanh toán
-        JPanel checkout = createWhiteCard(20, 24, 20, 24);
-        checkout.setLayout(new BorderLayout(0, 16));
-        checkout.add(sectionTitle("Thanh toán:"), BorderLayout.NORTH);
+        JPanel checkoutCard = createWhiteCard(20, 24, 20, 24);
+        checkoutCard.setLayout(new BorderLayout(0, 16));
+        checkoutCard.add(sectionTitle("Thanh toán:"), BorderLayout.NORTH);
+        checkoutCard.add(createPaymentPanel(), BorderLayout.CENTER);
+        columns.add(checkoutCard);
 
+        detail.add(columns, BorderLayout.CENTER);
+        return detail;
+    }
+
+    private JPanel createPaymentPanel() {
         JPanel payment = new JPanel(new BorderLayout(0, 16));
         payment.setOpaque(false);
+
+        JPanel loyaltyBox = createLoyaltyCustomerBox();
+        JPanel voucherBox = createVoucherBox();
 
         JPanel breakdownBox = new JPanel(new GridLayout(3, 1, 0, 10));
         breakdownBox.setBackground(Utils.CREAM_BG);
@@ -655,9 +552,46 @@ public final class PosGUI extends JFrame {
         breakdownBox.add(amountRow("Tổng tiền món", lblSubtotal));
         breakdownBox.add(amountRow("Giảm giá", lblDiscount));
         breakdownBox.add(amountRow("Thuế GTGT (VAT 8%)", lblTaxVAT));
-        JPanel loyaltyBox = createLoyaltyCustomerBox();
 
-        // Khối chọn phương thức thanh toán
+        JPanel methodBox = createPaymentMethodBox();
+
+        JPanel totalBox = new JPanel(new BorderLayout(8, 0));
+        totalBox.setBackground(Utils.CREAM_BG);
+        totalBox.setBorder(BorderFactory.createCompoundBorder(
+                new LineBorder(new Color(215, 222, 215), 1, false),
+                new EmptyBorder(14, 18, 14, 18)));
+        JLabel lblTotalTitle = new JLabel("Tổng thanh toán");
+        lblTotalTitle.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 16));
+        lblTotalTitle.setForeground(Utils.TEXT_DARK);
+        totalBox.add(lblTotalTitle, BorderLayout.WEST);
+        totalBox.add(lblFinalTotal, BorderLayout.EAST);
+
+        JPanel summaryStack = new JPanel();
+        summaryStack.setLayout(new BoxLayout(summaryStack, BoxLayout.Y_AXIS));
+        summaryStack.setOpaque(false);
+
+        JPanel[] sections = {loyaltyBox, voucherBox, breakdownBox, methodBox, totalBox};
+        for (int i = 0; i < sections.length; i++) {
+            JPanel sec = sections[i];
+            sec.setMaximumSize(new Dimension(Integer.MAX_VALUE, sec.getPreferredSize().height));
+            summaryStack.add(sec);
+            if (i < sections.length - 1) {
+                summaryStack.add(Box.createVerticalStrut(10));
+            }
+        }
+
+        payment.add(summaryStack, BorderLayout.NORTH);
+
+        btnCheckout.addActionListener(e -> paySelectedTable());
+        JPanel checkoutFooter = new JPanel(new BorderLayout());
+        checkoutFooter.setOpaque(false);
+        checkoutFooter.add(btnCheckout, BorderLayout.CENTER);
+        payment.add(checkoutFooter, BorderLayout.SOUTH);
+
+        return payment;
+    }
+
+    private JPanel createPaymentMethodBox() {
         JPanel methodBox = new JPanel(new BorderLayout(0, 12));
         methodBox.setBackground(Color.WHITE);
         methodBox.setBorder(BorderFactory.createCompoundBorder(
@@ -687,51 +621,11 @@ public final class PosGUI extends JFrame {
         methods.add(cashButton);
         methods.add(bankButton);
         methodBox.add(methods, BorderLayout.CENTER);
-
-        // Khối tổng thanh toán
-        JPanel totalBox = new JPanel(new BorderLayout(8, 0));
-        totalBox.setBackground(Utils.CREAM_BG);
-        totalBox.setBorder(BorderFactory.createCompoundBorder(
-                new LineBorder(new Color(215, 222, 215), 1, false),
-                new EmptyBorder(14, 18, 14, 18)));
-        JLabel lblTotalTitle = new JLabel("Tổng thanh toán");
-        lblTotalTitle.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 16));
-        lblTotalTitle.setForeground(Utils.TEXT_DARK);
-        totalBox.add(lblTotalTitle, BorderLayout.WEST);
-        totalBox.add(lblFinalTotal, BorderLayout.EAST);
-
-        JPanel summaryStack = new JPanel();
-        summaryStack.setLayout(new BoxLayout(summaryStack, BoxLayout.Y_AXIS));
-        summaryStack.setOpaque(false);
-        breakdownBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, breakdownBox.getPreferredSize().height));
-        loyaltyBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, loyaltyBox.getPreferredSize().height));
-        methodBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, methodBox.getPreferredSize().height));
-        totalBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, totalBox.getPreferredSize().height));
-
-        summaryStack.add(breakdownBox);
-        summaryStack.add(Box.createVerticalStrut(10));
-        summaryStack.add(loyaltyBox);
-        summaryStack.add(Box.createVerticalStrut(10));
-        summaryStack.add(methodBox);
-        summaryStack.add(Box.createVerticalStrut(10));
-        summaryStack.add(totalBox);
-
-        payment.add(summaryStack, BorderLayout.NORTH);
-
-        btnCheckout.addActionListener(e -> paySelectedTable());
-        JPanel checkoutFooter = new JPanel(new BorderLayout());
-        checkoutFooter.setOpaque(false);
-        checkoutFooter.add(btnCheckout, BorderLayout.CENTER);
-        payment.add(checkoutFooter, BorderLayout.SOUTH);
-
-        checkout.add(payment, BorderLayout.CENTER);
-        columns.add(checkout);
-        detail.add(columns, BorderLayout.CENTER);
-        return detail;
+        return methodBox;
     }
 
     private void styleSquarePaymentBox(CToggleButton button) {
-        button.setPreferredSize(new Dimension(0, 64));
+        button.setPreferredSize(new Dimension(0, 100));
         button.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 14));
         button.setHorizontalAlignment(SwingConstants.CENTER);
         button.setVerticalAlignment(SwingConstants.CENTER);
@@ -742,13 +636,10 @@ public final class PosGUI extends JFrame {
 
     private void updatePaymentBoxVisual(CToggleButton button) {
         boolean selected = button.isSelected();
-        Color bg = selected ? SELECT_COLOR : new Color(248, 250, 248);
-        Color fg = selected ? Color.WHITE : Utils.TEXT_DARK;
-        button.setBackground(bg);
-        button.setForeground(fg);
+        button.setBackground(selected ? Utils.SELECT_COLOR : new Color(248, 250, 248));
+        button.setForeground(selected ? Color.WHITE : Utils.TEXT_DARK);
         button.setBorder(BorderFactory.createCompoundBorder(
-                new LineBorder(selected ? SELECT_COLOR : new Color(200, 209, 202),
-                        selected ? 3 : 1, false),
+                new LineBorder(selected ? Utils.SELECT_COLOR : new Color(200, 209, 202), selected ? 3 : 1, false),
                 new EmptyBorder(12, 12, 12, 12)));
         button.repaint();
     }
@@ -759,33 +650,28 @@ public final class PosGUI extends JFrame {
             public boolean getScrollableTracksViewportWidth() {
                 return getParent() instanceof JViewport viewport && viewport.getWidth() >= getMinimumSize().width;
             }
-
-            @Override
-            public String getToolTipText(java.awt.event.MouseEvent event) {
-                int row = rowAtPoint(event.getPoint());
-                int column = columnAtPoint(event.getPoint());
-                return row < 0 || column < 0 ? null : Objects.toString(getValueAt(row, column), "");
-            }
         };
-        table.setToolTipText("");
         table.setRowHeight(34);
         table.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 13));
         table.setFillsViewportHeight(true);
         table.setShowVerticalLines(false);
         table.setGridColor(new Color(240, 240, 240));
         table.getSelectionModel().setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+
         JTableHeader header = table.getTableHeader();
         header.setReorderingAllowed(false);
         header.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 13));
         header.setBackground(Utils.FOREST_BG);
         header.setForeground(Color.WHITE);
         header.setPreferredSize(new Dimension(0, 38));
+
         int[] widths = {90, 115, 80, 67, 90, 105};
         for (int i = 0; i < widths.length; i++) {
             var column = table.getColumnModel().getColumn(i);
             column.setMinWidth(widths[i]);
             column.setPreferredWidth(i == 1 ? 220 : widths[i]);
         }
+
         JScrollPane scroll = new JScrollPane(table);
         scroll.setVerticalScrollBar(new CScrollBar());
         scroll.setBorder(BorderFactory.createEmptyBorder());
@@ -806,7 +692,6 @@ public final class PosGUI extends JFrame {
         row.add(value, BorderLayout.EAST);
         return row;
     }
-
 
     private static JPanel createWhiteCard(int top, int left, int bottom, int right) {
         JPanel p = new JPanel();
@@ -832,17 +717,19 @@ public final class PosGUI extends JFrame {
     }
 
     private void updateButtons() {
-        boolean hasTable = selectedTable != null;
-        boolean active = hasTable && selectedTable.getActiveSessionId() != null;
+        boolean active = selectedTable != null && selectedTable.getActiveSessionId() != null;
         boolean available = !busy && !reviewing;
         boolean billReady = active && billPreview != null && billPreview.getCheckoutRevision() != null
                 && Objects.equals(selectedTable.getActiveSessionId(), billPreview.getTableSessionId());
+
         txtCustomerSearch.setEnabled(available && billReady);
         btnBack.setEnabled(available);
         btnCreateCustomer.setEnabled(available);
         cashButton.setEnabled(available && billReady);
         bankButton.setEnabled(available && billReady);
         btnCheckout.setEnabled(available && billReady && selectedPaymentMethod() != null);
+        txtVoucherCode.setEnabled(available && billReady);
+        btnApplyVoucher.setEnabled(available && billReady);
     }
 
     private dbEnums.PaymentMethod selectedPaymentMethod() {
@@ -855,6 +742,7 @@ public final class PosGUI extends JFrame {
         tableSnapshot = new ArrayList<>(tables);
         Set<Integer> floors = new TreeSet<>();
         for (TableDTO t : tables) floors.add(t.getFloorNumber());
+
         if (selectedFloor == null || !floors.contains(selectedFloor)) {
             selectedFloor = floors.isEmpty() ? null : floors.iterator().next();
         }
@@ -864,6 +752,7 @@ public final class PosGUI extends JFrame {
         for (TableDTO t : tables) {
             if (Objects.equals(t.getFloorNumber(), selectedFloor)) visible.add(t);
         }
+
         floorHeading.setText(selectedFloor == null ? "SƠ ĐỒ BÀN"
                 : "SƠ ĐỒ BÀN · " + floorName(selectedFloor).toUpperCase());
 
@@ -877,6 +766,7 @@ public final class PosGUI extends JFrame {
             empty.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 15));
             tableGridPanel.add(empty);
         }
+
         for (TableDTO t : visible) {
             boolean active = t.getActiveSessionId() != null;
             JButton button = new JButton("<html><center><b>" + safeHtml(t.getTableName()) + "</b><br/>"
@@ -884,15 +774,15 @@ public final class PosGUI extends JFrame {
                     + (active ? "KHÁCH ĐANG DÙNG BỮA" : "BÀN TRỐNG") + "</center></html>");
             button.setFont(Utils.getCustomFont("Inter", Font.BOLD, 14));
             button.setPreferredSize(new Dimension(195, 125));
-            button.setBackground(active ? ACTIVE_COLOR : EMPTY_COLOR);
+            button.setBackground(active ? Utils.ACTIVE_COLOR : Utils.EMPTY_COLOR);
             button.setOpaque(true);
             button.setFocusPainted(false);
             button.setBorder(new LineBorder(new Color(220, 224, 217), 1, true));
             button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-            // Khác StaffGUI: ở POS, bấm vào bàn sẽ mở màn hình chi tiết/thanh toán.
             button.addActionListener(e -> selectTable(t));
             tableGridPanel.add(button);
         }
+
         tableGridPanel.revalidate();
         tableGridPanel.repaint();
     }
@@ -905,19 +795,19 @@ public final class PosGUI extends JFrame {
         }
         selectedTable = table;
         paymentMethods.clearSelection();
-        clearSelectedCustomer(); // <-- Đặt ở đây
+        clearSelectedCustomer();
         clearInvoicePanel();
         updateTableHeading();
-        workspaceLayout.show(workspace, "detail");
-        if (table.getActiveSessionId() != null) loadPreview();
+        workspaceLayout.show(workspace, CARD_DETAIL);
+        loadPreview();
     }
 
     private void showTableMap() {
         selectedTable = null;
         paymentMethods.clearSelection();
-        clearSelectedCustomer(); // <-- Đặt ở đây
+        clearSelectedCustomer();
         clearInvoicePanel();
-        workspaceLayout.show(workspace, "map");
+        workspaceLayout.show(workspace, CARD_MAP);
     }
 
     private void updateTableHeading() {
@@ -927,7 +817,6 @@ public final class PosGUI extends JFrame {
                 : "Phiên #" + sessionId + " · Đang dùng bữa");
     }
 
-
     private void clearInvoicePanel() {
         billPreview = null;
         billItemsModel.setRowCount(0);
@@ -935,20 +824,28 @@ public final class PosGUI extends JFrame {
         lblDiscount.setText("0 VNĐ");
         lblTaxVAT.setText("0 VNĐ");
         lblFinalTotal.setText("0 VNĐ");
+        txtVoucherCode.setText("");
+        lblVoucherStatus.setFont(Utils.getCustomFont("Inter", Font.ITALIC, 12));
+        lblVoucherStatus.setForeground(Utils.TEXT_MUTED);
+        lblVoucherStatus.setText("Nhập mã ưu đãi (nếu có)");
         updateButtons();
     }
 
     private void renderMergedBillPreview(OrderDTO order) {
-        clearInvoicePanel();
-
         billPreview = order;
+        billItemsModel.setRowCount(0);
         for (OrderItemDTO item : order.getItems()) {
             String turn = Objects.equals(item.getOrderId(), order.getId())
                     ? "Đơn gốc (#" + item.getOrderId() + ")"
                     : "Gọi thêm (#" + item.getOrderId() + ")";
-            billItemsModel.addRow(new Object[]{turn, item.getFoodsName(),
-                    money(item.getUnitPrice()), item.getQuantity(), money(item.getLineTotal()),
-                    itemStatusText(item.getStatus())});
+            billItemsModel.addRow(new Object[]{
+                    turn,
+                    item.getFoodsName(),
+                    money(item.getUnitPrice()),
+                    item.getQuantity(),
+                    money(item.getLineTotal()),
+                    itemStatusText(item.getStatus())
+            });
         }
         lblSubtotal.setText(money(order.getSubtotal()));
         lblDiscount.setText(money(order.getDiscountAmount()));
@@ -973,12 +870,11 @@ public final class PosGUI extends JFrame {
         return MONEY.format(v == null ? BigDecimal.ZERO : v);
     }
 
-    private <T> void execute(String description, java.util.concurrent.Callable<T> task,
-                             java.util.function.Consumer<T> onSuccess, Runnable onFailure) {
+    private <T> void execute(Callable<T> task, Consumer<T> onSuccess, Runnable onFailure) {
         if (busy || !isDisplayable()) return;
         busy = true;
-
         updateButtons();
+
         new SwingWorker<T, Void>() {
             @Override
             protected T doInBackground() throws Exception {
@@ -990,17 +886,14 @@ public final class PosGUI extends JFrame {
                 busy = false;
                 if (!isDisplayable()) return;
                 try {
-                    T result = get();
-                    onSuccess.accept(result);
+                    onSuccess.accept(get());
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
                 } catch (Exception ex) {
-                    Throwable cause = ex instanceof ExecutionException
-                            && ex.getCause() != null ? ex.getCause() : ex;
-
+                    Throwable cause = ex instanceof ExecutionException && ex.getCause() != null
+                            ? ex.getCause() : ex;
                     String msg = cause.getMessage() == null
-                            ? "Không thực hiện được thao tác"
-                            : cause.getMessage();
+                            ? "Không thực hiện được thao tác" : cause.getMessage();
                     CToast.error(PosGUI.this, msg);
                     onFailure.run();
                 } finally {
@@ -1010,10 +903,11 @@ public final class PosGUI extends JFrame {
         }.execute();
     }
 
-    private void refreshTables(boolean notify) {
+    private void refreshTables() {
         if (busy || refreshing || reviewing || !isDisplayable()) return;
         refreshing = true;
         updateButtons();
+
         new SwingWorker<List<TableDTO>, Void>() {
             @Override
             protected List<TableDTO> doInBackground() {
@@ -1027,11 +921,15 @@ public final class PosGUI extends JFrame {
                 try {
                     List<TableDTO> tables = get();
                     renderTableMap(tables);
+                    if (selectedTable == null) return;
 
                     Long selectedId = selectedTable.getId();
                     Long previousSession = selectedTable.getActiveSessionId();
                     selectedTable = tables.stream()
-                            .filter(t -> Objects.equals(t.getId(), selectedId)).findFirst().orElse(null);
+                            .filter(t -> Objects.equals(t.getId(), selectedId))
+                            .findFirst()
+                            .orElse(null);
+
                     if (selectedTable == null) {
                         showTableMap();
                         return;
@@ -1043,9 +941,8 @@ public final class PosGUI extends JFrame {
                     updateTableHeading();
                     if (selectedTable.getActiveSessionId() != null) loadPreview();
                 } catch (Exception ex) {
-                    Throwable cause = ex instanceof ExecutionException
-                            && ex.getCause() != null ? ex.getCause() : ex;
-
+                    Throwable cause = ex instanceof ExecutionException && ex.getCause() != null
+                            ? ex.getCause() : ex;
                     System.err.println("[POS] Lỗi tải bàn: " + cause);
                 } finally {
                     updateButtons();
@@ -1057,19 +954,19 @@ public final class PosGUI extends JFrame {
     private void loadPreview() {
         TableDTO snapshot = selectedTable;
         if (snapshot == null || snapshot.getActiveSessionId() == null) return;
-        execute("Đọc hóa đơn " + snapshot.getTableName(),
-                () -> pos.preview(snapshot.getId()), result -> {
-                    if (selectedTable != null &&
-                            Objects.equals(selectedTable.getId(), snapshot.getId()) &&
-                            Objects.equals(selectedTable.getActiveSessionId(), snapshot.getActiveSessionId())) {
-                        renderMergedBillPreview(result);
-                    }
-                }, this::clearInvoicePanel);
+
+        execute(() -> pos.preview(snapshot.getId()), result -> {
+            if (selectedTable != null
+                    && Objects.equals(selectedTable.getId(), snapshot.getId())
+                    && Objects.equals(selectedTable.getActiveSessionId(), snapshot.getActiveSessionId())) {
+                renderMergedBillPreview(result);
+            }
+        }, this::clearInvoicePanel);
     }
 
     private void confirmAndOpenTable(TableDTO snapshot) {
         if (snapshot == null || snapshot.getActiveSessionId() != null) return;
-        // Tạm dừng tự làm mới trong lúc hộp thoại mở để dữ liệu bàn không đổi bất ngờ.
+
         reviewing = true;
         updateButtons();
         boolean confirmed;
@@ -1080,133 +977,42 @@ public final class PosGUI extends JFrame {
             updateButtons();
         }
         if (!confirmed) return;
-        execute("Mở phiên " + snapshot.getTableName(),
-                () -> pos.openTable(snapshot.getId()), sid -> {
-                    CToast.success(this, "Đã mở phiên #" + sid + " cho " + snapshot.getTableName());
-                    refreshTables(false); // Tải lại sơ đồ bàn
-                }, () -> refreshTables(false));
+
+        execute(() -> pos.openTable(snapshot.getId()), sid -> {
+            CToast.success(this, "Đã mở phiên #" + sid + " cho " + snapshot.getTableName());
+            refreshTables();
+        }, this::refreshTables);
     }
 
     private boolean confirmOpenTableModal(TableDTO table) {
         final boolean[] confirmed = {false};
 
-        Component oldGlassPane = getGlassPane();
-        boolean oldGlassPaneVisible = oldGlassPane.isVisible();
-        JPanel dimOverlay = new JPanel() {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setColor(new Color(45, 45, 45, 155));
-                g2.fillRect(0, 0, getWidth(), getHeight());
-                g2.dispose();
-            }
-        };
-        dimOverlay.setOpaque(false);
+        CDialog dialog = new CDialog(
+                this,
+                "AN NHIÊN  /  POS THU NGÂN",
+                "Xác nhận mở phiên phục vụ",
+                "Xác nhận mở phiên phục vụ mới cho " + table.getTableName() + "?"
+        );
 
-        JDialog dialog = new JDialog(this, "POS — Xác nhận mở phiên bàn", true);
-        dialog.setUndecorated(true);
-        dialog.setResizable(false);
-        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-
-        Color darkText = new Color(39, 54, 44);
-        Color lineColor = new Color(226, 231, 225);
-
-        final int cornerRadius = 28;
-        JPanel content = new JPanel(new BorderLayout()) {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(Color.WHITE);
-                g2.fill(new RoundRectangle2D.Double(0, 0, getWidth(), getHeight(),
-                        cornerRadius, cornerRadius));
-                g2.dispose();
-            }
-
-            @Override
-            protected void paintChildren(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setClip(new RoundRectangle2D.Double(0, 0, getWidth(), getHeight(),
-                        cornerRadius, cornerRadius));
-                super.paintChildren(g2);
-                g2.setClip(null);
-                g2.setColor(lineColor);
-                g2.setStroke(new BasicStroke(1f));
-                g2.draw(new RoundRectangle2D.Double(0.5, 0.5,
-                        getWidth() - 1.0, getHeight() - 1.0, cornerRadius, cornerRadius));
-                g2.dispose();
-            }
-        };
-        content.setOpaque(false);
-        content.setBorder(BorderFactory.createEmptyBorder());
-
-        // Header xanh nhận diện
-        JPanel header = new JPanel(new BorderLayout(16, 0));
-        header.setBackground(Utils.FOREST_BG);
-        header.setBorder(new EmptyBorder(23, 28, 23, 24));
-
-        JPanel titleBox = new JPanel();
-        titleBox.setOpaque(false);
-        titleBox.setLayout(new BoxLayout(titleBox, BoxLayout.Y_AXIS));
-
-        JLabel brand = new JLabel("AN NHIÊN  /  POS THU NGÂN");
-        brand.setFont(Utils.getCustomFont("Inter", Font.BOLD, 11));
-        brand.setForeground(new Color(201, 222, 207));
-
-        JLabel title = new JLabel("Xác nhận mở phiên phục vụ");
-        title.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 21));
-        title.setForeground(Color.WHITE);
-
-        JLabel subtitle = new JLabel("Xác nhận mở phiên phục vụ mới cho " + table.getTableName() + "?");
-        subtitle.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 13));
-        subtitle.setForeground(new Color(224, 235, 226));
-
-        titleBox.add(brand);
-        titleBox.add(Box.createVerticalStrut(10));
-        titleBox.add(title);
-        titleBox.add(Box.createVerticalStrut(6));
-        titleBox.add(subtitle);
-        header.add(titleBox, BorderLayout.CENTER);
-        content.add(header, BorderLayout.NORTH);
-
-        // Thân hiển thị thông tin bàn
-        JPanel body = new JPanel(new BorderLayout(0, 17));
-        body.setBackground(Color.WHITE);
-        body.setBorder(new EmptyBorder(23, 28, 18, 28));
+        JPanel body = new JPanel(new BorderLayout(0, 16));
+        body.setOpaque(false);
 
         JLabel detailsTitle = new JLabel("THÔNG TIN BÀN ĐƯỢC CHỌN");
         detailsTitle.setFont(Utils.getCustomFont("Inter", Font.BOLD, 13));
-        detailsTitle.setForeground(darkText);
+        detailsTitle.setForeground(CDialog.DARK_TEXT);
 
         JPanel details = new JPanel(new GridLayout(0, 1, 0, 12));
         details.setOpaque(false);
-        details.add(openTableInfoRow("Bàn", table.getTableName()));
-        details.add(openTableInfoRow("Tầng", floorName(table.getFloorNumber())));
-        details.add(openTableInfoRow("Sức chứa", table.getCapacity() + " người"));
-        details.add(openTableInfoRow("Trạng thái hiện tại", "Bàn trống"));
-        details.add(openTableInfoRow("Thu ngân", pos.getOperator().getFullName()));
+        details.add(CDialog.createInfoRow("Bàn", table.getTableName()));
+        details.add(CDialog.createInfoRow("Tầng", floorName(table.getFloorNumber())));
+        details.add(CDialog.createInfoRow("Sức chứa", table.getCapacity() + " người"));
+        details.add(CDialog.createInfoRow("Trạng thái hiện tại", "Bàn trống"));
+        details.add(CDialog.createInfoRow("Thu ngân", pos.getOperator().getFullName()));
 
-        JPanel infoBlock = new JPanel(new BorderLayout(0, 16));
-        infoBlock.setOpaque(false);
-        infoBlock.add(detailsTitle, BorderLayout.NORTH);
-        infoBlock.add(details, BorderLayout.CENTER);
-        body.add(infoBlock, BorderLayout.CENTER);
-        content.add(body, BorderLayout.CENTER);
+        body.add(detailsTitle, BorderLayout.NORTH);
+        body.add(details, BorderLayout.CENTER);
 
-        // Footer nút Hủy bỏ và Xác nhận mở phiên
-        JPanel footer = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 16));
-        footer.setBackground(new Color(249, 250, 249));
-        footer.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(1, 0, 0, 0, lineColor),
-                new EmptyBorder(0, 20, 0, 20)));
-
-        CButton cancel = new CButton("Hủy bỏ", 122, 44);
-        cancel.setForeground(darkText);
-        cancel.setBackground(Color.WHITE);
-        cancel.setFocusPainted(false);
-        cancel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        cancel.setBorder(new LineBorder(lineColor, 1, true));
+        CButton cancel = CDialog.createSecondaryButton("Hủy bỏ", 122, 44);
         cancel.addActionListener(e -> dialog.dispose());
 
         CButton accept = new CButton("Xác nhận mở phiên", 212, 44);
@@ -1215,65 +1021,22 @@ public final class PosGUI extends JFrame {
             dialog.dispose();
         });
 
-        footer.add(cancel);
-        footer.add(accept);
-        content.add(footer, BorderLayout.SOUTH);
+        dialog.setBody(body)
+                .setFooterButtons(accept, cancel, accept)
+                .setMinSize(580, 480)
+                .showModal();
 
-        dialog.getRootPane().setOpaque(false);
-        dialog.getLayeredPane().setOpaque(false);
-        dialog.setContentPane(content);
-        dialog.getRootPane().setDefaultButton(accept);
-        dialog.getRootPane().registerKeyboardAction(e -> dialog.dispose(),
-                KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
-                JComponent.WHEN_IN_FOCUSED_WINDOW);
-        dialog.pack();
-        dialog.setSize(Math.max(580, dialog.getWidth()), Math.max(480, dialog.getHeight()));
-        dialog.setLocationRelativeTo(this);
-
-        try {
-            dialog.setBackground(new Color(0, 0, 0, 0));
-            dialog.setShape(new RoundRectangle2D.Double(0, 0,
-                    dialog.getWidth(), dialog.getHeight(), cornerRadius, cornerRadius));
-        } catch (UnsupportedOperationException ex) {
-            System.err.println("[PosGUI] Hệ điều hành không hỗ trợ dialog bo góc: " + ex.getMessage());
-        }
-
-        try {
-            setGlassPane(dimOverlay);
-            dimOverlay.setVisible(true);
-            dimOverlay.repaint();
-            dialog.setVisible(true);
-        } finally {
-            dialog.dispose();
-            dimOverlay.setVisible(false);
-            setGlassPane(oldGlassPane);
-            oldGlassPane.setVisible(oldGlassPaneVisible);
-        }
         return confirmed[0];
-    }
-
-    private JPanel openTableInfoRow(String field, String value) {
-        JPanel row = new JPanel(new BorderLayout(16, 0));
-        row.setOpaque(false);
-        JLabel name = new JLabel(field);
-        name.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 14));
-        name.setForeground(new Color(107, 117, 110));
-
-        JLabel text = new JLabel(value == null ? "—" : ": " + value);
-        text.setFont(Utils.getCustomFont("Inter", Font.BOLD, 18));
-        text.setForeground(new Color(39, 54, 44));
-
-        row.add(name, BorderLayout.WEST);
-        row.add(text, BorderLayout.CENTER);
-        return row;
     }
 
     private void paySelectedTable() {
         if (!btnCheckout.isEnabled()) return;
+
         TableDTO table = selectedTable;
         OrderDTO preview = billPreview;
         dbEnums.PaymentMethod method = selectedPaymentMethod();
         UserDTO customer = selectedCustomer;
+
         reviewing = true;
         updateButtons();
         boolean confirmed;
@@ -1285,109 +1048,34 @@ public final class PosGUI extends JFrame {
         }
         if (!confirmed) return;
 
-        execute("Thanh toán " + table.getTableName(), () -> {
+        execute(() -> {
             pos.pay(table.getId(), preview, method, customer);
             return true;
         }, ignored -> {
             CToast.success(this, "Đã thanh toán và đóng phiên #" + preview.getTableSessionId()
                     + (customer != null ? " — Tích điểm cho " + customer.getFullName() : ""));
             showTableMap();
-            refreshTables(false);
+            refreshTables();
             if (customer != null) loadCustomersAsync();
         }, () -> {
             clearInvoicePanel();
-            refreshTables(false);
+            refreshTables();
         });
     }
 
     private boolean reviewBill(TableDTO table, OrderDTO preview, dbEnums.PaymentMethod method, UserDTO customer) {
         final boolean[] confirmed = {false};
-
-        Component oldGlassPane = getGlassPane();
-        boolean oldGlassPaneVisible = oldGlassPane.isVisible();
-        JPanel dimOverlay = new JPanel() {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setColor(new Color(45, 45, 45, 155));
-                g2.fillRect(0, 0, getWidth(), getHeight());
-                g2.dispose();
-            }
-        };
-        dimOverlay.setOpaque(false);
-
-        JDialog dialog = new JDialog(this, "Xem lại hóa đơn", true);
-        dialog.setUndecorated(true);
-        dialog.setResizable(false);
-        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-
-        Color darkText = new Color(39, 54, 44);
-        Color lineColor = new Color(226, 231, 225);
         boolean cash = method == dbEnums.PaymentMethod.CASH;
 
-        final int cornerRadius = 28;
-        JPanel content = new JPanel(new BorderLayout()) {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(Color.WHITE);
-                g2.fill(new RoundRectangle2D.Double(0, 0, getWidth(), getHeight(),
-                        cornerRadius, cornerRadius));
-                g2.dispose();
-            }
+        CDialog dialog = new CDialog(
+                this,
+                "AN NHIÊN  /  XÁC NHẬN THANH TOÁN",
+                "Xem lại hóa đơn",
+                table.getTableName() + " · Phiên #" + preview.getTableSessionId()
+        );
 
-            @Override
-            protected void paintChildren(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setClip(new RoundRectangle2D.Double(0, 0, getWidth(), getHeight(),
-                        cornerRadius, cornerRadius));
-                super.paintChildren(g2);
-                g2.setClip(null);
-                g2.setColor(lineColor);
-                g2.setStroke(new BasicStroke(1f));
-                g2.draw(new RoundRectangle2D.Double(0.5, 0.5,
-                        getWidth() - 1.0, getHeight() - 1.0, cornerRadius, cornerRadius));
-                g2.dispose();
-            }
-        };
-        content.setOpaque(false);
-        content.setBorder(BorderFactory.createEmptyBorder());
-
-        // Header xanh nhận diện
-        JPanel header = new JPanel(new BorderLayout(16, 0));
-        header.setBackground(Utils.FOREST_BG);
-        header.setBorder(new EmptyBorder(22, 28, 22, 24));
-
-        JPanel titleBox = new JPanel();
-        titleBox.setOpaque(false);
-        titleBox.setLayout(new BoxLayout(titleBox, BoxLayout.Y_AXIS));
-
-        JLabel brand = new JLabel("AN NHIÊN  /  XÁC NHẬN THANH TOÁN");
-        brand.setFont(Utils.getCustomFont("Inter", Font.BOLD, 11));
-        brand.setForeground(new Color(201, 222, 207));
-
-        JLabel title = new JLabel("Xem lại hóa đơn");
-        title.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 21));
-        title.setForeground(Color.WHITE);
-
-        JLabel subtitle = new JLabel(table.getTableName() + " · Phiên #" + preview.getTableSessionId());
-        subtitle.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 13));
-        subtitle.setForeground(new Color(224, 235, 226));
-
-        titleBox.add(brand);
-        titleBox.add(Box.createVerticalStrut(8));
-        titleBox.add(title);
-        titleBox.add(Box.createVerticalStrut(4));
-        titleBox.add(subtitle);
-        header.add(titleBox, BorderLayout.CENTER);
-        content.add(header, BorderLayout.NORTH);
-
-        // Thân gồm danh sách món đã gọi và bảng tổng kết
         JPanel body = new JPanel(new BorderLayout(0, 14));
-        body.setBackground(Color.WHITE);
-        body.setBorder(new EmptyBorder(20, 28, 18, 28));
+        body.setOpaque(false);
 
         JScrollPane items = createBillScroll();
         items.setPreferredSize(new Dimension(Math.min(760, Math.max(540, getWidth() - 140)), 210));
@@ -1401,33 +1089,20 @@ public final class PosGUI extends JFrame {
         JPanel summary = new JPanel(new GridLayout(0, 1, 0, 8));
         summary.setBackground(Utils.CREAM_BG);
         summary.setBorder(BorderFactory.createCompoundBorder(
-                new LineBorder(lineColor, 1, false),
+                new LineBorder(CDialog.LINE_COLOR, 1, false),
                 new EmptyBorder(14, 18, 14, 18)));
         summary.add(amountRow("Tổng tiền món", valueLabel(money(preview.getSubtotal()), 14, Utils.TEXT_DARK)));
         summary.add(amountRow("Giảm giá", valueLabel(money(preview.getDiscountAmount()), 14, new Color(46, 125, 50))));
         summary.add(amountRow("Thuế GTGT (VAT 8%)", valueLabel(money(preview.getCheckoutTax()), 14, Utils.TEXT_DARK)));
         summary.add(amountRow("Khách hàng tích điểm",
-                valueLabel(customerDisplay, 14, customer != null ? SELECT_COLOR : Utils.TEXT_MUTED)));
+                valueLabel(customerDisplay, 14, customer != null ? Utils.SELECT_COLOR : Utils.TEXT_MUTED)));
         summary.add(amountRow("Phương thức thanh toán",
                 valueLabel(cash ? "Tiền mặt" : "Chuyển khoản ngân hàng", 14, Utils.TEXT_DARK)));
         summary.add(amountRow("Tổng thanh toán",
                 valueLabel(money(preview.getCheckoutTotal()), 22, Utils.TERRACOTTA)));
         body.add(summary, BorderLayout.SOUTH);
-        content.add(body, BorderLayout.CENTER);
 
-        // Footer nút Quay lại và Xác nhận
-        JPanel footer = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 16));
-        footer.setBackground(new Color(249, 250, 249));
-        footer.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(1, 0, 0, 0, lineColor),
-                new EmptyBorder(0, 20, 0, 20)));
-
-        CButton backBtn = new CButton("Quay lại", 130, 44);
-        backBtn.setForeground(darkText);
-        backBtn.setBackground(Color.WHITE);
-        backBtn.setFocusPainted(false);
-        backBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        backBtn.setBorder(new LineBorder(lineColor, 1, true));
+        CButton backBtn = CDialog.createSecondaryButton("Quay lại", 130, 44);
         backBtn.addActionListener(e -> dialog.dispose());
 
         String acceptText = cash ? "Xác nhận đã nhận tiền" : "Xác nhận đã nhận chuyển khoản";
@@ -1437,39 +1112,10 @@ public final class PosGUI extends JFrame {
             dialog.dispose();
         });
 
-        footer.add(backBtn);
-        footer.add(acceptBtn);
-        content.add(footer, BorderLayout.SOUTH);
+        dialog.setBody(body)
+                .setFooterButtons(acceptBtn, backBtn, acceptBtn)
+                .showModal();
 
-        dialog.getRootPane().setOpaque(false);
-        dialog.getLayeredPane().setOpaque(false);
-        dialog.setContentPane(content);
-        dialog.getRootPane().setDefaultButton(acceptBtn);
-        dialog.getRootPane().registerKeyboardAction(e -> dialog.dispose(),
-                KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
-                JComponent.WHEN_IN_FOCUSED_WINDOW);
-        dialog.pack();
-        dialog.setLocationRelativeTo(this);
-
-        try {
-            dialog.setBackground(new Color(0, 0, 0, 0));
-            dialog.setShape(new RoundRectangle2D.Double(0, 0,
-                    dialog.getWidth(), dialog.getHeight(), cornerRadius, cornerRadius));
-        } catch (UnsupportedOperationException ex) {
-            System.err.println("[PosGUI] Hệ điều hành không hỗ trợ dialog bo góc: " + ex.getMessage());
-        }
-
-        try {
-            setGlassPane(dimOverlay);
-            dimOverlay.setVisible(true);
-            dimOverlay.repaint();
-            dialog.setVisible(true);
-        } finally {
-            dialog.dispose();
-            dimOverlay.setVisible(false);
-            setGlassPane(oldGlassPane);
-            oldGlassPane.setVisible(oldGlassPaneVisible);
-        }
         return confirmed[0];
     }
 
@@ -1492,20 +1138,14 @@ public final class PosGUI extends JFrame {
             protected void done() {
                 try {
                     BufferedImage received = get();
-                    if (received == null) {
-                        System.err.println("[LOGO-TCP] Khong tai duoc " + imageKey);
-                        return;
-                    }
-                    label.setIcon(new ImageIcon(
-                            received.getScaledInstance(size, size, Image.SCALE_SMOOTH)));
+                    if (received == null) return;
+                    label.setIcon(new ImageIcon(received.getScaledInstance(size, size, Image.SCALE_SMOOTH)));
                     label.setText("");
                     if ("things/logo.png".equals(imageKey)) setIconImage(received);
                     label.revalidate();
                     label.repaint();
-                    System.out.println("[LOGO-TCP] OK " + imageKey + " "
-                            + received.getWidth() + "x" + received.getHeight());
                 } catch (Exception ex) {
-                    System.err.println("[LOGO-TCP] Loi " + imageKey + ": " + ex.getMessage());
+                    System.err.println("[LOGO-TCP] Lỗi " + imageKey + ": " + ex.getMessage());
                 }
             }
         }.execute();
@@ -1533,13 +1173,7 @@ public final class PosGUI extends JFrame {
         btnClearCustomer.addActionListener(e -> clearSelectedCustomer());
         topRow.add(btnClearCustomer, BorderLayout.EAST);
 
-        txtCustomerSearch.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 13));
-        txtCustomerSearch.setForeground(Utils.TEXT_DARK);
-        txtCustomerSearch.setBackground(new Color(249, 251, 249));
-        txtCustomerSearch.setToolTipText("Nhập số điện thoại hoặc email khách hàng để tìm...");
-        txtCustomerSearch.setBorder(BorderFactory.createCompoundBorder(
-                new LineBorder(new Color(210, 218, 211), 1, true),
-                new EmptyBorder(8, 12, 8, 12)));
+        styleInputField(txtCustomerSearch, Color.WHITE, new Color(210, 218, 211), 8, 12, Font.PLAIN, 13);
 
         lblCustomerInfo.setFont(Utils.getCustomFont("Inter", Font.ITALIC, 12));
         lblCustomerInfo.setForeground(Utils.TEXT_MUTED);
@@ -1547,15 +1181,15 @@ public final class PosGUI extends JFrame {
         customerDropdown.setFocusable(false);
         customerDropdown.setBorder(new LineBorder(new Color(200, 209, 202), 1));
 
-        txtCustomerSearch.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-            @Override public void insertUpdate(javax.swing.event.DocumentEvent e) { filterCustomerDropdown(); }
-            @Override public void removeUpdate(javax.swing.event.DocumentEvent e) { filterCustomerDropdown(); }
-            @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { filterCustomerDropdown(); }
+        txtCustomerSearch.getDocument().addDocumentListener(new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent e) { filterCustomerDropdown(); }
+            @Override public void removeUpdate(DocumentEvent e) { filterCustomerDropdown(); }
+            @Override public void changedUpdate(DocumentEvent e) { filterCustomerDropdown(); }
         });
 
-        txtCustomerSearch.addMouseListener(new java.awt.event.MouseAdapter() {
+        txtCustomerSearch.addMouseListener(new MouseAdapter() {
             @Override
-            public void mouseClicked(java.awt.event.MouseEvent e) {
+            public void mouseClicked(MouseEvent e) {
                 filterCustomerDropdown();
             }
         });
@@ -1615,7 +1249,7 @@ public final class PosGUI extends JFrame {
                 ? customer.getPhone() : customer.getEmail();
         txtCustomerSearch.setText(contact);
         lblCustomerInfo.setFont(Utils.getCustomFont("Inter", Font.BOLD, 12));
-        lblCustomerInfo.setForeground(SELECT_COLOR);
+        lblCustomerInfo.setForeground(Utils.SELECT_COLOR);
         lblCustomerInfo.setText("✓ Thành viên: " + customer.getFullName() + " (" + contact + ") — "
                 + (customer.getCurrentPoints() == null ? 0 : customer.getCurrentPoints()) + " điểm");
         btnClearCustomer.setVisible(true);
@@ -1649,4 +1283,61 @@ public final class PosGUI extends JFrame {
         }.execute();
     }
 
+    private JPanel createVoucherBox() {
+        JPanel box = new JPanel(new BorderLayout(0, 8));
+        box.setBackground(Color.WHITE);
+        box.setBorder(BorderFactory.createCompoundBorder(
+                new LineBorder(new Color(226, 231, 225), 1, false),
+                new EmptyBorder(12, 18, 14, 18)));
+
+        box.add(titleLabel("Mã giảm giá / Voucher (Nếu có)"), BorderLayout.NORTH);
+
+        styleInputField(txtVoucherCode, Color.WHITE, new Color(210, 218, 211), 7, 12, Font.BOLD, 13);
+
+        JPanel inputRow = new JPanel(new BorderLayout(8, 0));
+        inputRow.setOpaque(false);
+        inputRow.add(txtVoucherCode, BorderLayout.CENTER);
+        inputRow.add(btnApplyVoucher, BorderLayout.EAST);
+
+        lblVoucherStatus.setFont(Utils.getCustomFont("Inter", Font.ITALIC, 12));
+        lblVoucherStatus.setForeground(Utils.TEXT_MUTED);
+
+        btnApplyVoucher.addActionListener(e -> applyVoucherAction());
+        txtVoucherCode.addActionListener(e -> applyVoucherAction());
+
+        box.add(inputRow, BorderLayout.CENTER);
+        box.add(lblVoucherStatus, BorderLayout.SOUTH);
+        return box;
+    }
+
+    private void applyVoucherAction() {
+        if (selectedTable == null || selectedTable.getActiveSessionId() == null) return;
+        String code = txtVoucherCode.getText().trim().toUpperCase(Locale.ROOT);
+        TableDTO snapshot = selectedTable;
+
+        execute(() -> pos.applyVoucher(snapshot.getId(), code),
+                updatedOrder -> {
+                    if (selectedTable != null && Objects.equals(selectedTable.getId(), snapshot.getId())) {
+                        renderMergedBillPreview(updatedOrder);
+                        if (!code.isEmpty()) {
+                            txtVoucherCode.setText(code);
+                            lblVoucherStatus.setFont(Utils.getCustomFont("Inter", Font.BOLD, 12));
+                            lblVoucherStatus.setForeground(Utils.SELECT_COLOR);
+                            lblVoucherStatus.setText("✓ Đã áp dụng mã " + code
+                                    + " (Giảm " + money(updatedOrder.getDiscountAmount()) + ")");
+                            CToast.success(this, "Áp dụng mã " + code + " thành công");
+                        } else {
+                            lblVoucherStatus.setFont(Utils.getCustomFont("Inter", Font.ITALIC, 12));
+                            lblVoucherStatus.setForeground(Utils.TEXT_MUTED);
+                            lblVoucherStatus.setText("Nhập mã ưu đãi (nếu có)");
+                            CToast.success(this, "Đã gỡ mã giảm giá");
+                        }
+                    }
+                },
+                () -> {
+                    lblVoucherStatus.setFont(Utils.getCustomFont("Inter", Font.BOLD, 12));
+                    lblVoucherStatus.setForeground(Utils.TERRACOTTA);
+                    lblVoucherStatus.setText("✕ Mã không hợp lệ hoặc không đủ điều kiện áp dụng");
+                });
+    }
 }

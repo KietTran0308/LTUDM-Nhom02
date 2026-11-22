@@ -1,10 +1,18 @@
 package bus;
 
-import dao.*;
-import dto.*;
+import dao.BillDAO;
+import dao.OrderDAO;
+import dao.TableDAO;
+import dto.BillDTO;
+import dto.OrderDTO;
+import dto.OrderItemDTO;
+import dto.TableDTO;
+import dto.dbEnums;
 
 import java.sql.SQLException;
 import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
 
 public class OrderBUS {
 
@@ -12,15 +20,18 @@ public class OrderBUS {
 
     public OrderDTO processIncomingTableOrder(OrderDTO order, String voucherCode) throws Exception {
         if (order == null || order.getItems() == null || order.getItems().isEmpty()) {
-            throw new IllegalArgumentException("Don khong co mon");
+            throw new IllegalArgumentException("Đơn không có món");
         }
 
-        order.setOrderCode("ORD" + java.util.UUID.randomUUID().toString()
-                .replace("-", "").substring(0, 16).toUpperCase(java.util.Locale.ROOT));
-        order.setOrderType(dbEnums.OrderType.DINE_IN);
+        String code = "ORD" + UUID.randomUUID().toString()
+                .replace("-", "")
+                .substring(0, 16)
+                .toUpperCase(Locale.ROOT);
+        order.setOrderCode(code);
         order.setStatus(dbEnums.OrderStatus.PENDING);
+
         Long id = orderDAO.createTableOrderTransaction(order);
-        return orderDAO.getOrderById(id); // Tra ve itemId that sau khi INSERT.
+        return orderDAO.getOrderById(id); // Trả về itemId thật sau khi INSERT
     }
 
     public boolean changeDishStatusByKitchen(Long orderItemId, dbEnums.OrderStatus newStatus) {
@@ -35,31 +46,32 @@ public class OrderBUS {
         return TableDAO.getAllTables();
     }
 
-    // Kiem tra phien ban tai BUS: ClientHandler khong duoc phu thuoc TableDAO.
+    // Kiểm tra phiên bàn tại BUS: ClientHandler không phụ thuộc trực tiếp TableDAO.
     public boolean isActiveTableSession(Long tableId, Long sessionId) throws SQLException {
-        return tableId != null && tableId > 0 && sessionId != null && sessionId > 0
+        return isPositiveId(tableId) && isPositiveId(sessionId)
                 && TableDAO.isActiveSession(tableId, sessionId);
     }
 
-    // Bep: doi trang thai mon va truy van hang doi thong qua BUS.
+    public boolean sessionBelongsToTable(Long tableId, Long sessionId) throws SQLException {
+        return isActiveTableSession(tableId, sessionId);
+    }
+
     public List<OrderDTO> getKitchenQueue() {
         return orderDAO.getKitchenQueue();
     }
 
     public Long getTableIdByOrderItem(Long itemId) {
-        if (itemId == null || itemId <= 0) return null;
-        return orderDAO.getTableIdByOrderItem(itemId);
+        return isPositiveId(itemId) ? orderDAO.getTableIdByOrderItem(itemId) : null;
     }
 
     public OrderDTO getOrderByItem(Long itemId) {
-        if (itemId == null || itemId <= 0) return null;
+        if (!isPositiveId(itemId)) return null;
         Long orderId = orderDAO.getOrderIdByItem(itemId);
         return orderId == null ? null : orderDAO.getOrderById(orderId);
     }
 
     public OrderDTO getCompletedOrderIfReady(Long itemId) {
-        if (itemId == null || itemId <= 0) return null;
-        return orderDAO.completedOrderIfReady(itemId);
+        return isPositiveId(itemId) ? orderDAO.completedOrderIfReady(itemId) : null;
     }
 
     public OrderDTO getTableBillPreview(Long tableId) {
@@ -70,7 +82,7 @@ public class OrderBUS {
         BillDAO.createBillAndReleaseTable(bill, tableId, revision);
     }
 
-    public boolean sessionBelongsToTable(Long tableId, Long sessionId) throws SQLException {
-        return isActiveTableSession(tableId, sessionId);
+    private static boolean isPositiveId(Long id) {
+        return id != null && id > 0;
     }
 }

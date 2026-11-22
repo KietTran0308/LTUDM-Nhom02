@@ -1,100 +1,76 @@
 package bus;
 
 import api.SocketClient;
-import dto.*;
+import dto.BillDTO;
+import dto.OrderDTO;
+import dto.SocketAction;
+import dto.SocketPacket;
+import dto.TableDTO;
+import dto.UserDTO;
+import dto.dbEnums;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public final class PosBUS {
+
+    private static final String ROLE_ADMIN = "ADMIN";
+    private static final String ROLE_CUSTOMER = "CUSTOMER";
+    private static final long REQUEST_TIMEOUT_MS = 5000L;
+    private static final long LOGIN_TIMEOUT_MS = 7000L;
+
     private final SocketClient socket;
     private final UserDTO operator;
 
     public PosBUS(UserDTO operator, SocketClient socket) {
         if (operator == null || socket == null || !socket.isConnected()
-                || !"ADMIN".equalsIgnoreCase(operator.getRoleName())) {
-            throw new SecurityException(
-                    "POS chỉ dành cho ADMIN có phiên kết nối hợp lệ");
+                || !ROLE_ADMIN.equalsIgnoreCase(operator.getRoleName())) {
+            throw new SecurityException("POS chỉ dành cho ADMIN có phiên kết nối hợp lệ");
         }
-
         this.operator = operator;
         this.socket = socket;
+    }
+
+    public static PosBUS loginPos(String account, String password) {
+        if (account == null || account.isBlank() || password == null || password.isEmpty()) {
+            throw new IllegalArgumentException("Vui lòng nhập tài khoản và mật khẩu");
+        }
+
+        SocketClient connection = new SocketClient();
+        try {
+            if (!connection.connect(null)) {
+                throw new IllegalStateException("Không kết nối được Server");
+            }
+
+            SocketPacket response = connection.requestAndWait(
+                    new SocketPacket(SocketAction.LOGIN, null, account.trim(), password),
+                    LOGIN_TIMEOUT_MS
+            );
+
+            if (!(response.getData() instanceof UserDTO user)) {
+                throw new IllegalStateException("Phản hồi đăng nhập không hợp lệ");
+            }
+
+            PosBUS pos = new PosBUS(user, connection);
+            pos.listTables(); // Xác minh quyền truy cập POS phía Server
+            return pos;
+        } catch (RuntimeException ex) {
+            safeLogoutAndClose(connection);
+            throw ex;
+        }
     }
 
     public UserDTO getOperator() {
         return operator;
     }
 
-    private SocketPacket request(
-            SocketAction action,
-            Long tableId,
-            Object data,
-            Object extra) {
-
-        return socket.requestAndWait(
-                new SocketPacket(action, tableId, data, extra),
-                5000);
-    }
-
     @SuppressWarnings("unchecked")
     public List<TableDTO> listTables() {
-        return (List<TableDTO>) request(
-                SocketAction.GET_ALL_TABLES,
-                null, null, null).getData();
-    }
-
-
-    public static PosBUS loginPos(
-            String account, String password) {
-
-        if (account == null || account.isBlank()
-                || password == null || password.isEmpty()) {
-            throw new IllegalArgumentException(
-                    "Vui lòng nhập tài khoản và mật khẩu");
-        }
-
-        SocketClient connection = new SocketClient();
-
-        try {
-            // Kết nối TCP theo ServerConfig
-            if (!connection.connect(null)) {
-                throw new IllegalStateException(
-                        "Không kết nối được Server");
-            }
-
-            // Gửi thông tin đăng nhập
-            SocketPacket response = connection.requestAndWait(
-                    new SocketPacket(
-                            SocketAction.LOGIN,
-                            null,
-                            account.trim(),
-                            password
-                    ),
-                    7000
-            );
-
-            if (!(response.getData() instanceof UserDTO user)) {
-                throw new IllegalStateException(
-                        "Phản hồi đăng nhập không hợp lệ");
-            }
-
-            // Constructor PosBUS kiểm tra role ADMIN
-            PosBUS pos = new PosBUS(user, connection);
-
-            // Yêu cầu Server kiểm tra quyền truy cập POS
-            pos.listTables();
-
-            return pos;
-
-        } catch (RuntimeException ex) {
-            connection.close();
-            throw ex;
-        }
+        return (List<TableDTO>) request(SocketAction.GET_ALL_TABLES).getData();
     }
 
     public long openTable(long tableId) {
-        return (Long) request(
-                SocketAction.OPEN_TABLE_SESSION,
-                tableId, null, null).getData();
+        return (Long) request(SocketAction.OPEN_TABLE_SESSION, tableId, null, null).getData();
     }
 
     public void createCustomerAccount(String fullName, String phone, String email) {
@@ -102,29 +78,32 @@ public final class PosBUS {
         customer.setFullName(fullName);
         customer.setPhone(phone);
         customer.setEmail(email);
-        customer.setRoleName("CUSTOMER");
+        customer.setRoleName(ROLE_CUSTOMER);
         request(SocketAction.ADMIN_CREATE_ACCOUNT, null, customer, null);
     }
 
     public OrderDTO preview(long tableId) {
-        return (OrderDTO) request(
-                SocketAction.GET_TABLE_BILL_PREVIEW,
-                tableId, null, null).getData();
+        return (OrderDTO) request(SocketAction.GET_TABLE_BILL_PREVIEW, tableId, null, null).getData();
     }
 
-    @SuppressWarnings("unchecked")
     public List<UserDTO> listCustomers() {
-        Object data = request(SocketAction.ADMIN_GET_ACCOUNTS, null, null, null).getData();
-        List<UserDTO> customers = new java.util.ArrayList<>();
+        Object data = request(SocketAction.ADMIN_GET_ACCOUNTS).getData();
+        List<UserDTO> customers = new ArrayList<>();
         if (data instanceof List<?> list) {
             for (Object item : list) {
-                if (item instanceof UserDTO u && "CUSTOMER".equalsIgnoreCase(u.getRoleName())
-                        && Boolean.TRUE.equals(u.getIsActive())) {
-                    customers.add(u);
+                if (item instanceof UserDTO user
+                        && ROLE_CUSTOMER.equalsIgnoreCase(user.getRoleName())
+                        && Boolean.TRUE.equals(user.getIsActive())) {
+                    customers.add(user);
                 }
             }
         }
         return customers;
+    }
+
+    public OrderDTO applyVoucher(long tableId, String voucherCode) {
+        String normalizedCode = voucherCode == null ? "" : voucherCode.trim();
+        return (OrderDTO) request(SocketAction.APPLY_TABLE_VOUCHER, tableId, normalizedCode, null).getData();
     }
 
     public void pay(long tableId, OrderDTO preview, dbEnums.PaymentMethod method, UserDTO customer) {
@@ -134,12 +113,25 @@ public final class PosBUS {
         if (customer != null) {
             bill.setUserId(customer.getId());
         }
-        request(SocketAction.PAY_TABLE_BILL,
-                tableId, bill, preview.getCheckoutRevision());
+        request(SocketAction.PAY_TABLE_BILL, tableId, bill, preview.getCheckoutRevision());
     }
 
     public void close() {
-        socket.logout();
-        socket.close();
+        safeLogoutAndClose(socket);
+    }
+
+    private SocketPacket request(SocketAction action) {
+        return request(action, null, null, null);
+    }
+
+    private SocketPacket request(SocketAction action, Long tableId, Object data, Object extra) {
+        return socket.requestAndWait(new SocketPacket(action, tableId, data, extra), REQUEST_TIMEOUT_MS);
+    }
+
+    private static void safeLogoutAndClose(SocketClient client) {
+        try {
+            client.logout();
+        } catch (Exception ignored) { }
+        client.close();
     }
 }

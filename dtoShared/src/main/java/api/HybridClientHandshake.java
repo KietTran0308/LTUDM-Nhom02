@@ -1,22 +1,21 @@
 package api;
 
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
+import security.AESGCMUtil;
+import security.RSAKeyExchange;
+
+import javax.crypto.SecretKey;
+import java.io.*;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.PublicKey;
 import java.security.interfaces.RSAPublicKey;
 import java.util.HexFormat;
-import javax.crypto.SecretKey;
-import security.AESGCMUtil;
-import security.RSAKeyExchange;
 
 public final class HybridClientHandshake {
+
     public static final int MAX_FRAME_SIZE = 1024 * 1024;
+    private static final byte[] EXPECTED_ACK = "OK".getBytes(StandardCharsets.US_ASCII);
 
     private HybridClientHandshake() { }
 
@@ -36,7 +35,7 @@ public final class HybridClientHandshake {
         DataInputStream in = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
         DataOutputStream out = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
 
-        // Chua gui thong tin bi mat cho den khi public key duoc xac minh.
+        // Chỉ gửi AES session key sau khi xác minh fingerprint của Server Public Key.
         PublicKey serverKey = RSAKeyExchange.stringToPublicKey(
                 new String(readFrame(in), StandardCharsets.UTF_8));
         verifyServerKey(serverKey);
@@ -45,10 +44,10 @@ public final class HybridClientHandshake {
         String encryptedKey = RSAKeyExchange.encryptAESKey(aesKey, serverKey);
         writeFrame(out, encryptedKey.getBytes(StandardCharsets.UTF_8));
 
-        // Server chung minh so huu private key bang ACK ma hoa AES-GCM.
+        // Server chứng minh sở hữu private key bằng ACK mã hóa AES-GCM.
         byte[] ack = AESGCMUtil.decrypt(readFrame(in), aesKey);
-        if (!MessageDigest.isEqual(ack, "OK".getBytes(StandardCharsets.US_ASCII))) {
-            throw new IOException("Server khong xac nhan duoc AES session key");
+        if (!MessageDigest.isEqual(ack, EXPECTED_ACK)) {
+            throw new IOException("Server không xác nhận được AES session key");
         }
         return new Session(in, out, aesKey);
     }
@@ -56,29 +55,29 @@ public final class HybridClientHandshake {
     public static void verifyServerKey(PublicKey key) throws Exception {
         String configured = ServerConfig.SERVER_RSA_SHA256;
         if (configured == null || configured.isBlank()) {
-
-            throw new SecurityException("Chua cau hinh SERVER_RSA_SHA256 (64 ky tu hex); "
-                    + "lay fingerprint tu man hinh Server, kiem tra qua kenh tin cay truoc khi ket noi");
+            throw new SecurityException("Chưa cấu hình SERVER_RSA_SHA256 (64 ký tự hex); "
+                    + "lấy fingerprint từ màn hình Server và kiểm tra qua kênh tin cậy trước khi kết nối");
         }
+
         String pin = configured.trim().replace(":", "");
         if (!pin.matches("(?i)[0-9a-f]{64}")) {
-            throw new SecurityException("SERVER_RSA_SHA256 khong hop le (phai la SHA-256 hex)");
+            throw new SecurityException("SERVER_RSA_SHA256 không hợp lệ (phải là chuỗi SHA-256 hex 64 ký tự)");
         }
-        if (!(key instanceof RSAPublicKey)
-                || ((RSAPublicKey) key).getModulus().bitLength() < 2048) {
-            throw new SecurityException("Server RSA key phai >= 2048 bit");
+        if (!(key instanceof RSAPublicKey rsaKey) || rsaKey.getModulus().bitLength() < 2048) {
+            throw new SecurityException("Server RSA key phải >= 2048 bit");
         }
+
         byte[] actual = MessageDigest.getInstance("SHA-256").digest(key.getEncoded());
         if (!MessageDigest.isEqual(actual, HexFormat.of().parseHex(pin))) {
-            throw new SecurityException("RSA Public Key Server KHONG khop fingerprint tin cay. "
-                    + "Tu choi ket noi (nguy co MITM hoac Server da doi khoa)");
+            throw new SecurityException("RSA Public Key của Server KHÔNG khớp fingerprint tin cậy. "
+                    + "Từ chối kết nối (nguy cơ MITM hoặc Server đã đổi khóa)");
         }
     }
 
     public static byte[] readFrame(DataInputStream input) throws IOException {
         int size = input.readInt();
         if (size <= 0 || size > MAX_FRAME_SIZE) {
-            throw new IOException("Kich thuoc frame khong hop le: " + size);
+            throw new IOException("Kích thước frame nhận không hợp lệ: " + size);
         }
         byte[] buffer = new byte[size];
         input.readFully(buffer);
@@ -87,7 +86,7 @@ public final class HybridClientHandshake {
 
     public static void writeFrame(DataOutputStream output, byte[] buffer) throws IOException {
         if (buffer == null || buffer.length == 0 || buffer.length > MAX_FRAME_SIZE) {
-            throw new IOException("Kich thuoc frame gui khong hop le");
+            throw new IOException("Kích thước frame gửi không hợp lệ");
         }
         output.writeInt(buffer.length);
         output.write(buffer);

@@ -1,11 +1,13 @@
 package bus;
 
 import api.SocketClient;
-import dto.*;
+import dto.SocketAction;
+import dto.SocketPacket;
+import dto.UserDTO;
+
 import java.util.HashMap;
 import java.util.Map;
 
-/** Xu ly phan hoi xac thuc; GUI khong can biet SocketAction. */
 public class AuthBUS {
     public enum Type { LOGIN, REGISTER, RESET_CODE, RESET_PASSWORD }
 
@@ -19,34 +21,31 @@ public class AuthBUS {
             this.type = type;
             this.success = packet.isSuccess();
             this.message = packet.getMessage();
-            this.user = packet.getData() instanceof UserDTO ? (UserDTO) packet.getData() : null;
+            this.user = packet.getData() instanceof UserDTO u ? u : null;
         }
     }
 
     private final SocketClient socketClient = new SocketClient();
 
-    public AuthBUS() {
-
-    }
-
-    /** POS/Admin dung ket noi rieng, goi trong SwingWorker. Host/Port lay tu ServerConfig. */
     public static UserDTO loginWorkstation(SocketClient socket, String account, String password) {
-        if (socket == null)
-            throw new IllegalArgumentException("Socket khong hop le");
-        if (account == null || account.isBlank() || password == null || password.isEmpty())
-            throw new IllegalArgumentException("Vui long nhap tai khoan va mat khau");
-
-        if (!socket.isConnected() && !socket.connect(null))
-            throw new IllegalStateException("Khong ket noi duoc Server");
+        if (socket == null) {
+            throw new IllegalArgumentException("Socket không hợp lệ");
+        }
+        if (account == null || account.isBlank() || password == null || password.isEmpty()) {
+            throw new IllegalArgumentException("Vui lòng nhập tài khoản và mật khẩu");
+        }
+        if (!socket.isConnected() && !socket.connect(null)) {
+            throw new IllegalStateException("Không kết nối được Server");
+        }
 
         SocketPacket response = socket.requestAndWait(
                 new SocketPacket(SocketAction.LOGIN, null, account.trim(), password), 7000);
-        if (!(response.getData() instanceof UserDTO))
-            throw new IllegalStateException("Phan hoi dang nhap khong hop le");
-        return (UserDTO) response.getData();
+        if (!(response.getData() instanceof UserDTO user)) {
+            throw new IllegalStateException("Phản hồi đăng nhập không hợp lệ");
+        }
+        return user;
     }
 
-    /** Host/Port lay tu ServerConfig (server.host / SERVER_HOST, server.port / SERVER_PORT). */
     private boolean ready() {
         return socketClient.isConnected() || socketClient.connect(null);
     }
@@ -71,25 +70,28 @@ public class AuthBUS {
                 new SocketPacket(SocketAction.CONFIRM_PASSWORD_RESET, null, data, null));
     }
 
-    /** Chi doc hang doi; duoc goi boi Swing Timer tren EDT. */
     public Event pollEvent() {
         SocketPacket packet;
         while ((packet = socketClient.pollPacket()) != null) {
-            Type type;
-            switch (packet.getAction()) {
-                case LOGIN:
-                case LOGIN_STAFF: type = Type.LOGIN; break;
-                case REGISTER: type = Type.REGISTER; break;
-                case REQUEST_PASSWORD_RESET: type = Type.RESET_CODE; break;
-                case CONFIRM_PASSWORD_RESET: type = Type.RESET_PASSWORD; break;
-                default: continue;
+            Type type = switch (packet.getAction()) {
+                case LOGIN, LOGIN_STAFF -> Type.LOGIN;
+                case REGISTER -> Type.REGISTER;
+                case REQUEST_PASSWORD_RESET -> Type.RESET_CODE;
+                case CONFIRM_PASSWORD_RESET -> Type.RESET_PASSWORD;
+                default -> null;
+            };
+            if (type != null) {
+                return new Event(type, packet);
             }
-            return new Event(type, packet);
         }
         return null;
     }
 
-    public SocketClient getSocketClient() { return socketClient; }
+    public SocketClient getSocketClient() {
+        return socketClient;
+    }
 
-    public void close() { socketClient.close(); }
+    public void close() {
+        socketClient.close();
+    }
 }

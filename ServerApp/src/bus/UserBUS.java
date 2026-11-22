@@ -5,8 +5,12 @@ import dto.UserDTO;
 
 import java.sql.SQLException;
 import java.util.List;
+import java.util.regex.Pattern;
 
 public class UserBUS {
+
+    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
+    private static final Pattern PHONE_PATTERN = Pattern.compile("0\\d{9}");
 
     private final UserDAO userDAO;
 
@@ -18,25 +22,18 @@ public class UserBUS {
         return userDAO.findAll();
     }
 
-    // Tìm người dùng theo ID
     public UserDTO getUserById(long userId) throws SQLException {
-        if (userId <= 0) {
-            throw new IllegalArgumentException("ID người dùng không hợp lệ");
-        }
-
+        requireValidUserId(userId, "ID người dùng không hợp lệ");
         return userDAO.findById(userId);
     }
 
-    // Tìm người dùng theo số điện thoại
     public UserDTO getUserByPhone(String phone) throws SQLException {
         if (phone == null || phone.trim().isEmpty()) {
             throw new IllegalArgumentException("Vui lòng nhập số điện thoại");
         }
-
         return userDAO.findByPhone(phone.trim());
     }
 
-    // Cập nhật thông tin người dùng
     public boolean updateUser(UserDTO user) throws SQLException {
         if (user == null || user.getId() <= 0) {
             throw new IllegalArgumentException("Thông tin người dùng không hợp lệ");
@@ -44,59 +41,51 @@ public class UserBUS {
         if (user.getFullName() == null || user.getFullName().trim().isEmpty()) {
             throw new IllegalArgumentException("Họ tên không được để trống");
         }
-        if (user.getEmail() == null || !user.getEmail().trim().matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+        if (user.getEmail() == null || !EMAIL_PATTERN.matcher(user.getEmail().trim()).matches()) {
             throw new IllegalArgumentException("Email bắt buộc nhập và phải hợp lệ");
         }
-        if (user.getPhone() == null || !user.getPhone().trim().matches("0\\d{9}")) {
+        if (user.getPhone() == null || !PHONE_PATTERN.matcher(user.getPhone().trim()).matches()) {
             throw new IllegalArgumentException("Số điện thoại bắt buộc nhập (10 chữ số, bắt đầu bằng 0)");
         }
 
         user.setFullName(user.getFullName().trim());
         user.setEmail(user.getEmail().trim());
         user.setPhone(user.getPhone().trim());
-
         return userDAO.update(user);
     }
 
-    // Khóa tài khoản
     public boolean deactivateUser(long userId) throws SQLException {
-        if (userId <= 0) {
-            throw new IllegalArgumentException("ID người dùng không hợp lệ");
-        }
-
+        requireValidUserId(userId, "ID người dùng không hợp lệ");
         return userDAO.deactivate(userId);
     }
 
-    // Kiểm tra email tồn tại
     public boolean isEmailExists(String email) throws SQLException {
         if (email == null || email.trim().isEmpty()) {
             return false;
         }
-
         return userDAO.existsByEmail(email.trim());
     }
 
-    // Kiểm tra số điện thoại tồn tại
     public boolean isPhoneExists(String phone) throws SQLException {
         if (phone == null || phone.trim().isEmpty()) {
             return false;
         }
-
         return userDAO.existsByPhone(phone.trim());
     }
 
-    public boolean toggleAccountActive(long accountId)
-            throws SQLException {
-
-        if (accountId <= 0)
-            throw new IllegalArgumentException("ID không hợp lệ");
-
+    public boolean toggleAccountActive(long accountId) throws SQLException {
+        requireValidUserId(accountId, "ID không hợp lệ");
         return userDAO.toggleAccountActive(accountId);
     }
+
     public boolean setAccountActive(long accountId, boolean active) throws SQLException {
-        if (accountId <= 0) {
-            throw new IllegalArgumentException("ID tài khoản không hợp lệ");
-        }
+        requireValidUserId(accountId, "ID tài khoản không hợp lệ");
         return userDAO.setActive(accountId, active);
+    }
+
+    private static void requireValidUserId(long userId, String message) {
+        if (userId <= 0) {
+            throw new IllegalArgumentException(message);
+        }
     }
 }

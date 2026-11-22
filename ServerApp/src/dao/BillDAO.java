@@ -74,6 +74,15 @@ public class BillDAO {
                     }
                 }
                 try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE vouchers v " +
+                                "JOIN orders o ON o.voucher_id = v.id " +
+                                "SET v.used_count = COALESCE(v.used_count, 0) + 1 " +
+                                "WHERE o.table_session_id = ? AND o.status <> 'CANCELLED' AND o.voucher_id IS NOT NULL")) {
+                    ps.setLong(1, sessionId);
+                    ps.executeUpdate();
+                }
+
+                try (PreparedStatement ps = conn.prepareStatement(
                         "UPDATE orders SET status = 'COMPLETED' " +
                                 "WHERE table_session_id = ? AND status <> 'CANCELLED'")) {
                     ps.setLong(1, sessionId);
@@ -208,7 +217,7 @@ public class BillDAO {
                 Timestamp paidAt = rs.getTimestamp("paid_at");
                 Timestamp createdAt = rs.getTimestamp("created_at");
 
-                list.add(new BillDTO(
+                BillDTO dto = new BillDTO(
                         rs.getLong("id"),
                         rs.getLong("table_session_id"),
                         rs.getBigDecimal("total_amount"),
@@ -218,7 +227,10 @@ public class BillDAO {
                         paidAt == null ? null : paidAt.toLocalDateTime(),
                         paymentStatus,
                         createdAt == null ? null : createdAt.toLocalDateTime()
-                ));
+                );
+                long uid = rs.getLong("user_id");
+                if (!rs.wasNull()) dto.setUserId(uid);
+                list.add(dto);
             }
         }
         return list;

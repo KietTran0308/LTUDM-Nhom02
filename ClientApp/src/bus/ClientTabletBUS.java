@@ -4,17 +4,12 @@ import api.ImageSocketClient;
 import api.SocketClient;
 import dto.*;
 
-import java.awt.image.BufferedImage;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
 import java.math.BigDecimal;
 import java.util.*;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 public class ClientTabletBUS {
@@ -34,13 +29,14 @@ public class ClientTabletBUS {
             this.type = type;
             this.message = packet.getMessage();
             this.data = packet.getData();
-            this.status = packet.getExtraData() instanceof dbEnums.OrderStatus
-                    ? (dbEnums.OrderStatus) packet.getExtraData() : null;
+            this.status = packet.getExtraData() instanceof dbEnums.OrderStatus st ? st : null;
         }
     }
 
+    private static final long IMAGE_RETRY_DELAY_MS = 60_000L;
+
     private final Long tableId;
-    private final Long defaultTableUserId;
+    private final Long sessionId;
     private final SocketClient socketClient;
 
     private List<CategoryDTO> categories = new ArrayList<>();
@@ -52,39 +48,36 @@ public class ClientTabletBUS {
     private final Set<Long> loadingFoodIds = ConcurrentHashMap.newKeySet();
     private final Map<Long, Long> failedImageUntil = new ConcurrentHashMap<>();
     private final Map<Long, String> foodImageKeys = new ConcurrentHashMap<>();
-    private static final long IMAGE_RETRY_DELAY_MS = 60_000L;
+    private final BlockingQueue<Long> loadedImageFoodIds = new LinkedBlockingQueue<>();
+
     private final ExecutorService imageWorkers = Executors.newFixedThreadPool(3, job -> {
         Thread thread = new Thread(job, "food-image-tcp");
         thread.setDaemon(true);
         return thread;
     });
+
     private volatile boolean imagesActive = true;
     private boolean tableRegistered;
-    private final BlockingQueue<Long> loadedImageFoodIds = new LinkedBlockingQueue<>();
-
-    private final Long sessionId;
     private boolean menuResponseReceived;
     private String menuLoadError;
 
     public ClientTabletBUS(Long tableId, Long sessionId, SocketClient authenticatedCustomerSocket) {
-        this.tableId = Objects.requireNonNull(tableId, "Can ma ban");
-        this.sessionId = Objects.requireNonNull(sessionId, "Can sessionId da duoc Server xac minh");
-        this.defaultTableUserId = null; // Khach khong can dang nhap tai khoan.
+        this.tableId = Objects.requireNonNull(tableId, "Cần mã bàn");
+        this.sessionId = Objects.requireNonNull(sessionId, "Cần sessionId đã được Server xác minh");
         this.socketClient = Objects.requireNonNull(authenticatedCustomerSocket);
-        if (!socketClient.isConnected()) throw new IllegalStateException("Mat ket noi Server");
+        if (!socketClient.isConnected()) {
+            throw new IllegalStateException("Mất kết nối Server");
+        }
+
         socketClient.bindCustomerTable(tableId);
-        tableRegistered = true; // Da duoc Server phan hoi ENTER_CUSTOMER_MODE truoc khi mo GUI.
+        this.tableRegistered = true;
         reloadMenu();
         socketClient.requestTableTracking();
     }
 
-    /**
-     * Doc hang doi va chuyen phan hoi TCP thanh su kien nghiep vu cho GUI.
-     */
-
+    /** Đọc hàng đợi và chuyển phản hồi TCP thành sự kiện nghiệp vụ cho GUI. */
     public Event pollEvent() {
         SocketPacket packet;
-
         while ((packet = socketClient.pollPacket()) != null) {
             handleServerResponse(packet);
 
@@ -94,126 +87,87 @@ public class ClientTabletBUS {
                     case ORDER_SUBMIT -> Type.ORDER_ERROR;
                     default -> Type.ERROR;
                 };
-
                 return new Event(failure, packet);
             }
 
-            Type type;
-
-            switch (packet.getAction()) {
-                case GET_MENU_AND_CATEGORIES ->
-                        type = Type.MENU;
-
-                case ORDER_SUBMIT ->
-                        type = Type.ORDER_SENT;
-
-                case GET_TABLE_TRACKING ->
-                        type = Type.TRACKING;
-
-                case ITEM_STATUS_CHANGED ->
-                        type = Type.ITEM_STATUS;
-
-                case CALL_STAFF ->
-                        type = Type.STAFF_CALLED;
-
-                case ORDER_COMPLETED ->
-                        type = Type.ORDER_COMPLETED;
-
-                case VIEW_SESSION_BILL ->
-                        type = Type.BILL;
-
-                case SESSION_CLOSED ->
-                        type = Type.SESSION_CLOSED;
-
-                // Chỉ đồng bộ dữ liệu tại BUS,
-                // không tạo sự kiện GUI riêng.
-                case ORDER_CREATED -> {
-                    continue;
-                }
-
-                default -> {
-                    continue;
-                }
+            Type type = switch (packet.getAction()) {
+                case GET_MENU_AND_CATEGORIES -> Type.MENU;
+                case ORDER_SUBMIT -> Type.ORDER_SENT;
+                case GET_TABLE_TRACKING -> Type.TRACKING;
+                case ITEM_STATUS_CHANGED -> Type.ITEM_STATUS;
+                case ORDER_COMPLETED -> Type.ORDER_COMPLETED;
+                case VIEW_SESSION_BILL -> Type.BILL;
+                case SESSION_CLOSED -> Type.SESSION_CLOSED;
+                default -> null; // ORDER_CREATED chỉ đồng bộ dữ liệu tại BUS
+            };
+            if (type != null) {
+                return new Event(type, packet);
             }
-
-            return new Event(type, packet);
         }
-
         return null;
     }
-
 
     @SuppressWarnings("unchecked")
     private void handleServerResponse(SocketPacket packet) {
         if (!packet.isSuccess()) {
             if (packet.getAction() == SocketAction.GET_MENU_AND_CATEGORIES) {
                 menuResponseReceived = true;
-                menuLoadError = packet.getMessage() == null || packet.getMessage().isBlank()
-                        ? "May chu khong tai duoc thuc don." : packet.getMessage();
+                menuLoadError = (packet.getMessage() == null || packet.getMessage().isBlank())
+                        ? "Máy chủ không tải được thực đơn."
+                        : packet.getMessage();
             }
             return;
         }
 
         switch (packet.getAction()) {
-            case GET_MENU_AND_CATEGORIES:
-                this.menuFoods = packet.getData() instanceof List<?>
-                        ? new ArrayList<>((List<FoodDTO>) packet.getData()) : new ArrayList<>();
-                this.categories = packet.getExtraData() instanceof List<?>
-                        ? new ArrayList<>((List<CategoryDTO>) packet.getExtraData()) : new ArrayList<>();
+            case GET_MENU_AND_CATEGORIES -> {
+                menuFoods = packet.getData() instanceof List<?> list
+                        ? new ArrayList<>((List<FoodDTO>) list) : new ArrayList<>();
+                categories = packet.getExtraData() instanceof List<?> list
+                        ? new ArrayList<>((List<CategoryDTO>) list) : new ArrayList<>();
                 menuResponseReceived = true;
                 menuLoadError = null;
-                break;
-
-            case ORDER_SUBMIT:
-                this.currentCart.clear();
-                if (packet.getExtraData() instanceof List<?>) {
-                    this.trackedItems = new ArrayList<>((List<OrderItemDTO>) packet.getExtraData());
+            }
+            case ORDER_SUBMIT -> {
+                currentCart.clear();
+                if (packet.getExtraData() instanceof List<?> list) {
+                    trackedItems = new ArrayList<>((List<OrderItemDTO>) list);
                 }
-                break;
-
-            case GET_TABLE_TRACKING:
-                this.trackedItems = packet.getData() instanceof List<?>
-                        ? new ArrayList<>((List<OrderItemDTO>) packet.getData()) : new ArrayList<>();
-                break;
-
-            case ITEM_STATUS_CHANGED:
-                if (packet.getData() instanceof Long && packet.getExtraData() instanceof dbEnums.OrderStatus) {
-                    Long updatedItemId = (Long) packet.getData();
-                    dbEnums.OrderStatus newStatus = (dbEnums.OrderStatus) packet.getExtraData();
+            }
+            case GET_TABLE_TRACKING -> trackedItems = packet.getData() instanceof List<?> list
+                    ? new ArrayList<>((List<OrderItemDTO>) list) : new ArrayList<>();
+            case ITEM_STATUS_CHANGED -> {
+                if (packet.getData() instanceof Long updatedItemId
+                        && packet.getExtraData() instanceof dbEnums.OrderStatus newStatus) {
                     for (OrderItemDTO item : trackedItems) {
-                        if (Objects.equals(item.getId(), updatedItemId)) item.setStatus(newStatus);
+                        if (Objects.equals(item.getId(), updatedItemId)) {
+                            item.setStatus(newStatus);
+                        }
                     }
                 }
-                break;
-
-            case SESSION_CLOSED:
+            }
+            case SESSION_CLOSED -> {
                 tableRegistered = false;
-                this.currentCart.clear();
-                this.trackedItems.clear();
-                this.menuFoods.clear();
-                this.categories.clear();
+                currentCart.clear();
+                trackedItems.clear();
+                menuFoods.clear();
+                categories.clear();
                 stopImageLoading();
                 menuResponseReceived = false;
                 menuLoadError = null;
-                break;
-
-            case ORDER_CREATED:
-                requestTableTracking();
-                break;
-
-            default:
-                break;
+            }
+            case ORDER_CREATED -> requestTableTracking();
+            default -> { }
         }
     }
 
-    /** Tai lai thuc don: han che hien thi "chua tai" khi Server tra ve mang rong. */
     public boolean reloadMenu() {
         menuResponseReceived = false;
         menuLoadError = null;
         boolean sent = socketClient.requestMenuAndCategories();
         if (!sent) {
             menuResponseReceived = true;
-            menuLoadError = "Khong gui duoc yeu cau tai thuc don. Kiem tra ket noi Server.";
+            menuLoadError = "Không gửi được yêu cầu tải thực đơn. Kiểm tra kết nối Server.";
         }
         return sent;
     }
@@ -221,23 +175,26 @@ public class ClientTabletBUS {
     public boolean hasReceivedMenuResponse() { return menuResponseReceived; }
     public String getMenuLoadError() { return menuLoadError; }
     public boolean isConnected() { return socketClient.isConnected(); }
+    public boolean isServerConnected() { return isConnected(); }
 
-    /** Tra anh da cache hoac yeu cau TCP tu pool worker. Khong bao gio block Swing EDT. */
+    /** Trả ảnh đã cache hoặc tải bất đồng bộ từ worker pool (không block Swing EDT). */
     public BufferedImage getOrRequestFoodImage(FoodDTO food) {
         if (!imagesActive || food == null || food.getId() == null) return null;
+
         Long foodId = food.getId();
         String key = String.valueOf(food.getCoverImageUrl());
         String previous = foodImageKeys.put(foodId, key);
         if (previous != null && !previous.equals(key)) {
-            foodImageCache.remove(foodId); // Anh bìa thay doi => bo cache cu.
+            foodImageCache.remove(foodId);
             failedImageUntil.remove(foodId);
         }
 
         BufferedImage cached = foodImageCache.get(foodId);
         if (cached != null) return cached;
+
         Long retryAt = failedImageUntil.get(foodId);
         if (retryAt != null && System.currentTimeMillis() < retryAt) return null;
-        if (!loadingFoodIds.add(foodId)) return null; // Ngan duplicate worker.
+        if (!loadingFoodIds.add(foodId)) return null;
 
         try {
             imageWorkers.execute(() -> {
@@ -247,13 +204,13 @@ public class ClientTabletBUS {
                     if (image != null) {
                         foodImageCache.put(foodId, downscaleForCard(image));
                         failedImageUntil.remove(foodId);
-                        loadedImageFoodIds.offer(foodId); // CustomerGUI Timer cap nhat tren EDT.
+                        loadedImageFoodIds.offer(foodId);
                     } else {
                         failedImageUntil.put(foodId, System.currentTimeMillis() + IMAGE_RETRY_DELAY_MS);
                     }
                 } catch (RuntimeException ex) {
                     failedImageUntil.put(foodId, System.currentTimeMillis() + IMAGE_RETRY_DELAY_MS);
-                    System.err.println("Tai anh mon #" + foodId + ": " + ex.getMessage());
+                    System.err.println("Tải ảnh món #" + foodId + ": " + ex.getMessage());
                 } finally {
                     loadingFoodIds.remove(foodId);
                 }
@@ -264,7 +221,6 @@ public class ClientTabletBUS {
         return null;
     }
 
-    /** GUI chi poll queue va repaint, khong goi network. */
     public Long pollLoadedImageFoodId() {
         return loadedImageFoodIds.poll();
     }
@@ -273,12 +229,8 @@ public class ClientTabletBUS {
         return foodImageCache.get(foodId);
     }
 
-    /**
-     * food_images.url (coverImageUrl) moi la ten anh chinh. Slug chi la fallback.
-     * Duong dan trong DB duoc chuyen thanh ten file; Server chi tra anh /img/foods/.
-     */
     private BufferedImage fetchFoodImageFromSources(FoodDTO food) {
-        LinkedHashSet<String> candidates = new LinkedHashSet<>();
+        Set<String> candidates = new LinkedHashSet<>();
         addImageCandidates(candidates, food.getCoverImageUrl());
         for (String name : candidates) {
             if (!imagesActive || Thread.currentThread().isInterrupted()) return null;
@@ -291,11 +243,12 @@ public class ClientTabletBUS {
     private static void addImageCandidates(Set<String> candidates, String source) {
         if (source == null || source.isBlank()) return;
         String name = source.trim().replace('\\', '/');
-        int suffix = name.indexOf('?');
-        if (suffix >= 0) name = name.substring(0, suffix);
-        suffix = name.indexOf('#');
-        if (suffix >= 0) name = name.substring(0, suffix);
+        int queryIdx = name.indexOf('?');
+        if (queryIdx >= 0) name = name.substring(0, queryIdx);
+        int hashIdx = name.indexOf('#');
+        if (hashIdx >= 0) name = name.substring(0, hashIdx);
         name = name.substring(name.lastIndexOf('/') + 1);
+
         if (name.matches("(?i)[a-z0-9_-]+\\.(png|jpg|jpeg|webp)")) {
             candidates.add(name);
         } else if (name.matches("(?i)[a-z0-9_-]+")) {
@@ -305,22 +258,23 @@ public class ClientTabletBUS {
         }
     }
 
-    /** Anh goc co the rat lon: chi cache anh thu nho de khong tran bo nho tablet. */
     private static BufferedImage downscaleForCard(BufferedImage original) {
         final int maxWidth = 640, maxHeight = 480;
         double ratio = Math.min(1.0, Math.min(maxWidth / (double) original.getWidth(),
                 maxHeight / (double) original.getHeight()));
         if (ratio >= 1.0) return original;
+
         int width = Math.max(1, (int) Math.round(original.getWidth() * ratio));
         int height = Math.max(1, (int) Math.round(original.getHeight() * ratio));
-        BufferedImage resized = new BufferedImage(width, height,
-                original.getColorModel().hasAlpha() ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB);
-        Graphics2D graphics = resized.createGraphics();
+        int imageType = original.getColorModel().hasAlpha() ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB;
+        BufferedImage resized = new BufferedImage(width, height, imageType);
+
+        Graphics2D g2 = resized.createGraphics();
         try {
-            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            graphics.drawImage(original, 0, 0, width, height, null);
+            g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g2.drawImage(original, 0, 0, width, height, null);
         } finally {
-            graphics.dispose();
+            g2.dispose();
         }
         return resized;
     }
@@ -362,8 +316,7 @@ public class ClientTabletBUS {
     }
 
     public OrderItemDTO getTrackedItemAt(int rowIndex) {
-        if (rowIndex < 0 || rowIndex >= trackedItems.size()) return null;
-        return trackedItems.get(rowIndex);
+        return (rowIndex >= 0 && rowIndex < trackedItems.size()) ? trackedItems.get(rowIndex) : null;
     }
 
     public void addFoodToCart(FoodDTO food) {
@@ -403,41 +356,18 @@ public class ClientTabletBUS {
         if (currentCart.isEmpty() || !socketClient.isConnected() || !tableRegistered) return false;
 
         OrderDTO order = new OrderDTO();
-        order.setUserId(this.defaultTableUserId);
-        order.setTableId(this.tableId);
+        order.setTableId(tableId);
+        order.setTableSessionId(sessionId);
         order.setStatus(dbEnums.OrderStatus.PENDING);
         order.setNote(buildOrderNote(itemNotes));
+
         for (OrderItemDTO item : currentCart) {
             String note = itemNotes == null ? null : itemNotes.get(item.getFoodsId());
             item.setNote(note == null ? "" : note.trim());
         }
         order.setItems(new ArrayList<>(currentCart));
 
-        order.setTableSessionId(sessionId);
         return socketClient.sendRequest(new SocketPacket(SocketAction.ORDER_SUBMIT, tableId, order, null));
-    }
-
-    public boolean requestBillPreview() {
-        return tableRegistered && socketClient.sendRequest(
-                new SocketPacket(SocketAction.VIEW_SESSION_BILL, tableId, null, null));
-    }
-
-    public boolean callStaffSupport(String message) {
-        return tableRegistered && socketClient.callStaff(message);
-    }
-
-    public void logout() {
-        stopImageLoading();
-        socketClient.logout();
-        socketClient.close();
-    }
-
-    public void requestTableTracking() {
-        if (socketClient.isConnected() && tableRegistered) socketClient.requestTableTracking();
-    }
-
-    public boolean isServerConnected() {
-        return socketClient.isConnected();
     }
 
     private String buildOrderNote(Map<Long, String> itemNotes) {
@@ -445,10 +375,17 @@ public class ClientTabletBUS {
         List<String> notes = new ArrayList<>();
         for (OrderItemDTO item : currentCart) {
             String note = itemNotes.get(item.getFoodsId());
-            if (note == null || note.isBlank()) continue;
-            notes.add(item.getFoodsName() + " (x" + item.getQuantity() + "): " + note.trim());
+            if (note != null && !note.isBlank()) {
+                notes.add(item.getFoodsName() + " (x" + item.getQuantity() + "): " + note.trim());
+            }
         }
         return String.join(" | ", notes);
+    }
+
+    public void requestTableTracking() {
+        if (socketClient.isConnected() && tableRegistered) {
+            socketClient.requestTableTracking();
+        }
     }
 
     public boolean canRequestCancelOrEdit(OrderItemDTO item) {
@@ -457,19 +394,14 @@ public class ClientTabletBUS {
         return status == dbEnums.OrderStatus.PENDING || status == dbEnums.OrderStatus.RECEIVED;
     }
 
-    public List<CategoryDTO> getCategories() {
-        return categories;
+    public void logout() {
+        stopImageLoading();
+        socketClient.logout();
+        socketClient.close();
     }
 
-    public List<FoodDTO> getMenuFoods() {
-        return menuFoods;
-    }
-
-    public List<OrderItemDTO> getCurrentCart() {
-        return currentCart;
-    }
-
-    public List<OrderItemDTO> getTrackedItems() {
-        return trackedItems;
-    }
+    public List<CategoryDTO> getCategories() { return categories; }
+    public List<FoodDTO> getMenuFoods() { return menuFoods; }
+    public List<OrderItemDTO> getCurrentCart() { return currentCart; }
+    public List<OrderItemDTO> getTrackedItems() { return trackedItems; }
 }

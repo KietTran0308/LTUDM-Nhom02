@@ -1,52 +1,26 @@
 package dto;
 
-import java.io.Serializable;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-public class VoucherDTO implements Serializable {
-    private static final long serialVersionUID = 1L;
-
+public class VoucherDTO {
     private Long id;
-    private String code;               // UNIQUE
-    private String name;               // nullable
-    private String description;        // nullable
-    private dbEnums.DiscountType discountType; // PERCENT hoặc FIXED
-    private BigDecimal discountValue;  // % nếu PERCENT, số tiền nếu FIXED
-    private BigDecimal minOrderAmount; // nullable, mặc định 0
-    private BigDecimal maxDiscountAmount; // nullable, trần giảm cho loại PERCENT
+    private String code;
+    private String name;
+    private String description;
+    private dbEnums.DiscountType discountType;
+    private BigDecimal discountValue;
+    private BigDecimal minOrderAmount;
+    private BigDecimal maxDiscountAmount;
     private LocalDateTime startAt;
     private LocalDateTime endAt;
-    private Integer usageLimit;        // nullable, NULL là không giới hạn
-    private Integer usedCount;         // nullable, mặc định 0
-    private Boolean isActive;          // nullable, mặc định true
+    private Integer usageLimit;
+    private Integer usedCount;
+    private Boolean isActive;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
     public VoucherDTO() {}
-
-    public VoucherDTO(Long id, String code, String name, String description,
-                      dbEnums.DiscountType discountType, BigDecimal discountValue,
-                      BigDecimal minOrderAmount, BigDecimal maxDiscountAmount,
-                      LocalDateTime startAt, LocalDateTime endAt,
-                      Integer usageLimit, Integer usedCount, Boolean isActive,
-                      LocalDateTime createdAt, LocalDateTime updatedAt) {
-        this.id = id;
-        this.code = code;
-        this.name = name;
-        this.description = description;
-        this.discountType = discountType;
-        this.discountValue = discountValue;
-        this.minOrderAmount = minOrderAmount;
-        this.maxDiscountAmount = maxDiscountAmount;
-        this.startAt = startAt;
-        this.endAt = endAt;
-        this.usageLimit = usageLimit;
-        this.usedCount = usedCount;
-        this.isActive = isActive;
-        this.createdAt = createdAt;
-        this.updatedAt = updatedAt;
-    }
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
