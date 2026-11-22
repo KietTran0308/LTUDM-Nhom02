@@ -8,19 +8,17 @@ import java.io.InputStream;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.ByteBuffer;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import javax.crypto.SecretKey;
 import security.AESGCMUtil;
 
 /** Phuc vu anh IMG/2: moi block byte duoc ma hoa AES-GCM theo khoa phien. */
 public final class ImageSocketServer {
+
     private static final int CHUNK_BYTES = 8192;
     private static final long MAX_IMAGE_BYTES = 10_000_000L;
     private ImageSocketServer() { }
 
     public static void sendImage(String imageName, DataOutputStream out, SecretKey key) throws Exception {
-        // Khong chap nhan URL, duong dan tuy y, '..' hay thu muc khac foods/things.
         if (imageName == null || !imageName.matches(
                 "(?i)(?:(?:foods|things)/)?[a-z0-9_-]+\\.(png|jpg|jpeg|webp)")) {
             writeEncrypted(out, key, ByteBuffer.allocate(Long.BYTES).putLong(0).array());
