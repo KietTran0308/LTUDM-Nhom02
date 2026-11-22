@@ -8,3 +8,4 @@ public class MainClient {
         SwingUtilities.invokeLater(() -> new AuthGUI().setVisible(true));
     }
 }
+

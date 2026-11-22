@@ -54,7 +54,6 @@ public class CustomerGUI extends JFrame {
     private JLabel lblKitchenNotice;
     private JButton btnTrackOrderTop;
     private CTable trackTable;
-    private JButton btnRequestCancelSupport;
     private CButton btnSendKitchen;
     private boolean awaitingOrderConfirmation;
 
@@ -672,19 +671,9 @@ public class CustomerGUI extends JFrame {
         JTable rawTable = trackTable.getTable();
         rawTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 
-        btnRequestCancelSupport = createOutlineButton("Nhờ nhân viên hỗ trợ hủy / sửa món");
-        btnRequestCancelSupport.setEnabled(false);
-        btnRequestCancelSupport.addActionListener(e -> handleCancelOrEditSupportRequest());
-
-        rawTable.getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
-                btnRequestCancelSupport.setEnabled(tabletBUS.canRequestCancelOrEdit(getSelectedTrackedItem()));
-            }
-        });
 
         JPanel trackFooter = new JPanel(new BorderLayout(12, 0));
         trackFooter.setOpaque(false);
-        trackFooter.add(btnRequestCancelSupport, BorderLayout.EAST);
 
         wrapper.add(headerBar, BorderLayout.NORTH);
         wrapper.add(trackTable, BorderLayout.CENTER);
@@ -1223,9 +1212,6 @@ public class CustomerGUI extends JFrame {
 
         List<OrderItemDTO> tracked = tabletBUS.getTrackedItems();
         trackTable.updateTrackedItems(tracked);
-        if (btnRequestCancelSupport != null) {
-            btnRequestCancelSupport.setEnabled(tabletBUS.canRequestCancelOrEdit(getSelectedTrackedItem()));
-        }
         int portions = 0;
         for (OrderItemDTO item : tracked) {
             if (item.getQuantity() != null) portions += item.getQuantity();
