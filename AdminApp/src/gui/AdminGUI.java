@@ -83,6 +83,9 @@ public class AdminGUI extends JFrame {
     private static final String V_EXPIRED = "Hết hạn / Hết lượt";
     private static final String V_PAUSED = "Tạm ngưng";
 
+    private static final Map<String, ImageIcon> FOOD_THUMB_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Set<String> FOOD_THUMB_LOADING = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
     // ==========================================================
     // --- MẠNG & ĐIỀU HƯỚNG ---
     // ==========================================================
@@ -105,6 +108,7 @@ public class AdminGUI extends JFrame {
     private JTextField txtFoodSearch;
     private JComboBox<String> cboFoodCat, cboFoodStatus;
     private JLabel kpiFoodTotal, kpiFoodOpen, kpiFoodPaused;
+    private JTable foodTable;
     private Paging foodPaging;
 
     // Trang 2: Doanh thu
@@ -568,7 +572,7 @@ public class AdminGUI extends JFrame {
 
         foodModel = readOnlyModel("Hình", "Mã SKU", "Tên món", "Danh mục", "Đơn giá", "Trạng thái", "Thao tác");
         CTable foodTableComponent = createStyledTable(foodModel, 52);
-        JTable foodTable = foodTableComponent.getTable();
+        this.foodTable = foodTableComponent.getTable();
         foodTable.getColumnModel().getColumn(0).setCellRenderer(new ThumbRenderer());
         foodTable.getColumnModel().getColumn(4).setCellRenderer(new RowRenderer(true));
         foodTable.getColumnModel().getColumn(5).setCellRenderer(new BadgeRenderer());
@@ -643,8 +647,9 @@ public class AdminGUI extends JFrame {
         foodModel.setRowCount(0);
         for (FoodDTO f : pageFoods) {
             boolean open = isOpen(f);
+            loadFoodThumbAsync(f.getCoverImageUrl(), this.foodTable);
             foodModel.addRow(new Object[]{
-                    f.getName(),
+                    f, // Truyền FoodDTO để ThumbRenderer lấy được cả coverImageUrl lẫn tên món dự phòng
                     f.getSku(),
                     f.getName(),
                     f.getCategoryName() != null ? f.getCategoryName() : "Chưa phân loại",
@@ -2186,6 +2191,7 @@ public class AdminGUI extends JFrame {
 
     private static class ThumbRenderer extends JPanel implements TableCellRenderer {
         private String name = "";
+        private String imageKey = null;
         private Color rowBg = Color.WHITE;
 
         ThumbRenderer() {
@@ -2194,7 +2200,13 @@ public class AdminGUI extends JFrame {
 
         @Override
         public Component getTableCellRendererComponent(JTable t, Object v, boolean sel, boolean foc, int r, int c) {
-            name = v == null ? "" : v.toString();
+            if (v instanceof FoodDTO f) {
+                name = f.getName() == null ? "" : f.getName();
+                imageKey = f.getCoverImageUrl();
+            } else {
+                name = v == null ? "" : v.toString();
+                imageKey = null;
+            }
             rowBg = rowBackground(t, sel, r);
             return this;
         }
@@ -2206,15 +2218,22 @@ public class AdminGUI extends JFrame {
             g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
             g2.setColor(rowBg);
             g2.fillRect(0, 0, getWidth(), getHeight());
-            Color[] palette = {Utils.FOREST_BG, Utils.TERRACOTTA, Utils.GOLD_ACCENT, Utils.SAFE_GREEN};
+
             int size = 36, x = 14, y = (getHeight() - size) / 2;
-            g2.setColor(palette[Math.floorMod(name.hashCode(), palette.length)]);
-            g2.fillRoundRect(x, y, size, size, 12, 12);
-            g2.setColor(Color.WHITE);
-            g2.setFont(font(Font.BOLD, 15));
-            String ch = name.isEmpty() ? "?" : name.substring(0, 1).toUpperCase(Locale.ROOT);
-            FontMetrics fm = g2.getFontMetrics();
-            g2.drawString(ch, x + (size - fm.stringWidth(ch)) / 2, y + (size + fm.getAscent() - fm.getDescent()) / 2);
+            ImageIcon cached = (imageKey != null) ? FOOD_THUMB_CACHE.get(imageKey) : null;
+            if (cached != null) {
+                cached.paintIcon(this, g2, x, y);
+            } else {
+                // Fallback khi chưa có ảnh hoặc đang tải
+                Color[] palette = {Utils.FOREST_BG, Utils.TERRACOTTA, Utils.GOLD_ACCENT, Utils.SAFE_GREEN};
+                g2.setColor(palette[Math.floorMod(name.hashCode(), palette.length)]);
+                g2.fillRoundRect(x, y, size, size, 12, 12);
+                g2.setColor(Color.WHITE);
+                g2.setFont(font(Font.BOLD, 15));
+                String ch = name.isEmpty() ? "?" : name.substring(0, 1).toUpperCase(Locale.ROOT);
+                FontMetrics fm = g2.getFontMetrics();
+                g2.drawString(ch, x + (size - fm.stringWidth(ch)) / 2, y + (size + fm.getAscent() - fm.getDescent()) / 2);
+            }
             g2.dispose();
         }
     }
@@ -2709,21 +2728,48 @@ public class AdminGUI extends JFrame {
 
         JPanel fields = new JPanel(new GridLayout(2, 2, 10, 10));
         JTextField account = new CTextField("Email hoặc SĐT", 270, 42, font(Font.PLAIN, 14));
-        JPasswordField password = new CPasswordField("Mật khẩu", 270, 42, font(Font.PLAIN, 14));
+        CPasswordField password = new CPasswordField("Mật khẩu", 270, 42, font(Font.PLAIN, 14));
+
+        // 1. Tải icon mắt ngay khi vừa mở dialog (chạy nền)
+        new SwingWorker<ImageIcon[], Void>() {
+            @Override
+            protected ImageIcon[] doInBackground() {
+                BufferedImage eyeOpen = ImageSocketClient.fetchImage("img/things/eye.png");
+                BufferedImage eyeClosed = ImageSocketClient.fetchImage("img/things/eye_off.png");
+                ImageIcon openIcon = eyeOpen != null
+                        ? new ImageIcon(eyeOpen.getScaledInstance(18, 18, Image.SCALE_SMOOTH)) : null;
+                ImageIcon closedIcon = eyeClosed != null
+                        ? new ImageIcon(eyeClosed.getScaledInstance(18, 18, Image.SCALE_SMOOTH)) : null;
+                return new ImageIcon[]{openIcon, closedIcon};
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    ImageIcon[] icons = get();
+                    if (icons[0] != null || icons[1] != null) {
+                        password.setVisibilityIcons(icons[0], icons[1]);
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        }.execute();
+
         fields.add(new JLabel("Email / SĐT ADMIN:"));
         fields.add(account);
         fields.add(new JLabel("Mật khẩu:"));
         fields.add(password);
 
-        JLabel feedback = new JLabel("Đăng nhập qua máy chủ TCP với tài khoản ADMIN.");
+        JLabel feedback = new JLabel("AN NHIÊN | Đăng nhập qua hệ thống quản lý");
         JButton signIn = new CButton("Đăng nhập", 125, 40, font(Font.BOLD, 13));
-        JButton cancel = new JButton("Hủy");
+        CButton cancel = new CButton("Hủy", 125, 40);
         cancel.addActionListener(e -> dialog.dispose());
 
         JPanel footer = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         footer.add(cancel);
         footer.add(signIn);
 
+        // 2. Logic xử lý đăng nhập thật khi bấm nút
         signIn.addActionListener(e -> {
             char[] pass = password.getPassword();
             String user = account.getText().trim();
@@ -2741,12 +2787,12 @@ public class AdminGUI extends JFrame {
             new SwingWorker<Object[], Void>() {
                 @Override
                 protected Object[] doInBackground() {
-                    SocketClient socket = new SocketClient();
+                    SocketClient client = new SocketClient();
                     try {
-                        UserDTO admin = AdminBUS.loginAdmin(socket, user, secret);
-                        return new Object[]{admin, socket};
+                        UserDTO admin = AdminBUS.loginAdmin(client, user, secret);
+                        return new Object[]{admin, client};
                     } catch (RuntimeException ex) {
-                        socket.close();
+                        client.close();
                         throw ex;
                     }
                 }
@@ -2755,19 +2801,13 @@ public class AdminGUI extends JFrame {
                 protected void done() {
                     signIn.setEnabled(true);
                     try {
-                        Object[] result = get();
-                        UserDTO admin = (UserDTO) result[0];
-                        SocketClient socket = (SocketClient) result[1];
-                        if (!dialog.isDisplayable()) {
-                            socket.close();
-                            return;
-                        }
+                        Object[] res = get();
                         dialog.dispose();
-                        new AdminGUI(admin, socket).setVisible(true);
+                        new AdminGUI((UserDTO) res[0], (SocketClient) res[1]).setVisible(true);
                     } catch (Exception ex) {
                         Throwable cause = (ex instanceof ExecutionException && ex.getCause() != null)
                                 ? ex.getCause() : ex;
-                        feedback.setText("Lỗi: " + cause.getMessage());
+                        feedback.setText(cause.getMessage());
                     }
                 }
             }.execute();
@@ -2782,6 +2822,43 @@ public class AdminGUI extends JFrame {
         dialog.setResizable(false);
         dialog.setLocationRelativeTo(null);
         dialog.setVisible(true);
+    }
+
+    private void loadFoodThumbAsync(String imageKey, JTable tableToRepaint) {
+        if (imageKey == null || imageKey.isBlank()) return;
+        if (FOOD_THUMB_CACHE.containsKey(imageKey) || !FOOD_THUMB_LOADING.add(imageKey)) return;
+
+        new SwingWorker<ImageIcon, Void>() {
+            @Override
+            protected ImageIcon doInBackground() {
+                BufferedImage raw = ImageSocketClient.fetchImage(imageKey);
+                if (raw == null) return null;
+                int size = 36;
+                BufferedImage rounded = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g2 = rounded.createGraphics();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                g2.setClip(new java.awt.geom.RoundRectangle2D.Float(0, 0, size, size, 12, 12));
+                g2.drawImage(raw, 0, 0, size, size, null);
+                g2.dispose();
+                return new ImageIcon(rounded);
+            }
+
+            @Override
+            protected void done() {
+                FOOD_THUMB_LOADING.remove(imageKey);
+                try {
+                    ImageIcon icon = get();
+                    if (icon != null) {
+                        FOOD_THUMB_CACHE.put(imageKey, icon);
+                        if (tableToRepaint != null && tableToRepaint.isDisplayable()) {
+                            tableToRepaint.repaint();
+                        }
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        }.execute();
     }
 
     public static void main(String[] args) {

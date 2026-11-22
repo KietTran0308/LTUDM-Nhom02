@@ -149,7 +149,7 @@ public class SocketJsonMapper {
                     if (data instanceof List<?> list) root.put("data", orderListToJson((List<OrderDTO>) list));
                 }
 
-                case LIST_TABLES, GET_ALL_TABLES, PAY_TABLE_BILL -> {
+                case LIST_TABLES, GET_ALL_TABLES -> {
                     if (data instanceof List<?> list) {
                         root.put("data", tableListToJsonArray((List<TableDTO>) list));
                     }

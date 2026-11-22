@@ -80,7 +80,7 @@ public class ClientHandler implements Runnable {
             writeFrame(out, AESGCMUtil.encrypt("OK".getBytes(StandardCharsets.US_ASCII), sessionKey));
             System.out.println("[Server] Trao đổi khóa AES thành công!");
 
-            socket.setSoTimeout(0);
+            socket.setSoTimeout(5 * 60 * 1000);
 
             while (!socket.isClosed()) {
                 byte[] encryptedData = readFrame(in);
@@ -98,9 +98,11 @@ public class ClientHandler implements Runnable {
 
                 handleClientRequest(request);
             }
+        } catch (java.io.EOFException | java.net.SocketException e) {
+            System.out.println("[ClientHandler] Client " + socket.getRemoteSocketAddress() + " đã ngắt kết nối.");
         } catch (Exception e) {
-            System.err.println("[ClientHandler] Kết nối " + socket.getRemoteSocketAddress()
-                    + " đã đóng: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+            System.err.println("[ClientHandler] Lỗi bất thường tại " + socket.getRemoteSocketAddress()
+                    + ": " + e.getClass().getSimpleName() + ": " + e.getMessage());
             e.printStackTrace();
         } finally {
             SocketServer.removeConnection(this);
@@ -128,18 +130,24 @@ public class ClientHandler implements Runnable {
                     if (!orderBUS.sessionBelongsToTable(tid, sid)) {
                         throw new SecurityException("Bàn chưa được POS mở phiên ACTIVE");
                     }
-                    SocketServer.removeConnection(this);
+
+                    if (!SocketServer.tryClaimSession(sid, this)) {
+                        throw new IllegalStateException("Bàn này đã được bàn giao cho một thiết bị iPad khác!");
+                    }
+                    SocketServer.releaseStaffRoles(this);
+
+
                     authenticatedUser = null;
                     customerMode = true;
                     workstationLogin = false;
                     currentTableId = tid;
                     pairedSessionId = sid;
-                    SocketServer.registerSession(sid, this);
 
                     SocketPacket result = ok(SocketAction.ENTER_CUSTOMER_MODE,
                             "Đã bàn giao thiết bị cho khách", sid, null);
                     result.setTableId(tid);
                     sendPacket(result);
+                    SocketServer.broadcastTablesChanged();
                 }
 
                 case GET_MENU_AND_CATEGORIES -> {
@@ -171,12 +179,18 @@ public class ClientHandler implements Runnable {
                     String voucherCode = (String) req.getExtraData();
                     Long targetTableId = req.getTableId() != null ? req.getTableId() : currentTableId;
 
-                    incomingOrder.setTableId(currentTableId != null ? currentTableId : targetTableId);
-                    incomingOrder.setTableSessionId(pairedSessionId);
-                    incomingOrder.setUserId(null);
+                    OrderDTO savedOrder;
+                    List<OrderItemDTO> updatedTrackingList;
+                    synchronized (SocketServer.getSessionLock(pairedSessionId)) {
+                        // Kiểm tra lại trong lock phòng trường hợp POS vừa thanh toán xong
+                        requireCurrentTable(targetTableId);
+                        incomingOrder.setTableId(currentTableId != null ? currentTableId : targetTableId);
+                        incomingOrder.setTableSessionId(pairedSessionId);
+                        incomingOrder.setUserId(null);
 
-                    OrderDTO savedOrder = orderBUS.processIncomingTableOrder(incomingOrder, voucherCode);
-                    List<OrderItemDTO> updatedTrackingList = orderBUS.getTableTrackingItems(targetTableId);
+                        savedOrder = orderBUS.processIncomingTableOrder(incomingOrder, voucherCode);
+                        updatedTrackingList = orderBUS.getTableTrackingItems(targetTableId);
+                    }
 
                     sendPacket(new SocketPacket(
                             req.getAction(), true,
@@ -186,6 +200,7 @@ public class ClientHandler implements Runnable {
 
                     SocketServer.broadcastOrderCreated(savedOrder);
                     SocketServer.broadcastKitchenQueue(orderBUS.getKitchenQueue());
+                    SocketServer.broadcastTablesChanged();
                 }
 
                 case GET_TABLE_TRACKING -> {
@@ -216,7 +231,9 @@ public class ClientHandler implements Runnable {
                     requireWorkstationRole("ADMIN");
                     long tableId = requirePositiveId(req.getTableId(), "Mã bàn không hợp lệ");
                     PosBUS pos = new PosBUS(authenticatedUser);
-                    sendPacket(ok(SocketAction.OPEN_TABLE_SESSION, "Đã mở phiên bàn", pos.openTable(tableId), null));
+                    Long newSessionId = pos.openTable(tableId);
+                    sendPacket(ok(SocketAction.OPEN_TABLE_SESSION, "Đã mở phiên bàn", newSessionId, null));
+                    SocketServer.broadcastTablesChanged();
                 }
 
                 case GET_TABLE_BILL_PREVIEW -> {
@@ -250,9 +267,15 @@ public class ClientHandler implements Runnable {
                             || bill.getPaymentMethod() == null) {
                         throw new IllegalArgumentException("Thông tin thanh toán không hợp lệ");
                     }
-                    PosBUS pos = new PosBUS(authenticatedUser);
-                    pos.pay(tableId, bill, (String) req.getExtraData());
+                    long sessionId = bill.getTableSessionId();
+                    synchronized (SocketServer.getSessionLock(sessionId)) {
+                        PosBUS pos = new PosBUS(authenticatedUser);
+                        pos.pay(tableId, bill, (String) req.getExtraData());
+                        SocketServer.notifySessionClosed(sessionId, tableId);
+                        SocketServer.broadcastKitchenQueue(orderBUS.getKitchenQueue());
+                    }
                     sendPacket(ok(SocketAction.PAY_TABLE_BILL, "Thanh toán và đóng phiên thành công", null, null));
+                    SocketServer.notifySessionClosed(sessionId, tableId);
                 }
 
                 case GET_KITCHEN_QUEUE -> {
@@ -307,6 +330,7 @@ public class ClientHandler implements Runnable {
                         throw new IllegalStateException("Không thêm được món (SKU có thể đã tồn tại)");
                     }
                     sendPacket(ok(req.getAction(), "Đã thêm món", null, null));
+                    SocketServer.broadcastMenuChanged();
                 }
 
                 case ADMIN_UPDATE_FOOD -> {
@@ -318,6 +342,7 @@ public class ClientHandler implements Runnable {
                         throw new IllegalStateException("Không cập nhật được món");
                     }
                     sendPacket(ok(req.getAction(), "Đã cập nhật món", null, null));
+                    SocketServer.broadcastMenuChanged();
                 }
 
                 case ADMIN_DELETE_FOOD -> {
@@ -325,6 +350,7 @@ public class ClientHandler implements Runnable {
                     long id = requirePositiveId((Long) req.getData(), "ID món không hợp lệ");
                     if (!adminBUS.deleteFood(id)) throw new IllegalStateException("Không ẩn được món");
                     sendPacket(ok(req.getAction(), "Đã ẩn món", null, null));
+                    SocketServer.broadcastMenuChanged();
                 }
 
                 case ADMIN_GET_BILLS -> {
@@ -495,6 +521,7 @@ public class ClientHandler implements Runnable {
 
         if (hasRole("KITCHEN")) SocketServer.registerKitchen(this);
         if (hasRole("STAFF")) SocketServer.registerStaff(this);
+        if (workstationLogin && hasRole("ADMIN", "STAFF")) SocketServer.registerPos(this);
 
         sendPacket(new SocketPacket(
                 req.getAction(), true,
@@ -651,6 +678,16 @@ public class ClientHandler implements Runnable {
 
     private static String readFrameAsString(DataInputStream input) throws IOException {
         return new String(readFrame(input), StandardCharsets.UTF_8);
+    }
+
+    public boolean isAliveConnection() {
+        return socket != null && !socket.isClosed() && socket.isConnected();
+    }
+
+    public void resetCustomerMode() {
+        this.customerMode = false;
+        this.currentTableId = null;
+        this.pairedSessionId = null;
     }
 
     private void closeResources() {

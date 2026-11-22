@@ -1,6 +1,5 @@
 package bus;
 
-import api.SocketServer;
 import dao.OrderDAO;
 import dao.TableDAO;
 import dto.BillDTO;
@@ -39,7 +38,6 @@ public final class PosBUS {
     /** POS mở phiên, không phải tablet của nhân viên. */
     public long openTable(long tableId) throws SQLException {
         long sid = TableDAO.openOrGetActiveSession(tableId, operator.getId());
-        SocketServer.broadcastTablesChanged();
         return sid;
     }
 
@@ -55,11 +53,7 @@ public final class PosBUS {
         if (revision == null || revision.isBlank()) {
             throw new IllegalArgumentException("Hãy tải và xem lại hóa đơn trước khi thanh toán.");
         }
-        long sessionId = bill.getTableSessionId();
         orderBUS.processTablePayment(bill, tableId, revision);
-        SocketServer.notifySessionClosed(sessionId, tableId);
-        SocketServer.broadcastTablesChanged();
-        SocketServer.broadcastKitchenQueue(orderDAO.getKitchenQueue());
     }
 
     public OrderDTO applyVoucher(long tableId, String voucherCode) {

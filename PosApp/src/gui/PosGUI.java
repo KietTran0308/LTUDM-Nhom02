@@ -7,6 +7,10 @@ import components.CDialog;
 import components.CScrollBar;
 import components.CToast;
 import components.CToggleButton;
+
+import components.CPasswordField;
+import components.CTextField;
+
 import dto.OrderDTO;
 import dto.OrderItemDTO;
 import dto.TableDTO;
@@ -103,50 +107,79 @@ public final class PosGUI extends JFrame {
 
     public static void showPosLogin() {
         JDialog dialog = new JDialog((Frame) null, "Đăng nhập POS — An Nhiên", true);
-        JPanel content = new JPanel(new BorderLayout(12, 12));
-        content.setBorder(new EmptyBorder(20, 22, 20, 22));
+        JPanel body = new JPanel(new BorderLayout(12, 12));
+        body.setBorder(new EmptyBorder(18, 22, 18, 22));
 
-        JPanel form = new JPanel(new GridLayout(2, 2, 12, 12));
-        JTextField username = new JTextField(23);
-        JPasswordField password = new JPasswordField(23);
-        form.add(new JLabel("Email / SĐT nhân viên:"));
-        form.add(username);
-        form.add(new JLabel("Mật khẩu:"));
-        form.add(password);
+        JPanel fields = new JPanel(new GridLayout(2, 2, 10, 10));
+        JTextField account = new CTextField("Email hoặc SĐT", 270, 42,
+                Utils.getCustomFont("Inter", Font.PLAIN, 14));
+        CPasswordField password = new CPasswordField("Mật khẩu", 270, 42,
+                Utils.getCustomFont("Inter", Font.PLAIN, 14));
 
-        JLabel feedback = new JLabel("Chỉ tài khoản ADMIN trên máy POS được cấp phép mới có quyền thu ngân.");
-        feedback.setForeground(new Color(135, 72, 42));
+        // 1. Tải icon mắt ngay khi vừa mở dialog (chạy nền)
+        new SwingWorker<ImageIcon[], Void>() {
+            @Override
+            protected ImageIcon[] doInBackground() {
+                BufferedImage eyeOpen = ImageSocketClient.fetchImage("img/things/eye.png");
+                BufferedImage eyeClosed = ImageSocketClient.fetchImage("img/things/eye_off.png");
+                ImageIcon openIcon = eyeOpen != null
+                        ? new ImageIcon(eyeOpen.getScaledInstance(18, 18, Image.SCALE_SMOOTH)) : null;
+                ImageIcon closedIcon = eyeClosed != null
+                        ? new ImageIcon(eyeClosed.getScaledInstance(18, 18, Image.SCALE_SMOOTH)) : null;
+                return new ImageIcon[]{openIcon, closedIcon};
+            }
 
-        JButton submit = new JButton("Đăng nhập POS");
-        JButton cancel = new JButton("Hủy");
+            @Override
+            protected void done() {
+                try {
+                    ImageIcon[] icons = get();
+                    if (icons[0] != null || icons[1] != null) {
+                        password.setVisibilityIcons(icons[0], icons[1]);
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        }.execute();
+
+        fields.add(new JLabel("Email / SĐT nhân viên:"));
+        fields.add(account);
+        fields.add(new JLabel("Mật khẩu:"));
+        fields.add(password);
+
+        JLabel feedback = new JLabel("AN NHIÊN | Đăng nhập hệ thống thu ngân POS");
+        JButton signIn = new CButton("Đăng nhập", 125, 40,
+                Utils.getCustomFont("Inter", Font.BOLD, 13));
+        CButton cancel = new CButton("Hủy", 125, 40);
+        cancel.addActionListener(e -> dialog.dispose());
+
         JPanel footer = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         footer.add(cancel);
-        footer.add(submit);
+        footer.add(signIn);
 
-        cancel.addActionListener(e -> dialog.dispose());
-        submit.addActionListener(e -> {
-            char[] typed = password.getPassword();
-            String account = username.getText().trim();
-            if (account.isEmpty() || typed.length == 0) {
-                Arrays.fill(typed, '\0');
-                feedback.setText("Vui lòng nhập đủ tài khoản và mật khẩu.");
+        // 2. Logic xử lý đăng nhập POS khi bấm nút
+        signIn.addActionListener(e -> {
+            char[] pass = password.getPassword();
+            String user = account.getText().trim();
+            if (user.isEmpty() || pass.length == 0) {
+                Arrays.fill(pass, '\0');
+                feedback.setText("Vui lòng điền tài khoản và mật khẩu");
                 return;
             }
-            String secret = new String(typed);
-            Arrays.fill(typed, '\0');
+            String secret = new String(pass);
+            Arrays.fill(pass, '\0');
             password.setText("");
-            submit.setEnabled(false);
-            feedback.setText("Đang xác thực trên Server...");
+            signIn.setEnabled(false);
+            feedback.setText("Đang xác thực qua mạng...");
 
             new SwingWorker<PosBUS, Void>() {
                 @Override
                 protected PosBUS doInBackground() {
-                    return PosBUS.loginPos(account, secret);
+                    return PosBUS.loginPos(user, secret);
                 }
 
                 @Override
                 protected void done() {
-                    submit.setEnabled(true);
+                    signIn.setEnabled(true);
                     try {
                         PosBUS pos = get();
                         if (!dialog.isDisplayable()) {
@@ -156,19 +189,20 @@ public final class PosGUI extends JFrame {
                         dialog.dispose();
                         new PosGUI(pos).setVisible(true);
                     } catch (Exception ex) {
-                        Throwable cause = ex instanceof ExecutionException ? ex.getCause() : ex;
+                        Throwable cause = (ex instanceof ExecutionException && ex.getCause() != null)
+                                ? ex.getCause() : ex;
                         feedback.setText(cause == null ? "Không đăng nhập được POS"
-                                : "Lỗi: " + cause.getMessage());
+                                : cause.getMessage());
                     }
                 }
             }.execute();
         });
 
-        content.add(feedback, BorderLayout.NORTH);
-        content.add(form, BorderLayout.CENTER);
-        content.add(footer, BorderLayout.SOUTH);
-        dialog.setContentPane(content);
-        dialog.getRootPane().setDefaultButton(submit);
+        body.add(feedback, BorderLayout.NORTH);
+        body.add(fields, BorderLayout.CENTER);
+        body.add(footer, BorderLayout.SOUTH);
+        dialog.setContentPane(body);
+        dialog.getRootPane().setDefaultButton(signIn);
         dialog.pack();
         dialog.setResizable(false);
         dialog.setLocationRelativeTo(null);
@@ -293,7 +327,7 @@ public final class PosGUI extends JFrame {
         form.add(nameField);
         form.add(createCustomerFieldLabel("Số điện thoại"));
         form.add(phoneField);
-        form.add(createCustomerFieldLabel("Email (tùy chọn)"));
+        form.add(createCustomerFieldLabel("Email"));
         form.add(emailField);
 
         body.add(sectionLbl, BorderLayout.NORTH);
@@ -849,6 +883,17 @@ public final class PosGUI extends JFrame {
         }
         lblSubtotal.setText(money(order.getSubtotal()));
         lblDiscount.setText(money(order.getDiscountAmount()));
+        if (order.getDiscountAmount() != null && order.getDiscountAmount().signum() > 0) {
+            if (txtVoucherCode.getText().isBlank()) {
+                lblVoucherStatus.setFont(Utils.getCustomFont("Inter", Font.BOLD, 12));
+                lblVoucherStatus.setForeground(Utils.SELECT_COLOR);
+                lblVoucherStatus.setText("Phiên bàn đang áp dụng ưu đãi (-" + money(order.getDiscountAmount()) + ")");
+            }
+        } else if (txtVoucherCode.getText().isBlank()) {
+            lblVoucherStatus.setFont(Utils.getCustomFont("Inter", Font.ITALIC, 12));
+            lblVoucherStatus.setForeground(Utils.TEXT_MUTED);
+            lblVoucherStatus.setText("Nhập mã ưu đãi (nếu có)");
+        }
         lblTaxVAT.setText(money(order.getCheckoutTax()));
         lblFinalTotal.setText(money(order.getCheckoutTotal()));
         updateButtons();

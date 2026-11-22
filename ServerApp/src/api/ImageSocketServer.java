@@ -19,17 +19,18 @@ public final class ImageSocketServer {
     private ImageSocketServer() { }
 
     public static void sendImage(String imageName, DataOutputStream out, SecretKey key) throws Exception {
-        if (imageName == null || !imageName.matches(
+        String cleanName = imageName == null ? null : imageName.replaceFirst("(?i)^/?img/", "");
+        if (cleanName == null || !cleanName.matches(
                 "(?i)(?:(?:foods|things)/)?[a-z0-9_-]+\\.(png|jpg|jpeg|webp)")) {
             writeEncrypted(out, key, ByteBuffer.allocate(Long.BYTES).putLong(0).array());
             return;
         }
         String folder = "foods";
-        String filename = imageName;
-        int slash = imageName.indexOf('/');
+        String filename = cleanName;
+        int slash = cleanName.indexOf('/');
         if (slash >= 0) {
-            folder = imageName.substring(0, slash).toLowerCase(java.util.Locale.ROOT);
-            filename = imageName.substring(slash + 1);
+            folder = cleanName.substring(0, slash).toLowerCase(java.util.Locale.ROOT);
+            filename = cleanName.substring(slash + 1);
         }
 
         URL resource = ImageSocketServer.class.getResource("/img/" + folder + "/" + filename);

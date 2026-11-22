@@ -16,7 +16,7 @@ public class ClientTabletBUS {
 
     public enum Type {
         MENU, MENU_ERROR, ORDER_SENT, ORDER_ERROR, TRACKING, ITEM_STATUS,
-        STAFF_CALLED, ORDER_COMPLETED, BILL, SESSION_CLOSED, ERROR
+        ORDER_COMPLETED, BILL, SESSION_CLOSED, ERROR
     }
 
     public static final class Event {
@@ -125,6 +125,8 @@ public class ClientTabletBUS {
                         ? new ArrayList<>((List<FoodDTO>) list) : new ArrayList<>();
                 categories = packet.getExtraData() instanceof List<?> list
                         ? new ArrayList<>((List<CategoryDTO>) list) : new ArrayList<>();
+                Set<Long> availableIds = menuFoods.stream().map(FoodDTO::getId).collect(Collectors.toSet());
+                currentCart.removeIf(item -> !availableIds.contains(item.getFoodsId()));
                 menuResponseReceived = true;
                 menuLoadError = null;
             }

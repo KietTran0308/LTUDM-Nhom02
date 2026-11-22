@@ -52,6 +52,7 @@ public class CustomerGUI extends JFrame {
     private int lastMenuViewportWidth = -1;
 
     private JLabel lblKitchenNotice;
+    private javax.swing.Timer noticeHideTimer;
     private JButton btnTrackOrderTop;
     private CTable trackTable;
     private CButton btnSendKitchen;
@@ -198,17 +199,14 @@ public class CustomerGUI extends JFrame {
                     OrderItemDTO item = tabletBUS.getTrackedItemById(itemId);
                     String foodName = item == null ? "Món #" + itemId : item.getFoodsName();
                     if (event.status == dbEnums.OrderStatus.COMPLETED && completedNotified.add(itemId)) {
-                        lblKitchenNotice.setText("Món " + foodName + " đã chế biến xong — chờ phục vụ.");
+                        showKitchenNotice("Món " + foodName + " đã chế biến xong — chờ phục vụ.");
                     } else if (event.status == dbEnums.OrderStatus.CANCELLED) {
-                        lblKitchenNotice.setText("Món " + foodName + " đã được hủy theo yêu cầu.");
-                        CToast.info(this, "Món " + foodName + " đã được hủy.");
+                        showKitchenNotice("Món " + foodName + " đã được hủy theo yêu cầu.");
                     }
                 }
             }
-            case STAFF_CALLED -> CToast.success(this, event.message);
             case ORDER_COMPLETED -> {
-                lblKitchenNotice.setText("Một đơn đã hoàn tất chế biến — nhân viên sẽ mang món ra bàn.");
-                CToast.success(this, event.message);
+                showKitchenNotice("Một đơn đã hoàn tất chế biến — nhân viên sẽ mang món ra bàn.");
                 tabletBUS.requestTableTracking();
             }
             case SESSION_CLOSED -> returnToLogin("Đã đóng phiên bàn. Thiết bị sẵn sàng cho lượt khách tiếp theo.");
@@ -508,12 +506,32 @@ public class CustomerGUI extends JFrame {
         lblTable.setFont(Utils.getCustomFont("Inter", Font.BOLD, 17));
         lblTable.setForeground(Utils.FOREST_BG);
 
-        lblKitchenNotice = new JLabel("", SwingConstants.CENTER);
-        lblKitchenNotice.setFont(Utils.getCustomFont("Inter", Font.PLAIN, 12));
+        lblKitchenNotice = new JLabel("", SwingConstants.CENTER) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                if (!isVisible() || getText() == null || getText().isBlank()) return;
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(new Color(255, 243, 238));
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 14, 14);
+                g2.setColor(Utils.TERRACOTTA);
+                g2.setStroke(new BasicStroke(1.5f));
+                g2.drawRoundRect(1, 1, getWidth() - 3, getHeight() - 3, 14, 14);
+                g2.dispose();
+                super.paintComponent(g);
+            }
+        };
+        lblKitchenNotice.setFont(Utils.getCustomFont("Be Vietnam Pro Black", Font.BOLD, 14));
         lblKitchenNotice.setForeground(Utils.TERRACOTTA);
+        lblKitchenNotice.setBorder(new EmptyBorder(8, 16, 8, 16));
+        lblKitchenNotice.setVisible(false);
+
+        JPanel noticeWrapper = new JPanel(new GridBagLayout());
+        noticeWrapper.setOpaque(false);
+        noticeWrapper.add(lblKitchenNotice);
 
         topBanner.add(bannerSide(FlowLayout.LEFT, lblTable), BorderLayout.WEST);
-        topBanner.add(lblKitchenNotice, BorderLayout.CENTER);
+        topBanner.add(noticeWrapper, BorderLayout.CENTER);
         topBanner.add(bannerSide(FlowLayout.RIGHT, summaryCartWrapper, btnTrackOrderTop), BorderLayout.EAST);
 
         centerContentHost = new JPanel(new BorderLayout());
@@ -681,81 +699,21 @@ public class CustomerGUI extends JFrame {
         return wrapper;
     }
 
-    private void handleCancelOrEditSupportRequest() {
-        OrderItemDTO item = getSelectedTrackedItem();
-        if (item == null) return;
+    private void showKitchenNotice(String text) {
+        lblKitchenNotice.setText("🔔  " + text);
+        lblKitchenNotice.setVisible(true);
+        lblKitchenNotice.revalidate();
+        lblKitchenNotice.repaint();
 
-        if (!tabletBUS.isServerConnected()) {
-            CToast.show(this, "Chưa kết nối bếp. Vui lòng gọi nhân viên trực tiếp.",
-                    "Không thể gửi yêu cầu", CToast.WARNING);
-            return;
+        if (noticeHideTimer != null && noticeHideTimer.isRunning()) {
+            noticeHideTimer.stop();
         }
-
-        final String[] submittedReason = {null};
-        CDialog dialog = new CDialog(
-                this,
-                "HỖ TRỢ TẠI BÀN #" + currentTableId,
-                "Yêu cầu hủy / sửa món",
-                "Nhân viên phục vụ và bếp sẽ xem xét yêu cầu của bạn"
-        );
-
-        JPanel body = new JPanel();
-        body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
-        body.setOpaque(false);
-
-        JPanel infoCard = createDialogInfoCard();
-        infoCard.add(CDialog.createInfoRow("Món đã gọi", item.getFoodsName()));
-        infoCard.add(Box.createVerticalStrut(8));
-        infoCard.add(CDialog.createInfoRow("Số lượng", item.getQuantity() + " phần"));
-        infoCard.add(Box.createVerticalStrut(8));
-        infoCard.add(CDialog.createInfoRow("Trạng thái", String.valueOf(item.getStatus())));
-        body.add(infoCard);
-        body.add(Box.createVerticalStrut(16));
-
-        JLabel lblReason = new JLabel("Lý do cần hủy hoặc điều chỉnh món:");
-        lblReason.setFont(Utils.getCustomFont("Inter", Font.BOLD, 14));
-        lblReason.setForeground(CDialog.DARK_TEXT);
-        lblReason.setAlignmentX(Component.LEFT_ALIGNMENT);
-        body.add(lblReason);
-        body.add(Box.createVerticalStrut(8));
-
-        CTextField txtReason = new CTextField(
-                "VD: Đổi sang ít cay, gọi nhầm số lượng...",
-                480, 44, Utils.getCustomFont("Inter", Font.PLAIN, 14)
-        );
-        txtReason.setAlignmentX(Component.LEFT_ALIGNMENT);
-        body.add(txtReason);
-        body.add(Box.createVerticalStrut(12));
-
-        body.add(createDialogMessageLabel(
-                "<html><i>Lưu ý:</i> Đây là <b>yêu cầu hỗ trợ</b>, hệ thống không tự động hủy món. Món chỉ được hủy/sửa sau khi nhân viên và bếp xác nhận.</html>",
-                CDialog.MUTED_TEXT
-        ));
-
-        CButton btnCancel = CDialog.createSecondaryButton("Hủy bỏ", 130, 44);
-        btnCancel.addActionListener(e -> dialog.dispose());
-
-        CButton btnSubmit = new CButton("Gửi yêu cầu hỗ trợ", 195, 44);
-        btnSubmit.addActionListener(e -> {
-            String reason = txtReason.getText().trim();
-            if (reason.isEmpty()) {
-                CToast.warning(this, "Vui lòng nhập lý do cần hủy hoặc sửa món.");
-                txtReason.requestFocusInWindow();
-                return;
-            }
-            submittedReason[0] = reason;
-            dialog.dispose();
+        noticeHideTimer = new javax.swing.Timer(12000, e -> {
+            lblKitchenNotice.setVisible(false);
+            lblKitchenNotice.setText("");
         });
-
-        dialog.setMinSize(560, 0)
-                .setBody(body)
-                .setFooterButtons(btnSubmit, btnCancel, btnSubmit)
-                .showModal();
-
-        if (submittedReason[0] != null && !tabletBUS.isServerConnected()) {
-            CToast.show(this, "Mất kết nối. Vui lòng thử lại hoặc gọi nhân viên.",
-                    "Yêu cầu hỗ trợ sửa/hủy món", CToast.WARNING);
-        }
+        noticeHideTimer.setRepeats(false);
+        noticeHideTimer.start();
     }
 
     private void initSummaryCartBar() {

@@ -245,6 +245,7 @@ public class SocketJsonMapper {
         putIfNotNull(obj, "categoryId", f.getCategoryId());
         putIfNotNull(obj, "sku", f.getSku());
         putIfNotNull(obj, "name", f.getName());
+        putIfNotNull(obj, "description", f.getDescription());
         putIfNotNull(obj, "price", f.getPrice());
         putIfNotNull(obj, "coverImageUrl", f.getCoverImageUrl());
         putIfNotNull(obj, "isPublished", f.getIsPublished());
@@ -320,6 +321,7 @@ public class SocketJsonMapper {
         b.setPaymentMethod(readEnum(obj, "paymentMethod", dbEnums.PaymentMethod.class));
         b.setPaymentStatus(readEnum(obj, "paymentStatus", dbEnums.PaymentStatus.class));
         b.setPaidAt(readDateTime(obj, "paidAt"));
+        b.setUserId(readLong(obj, "userId"));
         b.setCreatedAt(readDateTime(obj, "createdAt"));
         return b;
     }

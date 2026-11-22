@@ -1,167 +1,204 @@
-CREATE
-DATABASE IF NOT EXISTS `annhien_datmon` CHARACTER SET utf8mb4;
-USE
-`annhien_datmon`;
+SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
+START TRANSACTION;
+SET time_zone = "+00:00";
 
-CREATE TABLE `bill`
-(
-    `id`               bigint(20) NOT NULL,
-    `table_session_id` bigint(20) NOT NULL,
-    `user_id`          bigint(20) DEFAULT NULL,
-    `total_amount`     decimal(14, 2) NOT NULL,
-    `discount`         decimal(14, 2) NOT NULL DEFAULT 0.00,
-    `points_used`      int(11) NOT NULL DEFAULT 0,
-    `tax`              decimal(14, 2) NOT NULL DEFAULT 0.00,
-    `payment_method`   enum('CASH','CREDIT_CARD','E_WALLET','BANK_TRANSFER') DEFAULT NULL,
-    `paid_at`          datetime(3) DEFAULT NULL,
-    `payment_status`   enum('UNPAID','PAID','CANCELLED') NOT NULL DEFAULT 'UNPAID',
-    `created_at`       datetime(3) NOT NULL DEFAULT current_timestamp(3)
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+/*!40101 SET NAMES utf8mb4 */;
+
+CREATE DATABASE IF NOT EXISTS `annhien_datmon` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+USE `annhien_datmon`;
+
+-- --------------------------------------------------------
+-- Table structure for table `roles`
+-- --------------------------------------------------------
+CREATE TABLE `roles` (
+                         `roleID` bigint(20) NOT NULL,
+                         `nameRole` varchar(255) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-CREATE TABLE `categories`
-(
-    `id`         bigint(20) NOT NULL,
-    `name`       varchar(100) NOT NULL,
-    `created_at` datetime(3) NOT NULL DEFAULT current_timestamp(3)
+-- --------------------------------------------------------
+-- Table structure for table `users`
+-- --------------------------------------------------------
+CREATE TABLE `users` (
+                         `id` bigint(20) NOT NULL,
+                         `roleID` bigint(20) NOT NULL,
+                         `email` varchar(255) NOT NULL,
+                         `password_hash` varchar(255) NOT NULL,
+                         `full_name` varchar(150) NOT NULL,
+                         `phone` varchar(20) DEFAULT NULL,
+                         `is_active` tinyint(1) NOT NULL DEFAULT 1,
+                         `created_at` datetime(3) NOT NULL DEFAULT current_timestamp(3),
+                         `updated_at` datetime(3) NOT NULL DEFAULT current_timestamp(3) ON UPDATE current_timestamp(3)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-CREATE TABLE `foods`
-(
-    `id`           bigint(20) NOT NULL,
-    `sku`          varchar(50)    NOT NULL,
-    `category_id`  bigint(20) DEFAULT NULL,
-    `name`         varchar(200)   NOT NULL,
-    `description`  text DEFAULT NULL,
-    `price`        decimal(14, 2) NOT NULL,
-    `is_published` tinyint(1) NOT NULL DEFAULT 1,
-    `is_deleted`   tinyint(1) NOT NULL DEFAULT 0,
-    `created_at`   datetime(3) NOT NULL DEFAULT current_timestamp(3),
-    `updated_at`   datetime(3) NOT NULL DEFAULT current_timestamp(3) ON UPDATE current_timestamp(3)
+-- --------------------------------------------------------
+-- Table structure for table `points`
+-- --------------------------------------------------------
+CREATE TABLE `points` (
+                          `user_id` bigint(20) NOT NULL,
+                          `current_points` int(11) NOT NULL DEFAULT 0,
+                          `total_earned_points` int(11) NOT NULL DEFAULT 0,
+                          `tier` enum('ĐỒNG','BẠC','VÀNG','KIM CƯƠNG') NOT NULL DEFAULT 'ĐỒNG',
+                          `updated_at` datetime(3) NOT NULL DEFAULT current_timestamp(3) ON UPDATE current_timestamp(3)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-CREATE TABLE `food_images`
-(
-    `id`         bigint(20) NOT NULL,
-    `foods_id`   bigint(20) NOT NULL,
-    `url`        varchar(500) NOT NULL,
-    `is_cover`   tinyint(1) NOT NULL DEFAULT 0,
-    `created_at` datetime(3) NOT NULL DEFAULT current_timestamp(3)
+-- --------------------------------------------------------
+-- Table structure for table `categories`
+-- --------------------------------------------------------
+CREATE TABLE `categories` (
+                              `id` bigint(20) NOT NULL,
+                              `name` varchar(100) NOT NULL,
+                              `created_at` datetime(3) NOT NULL DEFAULT current_timestamp(3)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-CREATE TABLE `orders`
-(
-    `id`               bigint(20) NOT NULL,
-    `order_code`       varchar(30)    NOT NULL,
-    `parent_order_id`  bigint(20) DEFAULT NULL,
-    `user_id`          bigint(20) DEFAULT NULL,
-    `table_id`         bigint(20) DEFAULT NULL,
-    `table_session_id` bigint(20) DEFAULT NULL,
-    `voucher_id`       bigint(20) DEFAULT NULL,
-    `status`           enum('PENDING','RECEIVED','COOKING','COMPLETED','SERVED','CANCELLED') NOT NULL DEFAULT 'PENDING',
-    `subtotal`         decimal(14, 2) NOT NULL,
-    `discount_amount`  decimal(14, 2) NOT NULL DEFAULT 0.00,
-    `total_amount`     decimal(14, 2) NOT NULL,
-    `note`             varchar(500)            DEFAULT NULL,
-    `cancel_reason`    varchar(255)            DEFAULT NULL,
-    `cancelled_at`     datetime(3) DEFAULT NULL,
-    `confirmed_by`     bigint(20) DEFAULT NULL,
-    `created_at`       datetime(3) NOT NULL DEFAULT current_timestamp(3),
-    `updated_at`       datetime(3) NOT NULL DEFAULT current_timestamp(3) ON UPDATE current_timestamp(3)
+-- --------------------------------------------------------
+-- Table structure for table `foods`
+-- --------------------------------------------------------
+CREATE TABLE `foods` (
+                         `id` bigint(20) NOT NULL,
+                         `sku` varchar(50) NOT NULL,
+                         `category_id` bigint(20) DEFAULT NULL,
+                         `name` varchar(200) NOT NULL,
+                         `description` text DEFAULT NULL,
+                         `price` decimal(14,2) NOT NULL,
+                         `is_published` tinyint(1) NOT NULL DEFAULT 1,
+                         `is_deleted` tinyint(1) NOT NULL DEFAULT 0,
+                         `created_at` datetime(3) NOT NULL DEFAULT current_timestamp(3),
+                         `updated_at` datetime(3) NOT NULL DEFAULT current_timestamp(3) ON UPDATE current_timestamp(3)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-CREATE TABLE `order_items`
-(
-    `id`           bigint(20) NOT NULL,
-    `order_id`     bigint(20) NOT NULL,
-    `foods_id`     bigint(20) NOT NULL,
-    `foods_name`   varchar(200)   NOT NULL,
-    `unit_price`   decimal(14, 2) NOT NULL,
-    `quantity`     int(11) NOT NULL,
-    `line_total`   decimal(14, 2) NOT NULL,
-    `status`       enum('PENDING','RECEIVED','COOKING','COMPLETED','SERVED','CANCELLED') NOT NULL DEFAULT 'PENDING',
-    `note`         varchar(500) DEFAULT NULL,
-    `updated_at`   datetime(3) NOT NULL DEFAULT current_timestamp(3) ON UPDATE current_timestamp(3),
-    `completed_at` datetime(3) DEFAULT NULL
+-- --------------------------------------------------------
+-- Table structure for table `food_images`
+-- --------------------------------------------------------
+CREATE TABLE `food_images` (
+                               `id` bigint(20) NOT NULL,
+                               `foods_id` bigint(20) NOT NULL,
+                               `url` varchar(500) NOT NULL,
+                               `is_cover` tinyint(1) NOT NULL DEFAULT 0,
+                               `created_at` datetime(3) NOT NULL DEFAULT current_timestamp(3)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-CREATE TABLE `points`
-(
-    `user_id`             bigint(20) NOT NULL,
-    `current_points`      int(11) NOT NULL DEFAULT 0,
-    `total_earned_points` int(11) NOT NULL DEFAULT 0,
-    `tier`                enum('ĐỒNG','BẠC','VÀNG','KIM CƯƠNG') NOT NULL DEFAULT 'ĐỒNG',
-    `updated_at`          datetime(3) NOT NULL DEFAULT current_timestamp(3) ON UPDATE current_timestamp(3)
+-- --------------------------------------------------------
+-- Table structure for table `tables`
+-- --------------------------------------------------------
+CREATE TABLE `tables` (
+                          `id` bigint(20) NOT NULL,
+                          `table_name` varchar(200) NOT NULL,
+                          `capacity` int(11) NOT NULL,
+                          `floor_number` int(11) NOT NULL DEFAULT 1,
+                          `status` tinyint(1) NOT NULL DEFAULT 1
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-CREATE TABLE `point_transactions`
-(
-    `id`            bigint(20) NOT NULL,
-    `user_id`       bigint(20) NOT NULL,
-    `bill_id`       bigint(20) DEFAULT NULL,
-    `type`          enum('EARN','REDEEM','ADJUST') NOT NULL,
-    `points_change` int(11) NOT NULL,
-    `note`          varchar(255) DEFAULT NULL,
-    `created_at`    datetime(3) NOT NULL DEFAULT current_timestamp(3)
+-- --------------------------------------------------------
+-- Table structure for table `table_sessions`
+-- --------------------------------------------------------
+CREATE TABLE `table_sessions` (
+                                  `id` bigint(20) NOT NULL,
+                                  `table_id` bigint(20) NOT NULL,
+                                  `opened_by` bigint(20) DEFAULT NULL,
+                                  `status` enum('ACTIVE','CLOSED') NOT NULL DEFAULT 'ACTIVE',
+                                  `access_token_hash` char(64) NOT NULL,
+                                  `opened_at` datetime(3) NOT NULL DEFAULT current_timestamp(3),
+                                  `closed_at` datetime(3) DEFAULT NULL,
+                                  `active_table_id` bigint(20) GENERATED ALWAYS AS (case when `status` = 'ACTIVE' then `table_id` else NULL end) STORED
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-CREATE TABLE `roles`
-(
-    `roleID`   bigint(20) NOT NULL,
-    `nameRole` varchar(255) NOT NULL
+-- --------------------------------------------------------
+-- Table structure for table `vouchers`
+-- --------------------------------------------------------
+CREATE TABLE `vouchers` (
+                            `id` bigint(20) NOT NULL,
+                            `code` varchar(50) NOT NULL,
+                            `name` varchar(255) DEFAULT NULL,
+                            `description` varchar(500) DEFAULT NULL,
+                            `discount_type` enum('PERCENT','FIXED') NOT NULL,
+                            `discount_value` decimal(15,2) NOT NULL,
+                            `min_order_amount` decimal(15,2) DEFAULT 0.00,
+                            `max_discount_amount` decimal(15,2) DEFAULT NULL,
+                            `start_at` datetime(3) NOT NULL,
+                            `end_at` datetime(3) NOT NULL,
+                            `usage_limit` int(11) DEFAULT NULL,
+                            `used_count` int(11) DEFAULT 0,
+                            `is_active` tinyint(1) DEFAULT 1,
+                            `created_at` datetime(3) NOT NULL DEFAULT current_timestamp(3),
+                            `updated_at` datetime(3) NOT NULL DEFAULT current_timestamp(3)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-CREATE TABLE `tables`
-(
-    `id`           bigint(20) NOT NULL,
-    `table_name`   varchar(200) NOT NULL,
-    `capacity`     int(11) NOT NULL,
-    `floor_number` int(11) NOT NULL DEFAULT 1,
-    `status`       tinyint(1) NOT NULL DEFAULT 1
+-- --------------------------------------------------------
+-- Table structure for table `orders`
+-- --------------------------------------------------------
+CREATE TABLE `orders` (
+                          `id` bigint(20) NOT NULL,
+                          `order_code` varchar(30) NOT NULL,
+                          `parent_order_id` bigint(20) DEFAULT NULL,
+                          `user_id` bigint(20) DEFAULT NULL,
+                          `table_id` bigint(20) DEFAULT NULL,
+                          `table_session_id` bigint(20) DEFAULT NULL,
+                          `voucher_id` bigint(20) DEFAULT NULL,
+                          `status` enum('PENDING','RECEIVED','COOKING','COMPLETED','SERVED','CANCELLED') NOT NULL DEFAULT 'PENDING',
+                          `subtotal` decimal(14,2) NOT NULL,
+                          `discount_amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+                          `total_amount` decimal(14,2) NOT NULL,
+                          `note` varchar(500) DEFAULT NULL,
+                          `cancel_reason` varchar(255) DEFAULT NULL,
+                          `cancelled_at` datetime(3) DEFAULT NULL,
+                          `confirmed_by` bigint(20) DEFAULT NULL,
+                          `created_at` datetime(3) NOT NULL DEFAULT current_timestamp(3),
+                          `updated_at` datetime(3) NOT NULL DEFAULT current_timestamp(3) ON UPDATE current_timestamp(3)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-CREATE TABLE `table_sessions`
-(
-    `id`                bigint(20) NOT NULL,
-    `table_id`          bigint(20) NOT NULL,
-    `opened_by`         bigint(20) DEFAULT NULL,
-    `status`            enum('ACTIVE','CLOSED') NOT NULL DEFAULT 'ACTIVE',
-    `access_token_hash` char(64) NOT NULL,
-    `opened_at`         datetime(3) NOT NULL DEFAULT current_timestamp(3),
-    `closed_at`         datetime(3) DEFAULT NULL,
-    `active_table_id`   bigint(20) GENERATED ALWAYS AS (case when `status` = 'ACTIVE' then `table_id` else NULL end) STORED
+-- --------------------------------------------------------
+-- Table structure for table `order_items`
+-- --------------------------------------------------------
+CREATE TABLE `order_items` (
+                               `id` bigint(20) NOT NULL,
+                               `order_id` bigint(20) NOT NULL,
+                               `foods_id` bigint(20) NOT NULL,
+                               `foods_name` varchar(200) NOT NULL,
+                               `unit_price` decimal(14,2) NOT NULL,
+                               `quantity` int(11) NOT NULL,
+                               `line_total` decimal(14,2) NOT NULL,
+                               `status` enum('PENDING','RECEIVED','COOKING','COMPLETED','SERVED','CANCELLED') NOT NULL DEFAULT 'PENDING',
+                               `note` varchar(500) DEFAULT NULL,
+                               `updated_at` datetime(3) NOT NULL DEFAULT current_timestamp(3) ON UPDATE current_timestamp(3),
+                               `completed_at` datetime(3) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-CREATE TABLE `users`
-(
-    `id`            bigint(20) NOT NULL,
-    `roleID`        bigint(20) NOT NULL,
-    `email`         varchar(255) NOT NULL,
-    `password_hash` varchar(255) NOT NULL,
-    `full_name`     varchar(150) NOT NULL,
-    `phone`         varchar(20) DEFAULT NULL,
-    `is_active`     tinyint(1) NOT NULL DEFAULT 1,
-    `created_at`    datetime(3) NOT NULL DEFAULT current_timestamp(3),
-    `updated_at`    datetime(3) NOT NULL DEFAULT current_timestamp(3) ON UPDATE current_timestamp(3)
+-- --------------------------------------------------------
+-- Table structure for table `bill`
+-- --------------------------------------------------------
+CREATE TABLE `bill` (
+                        `id` bigint(20) NOT NULL,
+                        `table_session_id` bigint(20) NOT NULL,
+                        `user_id` bigint(20) DEFAULT NULL,
+                        `total_amount` decimal(14,2) NOT NULL,
+                        `discount` decimal(14,2) NOT NULL DEFAULT 0.00,
+                        `points_used` int(11) NOT NULL DEFAULT 0,
+                        `tax` decimal(14,2) NOT NULL DEFAULT 0.00,
+                        `payment_method` enum('CASH','CREDIT_CARD','E_WALLET','BANK_TRANSFER') DEFAULT NULL,
+                        `paid_at` datetime(3) DEFAULT NULL,
+                        `payment_status` enum('UNPAID','PAID','CANCELLED') NOT NULL DEFAULT 'UNPAID',
+                        `created_at` datetime(3) NOT NULL DEFAULT current_timestamp(3)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-CREATE TABLE `vouchers`
-(
-    `id`                  bigint(20) NOT NULL,
-    `code`                varchar(50)    NOT NULL,
-    `name`                varchar(255)   DEFAULT NULL,
-    `description`         varchar(500)   DEFAULT NULL,
-    `discount_type`       enum('PERCENT','FIXED') NOT NULL,
-    `discount_value`      decimal(15, 2) NOT NULL,
-    `min_order_amount`    decimal(15, 2) DEFAULT 0.00,
-    `max_discount_amount` decimal(15, 2) DEFAULT NULL,
-    `start_at`            datetime(3) NOT NULL,
-    `end_at`              datetime(3) NOT NULL,
-    `usage_limit`         int(11) DEFAULT NULL,
-    `used_count`          int(11) DEFAULT 0,
-    `is_active`           tinyint(1) DEFAULT 1,
-    `created_at`          datetime(3) NOT NULL DEFAULT current_timestamp(3),
-    `updated_at`          datetime(3) NOT NULL DEFAULT current_timestamp(3)
+-- --------------------------------------------------------
+-- Table structure for table `point_transactions`
+-- --------------------------------------------------------
+CREATE TABLE `point_transactions` (
+                                      `id` bigint(20) NOT NULL,
+                                      `user_id` bigint(20) NOT NULL,
+                                      `bill_id` bigint(20) DEFAULT NULL,
+                                      `type` enum('EARN','REDEEM','ADJUST') NOT NULL,
+                                      `points_change` int(11) NOT NULL,
+                                      `note` varchar(255) DEFAULT NULL,
+                                      `created_at` datetime(3) NOT NULL DEFAULT current_timestamp(3)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+-- Indexes for dumped tables
+-- --------------------------------------------------------
 
 ALTER TABLE `bill`
     ADD PRIMARY KEY (`id`),
@@ -235,8 +272,12 @@ ALTER TABLE `vouchers`
     ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `code` (`code`);
 
+-- --------------------------------------------------------
+-- AUTO_INCREMENT for dumped tables
+-- --------------------------------------------------------
+
 ALTER TABLE `bill`
-    MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+    MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
 
 ALTER TABLE `categories`
     MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=37;
@@ -248,13 +289,13 @@ ALTER TABLE `food_images`
     MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=65;
 
 ALTER TABLE `orders`
-    MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10;
+    MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=13;
 
 ALTER TABLE `order_items`
-    MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=15;
+    MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=22;
 
 ALTER TABLE `point_transactions`
-    MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT;
+    MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
 
 ALTER TABLE `roles`
     MODIFY `roleID` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
@@ -263,7 +304,7 @@ ALTER TABLE `tables`
     MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=41;
 
 ALTER TABLE `table_sessions`
-    MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=69;
+    MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=70;
 
 ALTER TABLE `users`
     MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=52;
@@ -271,11 +312,13 @@ ALTER TABLE `users`
 ALTER TABLE `vouchers`
     MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=37;
 
+-- --------------------------------------------------------
+-- Constraints for dumped tables
+-- --------------------------------------------------------
+
 ALTER TABLE `bill`
     ADD CONSTRAINT `fk_bill_session` FOREIGN KEY (`table_session_id`) REFERENCES `table_sessions` (`id`),
-  ADD CONSTRAINT `fk_bill_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON
-DELETE
-SET NULL;
+  ADD CONSTRAINT `fk_bill_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL;
 
 ALTER TABLE `foods`
     ADD CONSTRAINT `fk_food_category` FOREIGN KEY (`category_id`) REFERENCES `categories` (`id`);
@@ -293,18 +336,14 @@ ALTER TABLE `orders`
 
 ALTER TABLE `order_items`
     ADD CONSTRAINT `fk_oi_foods` FOREIGN KEY (`foods_id`) REFERENCES `foods` (`id`),
-  ADD CONSTRAINT `fk_oi_order` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`) ON
-DELETE
-CASCADE;
+  ADD CONSTRAINT `fk_oi_order` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`) ON DELETE CASCADE;
 
 ALTER TABLE `points`
     ADD CONSTRAINT `fk_points_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
 
 ALTER TABLE `point_transactions`
     ADD CONSTRAINT `fk_pt_bill` FOREIGN KEY (`bill_id`) REFERENCES `bill` (`id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `fk_pt_user` FOREIGN KEY (`user_id`) REFERENCES `points` (`user_id`) ON
-DELETE
-CASCADE;
+  ADD CONSTRAINT `fk_pt_user` FOREIGN KEY (`user_id`) REFERENCES `points` (`user_id`) ON DELETE CASCADE;
 
 ALTER TABLE `table_sessions`
     ADD CONSTRAINT `fk_session_employee` FOREIGN KEY (`opened_by`) REFERENCES `users` (`id`),
@@ -312,3 +351,9 @@ ALTER TABLE `table_sessions`
 
 ALTER TABLE `users`
     ADD CONSTRAINT `fk_users_roles` FOREIGN KEY (`roleID`) REFERENCES `roles` (`roleID`);
+
+COMMIT;
+
+/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
+/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;

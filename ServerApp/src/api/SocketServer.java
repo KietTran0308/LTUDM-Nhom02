@@ -21,14 +21,21 @@ import java.util.concurrent.Executors;
 public class SocketServer {
 
     private static final int PORT = 8888;
-    private static final Map<Long, Set<ClientHandler>> sessionClients = new ConcurrentHashMap<>();
+    // 1 phiên bàn chỉ cho phép duy nhất 1 iPad phục vụ
+    private static final Map<Long, ClientHandler> sessionClients = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<Long, Object> sessionLocks = new ConcurrentHashMap<>();
     private static final Set<ClientHandler> kitchenClients = ConcurrentHashMap.newKeySet();
     private static final Set<ClientHandler> staffClients = ConcurrentHashMap.newKeySet();
+    private static final Set<ClientHandler> posClients = ConcurrentHashMap.newKeySet();
 
     private final ExecutorService workers = Executors.newCachedThreadPool();
     private ServerSocket serverSocket;
     private volatile boolean running;
     private RSAKeyManager rsaKeyManager;
+
+    public static Object getSessionLock(long sessionId) {
+        return sessionLocks.computeIfAbsent(sessionId, k -> new Object());
+    }
 
     public static void registerKitchen(ClientHandler h) {
         kitchenClients.add(h);
@@ -38,19 +45,34 @@ public class SocketServer {
         staffClients.add(h);
     }
 
-    public static void registerSession(Long sessionId, ClientHandler h) {
-        if (sessionId != null) {
-            sessionClients.computeIfAbsent(sessionId, x -> ConcurrentHashMap.newKeySet()).add(h);
+    /**
+     * Đăng ký độc quyền 1 iPad cho phiên bàn.
+     * Trả về true nếu thành công, false nếu đã có iPad khác đang giữ phiên này.
+     */
+    public static boolean tryClaimSession(long sessionId, ClientHandler h) {
+        ClientHandler existing = sessionClients.compute(sessionId, (sid, current) -> {
+            if (current == null || !current.isAliveConnection() || current == h) {
+                return h;
+            }
+            return current;
+        });
+        return existing == h;
+    }
+
+    public static boolean isSessionClaimed(long sessionId) {
+        ClientHandler current = sessionClients.get(sessionId);
+        if (current != null && !current.isAliveConnection()) {
+            sessionClients.remove(sessionId, current);
+            return false;
         }
+        return current != null;
     }
 
     public static void removeConnection(ClientHandler h) {
         kitchenClients.remove(h);
         staffClients.remove(h);
-        for (Set<ClientHandler> peers : sessionClients.values()) {
-            peers.remove(h);
-        }
-        sessionClients.entrySet().removeIf(e -> e.getValue().isEmpty());
+        posClients.remove(h);
+        sessionClients.entrySet().removeIf(e -> e.getValue() == h);
     }
 
     private static void emit(Set<ClientHandler> recipients, SocketPacket p) {
@@ -60,22 +82,33 @@ public class SocketServer {
     }
 
     public static void toSession(long sessionId, SocketPacket packet) {
-        emit(sessionClients.get(sessionId), packet);
+        ClientHandler h = sessionClients.get(sessionId);
+        if (h != null) h.sendPacket(packet);
     }
 
     public static void notifySessionClosed(long sessionId, long tableId) {
-        Set<ClientHandler> peers = sessionClients.remove(sessionId);
+        ClientHandler peer = sessionClients.remove(sessionId);
+        sessionLocks.remove(sessionId);
+
         SocketPacket closed = new SocketPacket(SocketAction.SESSION_CLOSED, true,
                 "Phiên bàn đã được thanh toán và đóng", sessionId, null);
         closed.setTableId(tableId);
-        emit(peers, closed);
-        // POS khác trong mạng LAN cập nhật sơ đồ bàn khi một POS thanh toán.
+
+        if (peer != null) {
+            peer.resetCustomerMode();
+            peer.sendPacket(closed);
+        }
         emit(staffClients, closed);
+        emit(posClients, closed);
+        broadcastTablesChanged();
     }
 
     public static void broadcastTablesChanged() {
+        var tables = new OrderBUS().getAllRestaurantTables();
         emit(staffClients, new SocketPacket(SocketAction.LIST_TABLES, true,
-                "Sơ đồ bàn đã thay đổi", new OrderBUS().getAllRestaurantTables(), null));
+                "Sơ đồ bàn đã thay đổi", tables, null));
+        emit(posClients, new SocketPacket(SocketAction.GET_ALL_TABLES, true,
+                "Sơ đồ bàn đã thay đổi", tables, null));
     }
 
     public static void broadcastOrderCreated(OrderDTO order) {
@@ -83,6 +116,7 @@ public class SocketServer {
                 "Có đơn mới tại bàn #" + order.getTableId(), order, null);
         emit(kitchenClients, packet);
         emit(staffClients, packet);
+        emit(posClients, packet);
     }
 
     public static void broadcastItemStatus(long sessionId, long itemId, dbEnums.OrderStatus state) {
@@ -91,6 +125,23 @@ public class SocketServer {
         toSession(sessionId, p);
         emit(kitchenClients, p);
         emit(staffClients, p);
+    }
+
+    public static void broadcastMenuChanged() {
+        try {
+            bus.FoodBUS foodBUS = new bus.FoodBUS();
+            var foods = foodBUS.getPublishedFoodsForTablet();
+            var categories = foodBUS.getAllCategories();
+            SocketPacket packet = new SocketPacket(
+                    SocketAction.GET_MENU_AND_CATEGORIES, true,
+                    "Thực đơn vừa được cập nhật", foods, categories
+            );
+            for (ClientHandler h : sessionClients.values()) {
+                h.sendPacket(packet);
+            }
+        } catch (Exception e) {
+            System.err.println("[SocketServer] Lỗi broadcast thực đơn: " + e.getMessage());
+        }
     }
 
     public static void broadcastOrderCompleted(OrderDTO order) {
@@ -103,6 +154,16 @@ public class SocketServer {
     public static void broadcastKitchenQueue(List<OrderDTO> orders) {
         emit(kitchenClients, new SocketPacket(SocketAction.GET_KITCHEN_QUEUE,
                 true, "Danh sách bếp cập nhật", orders, null));
+    }
+
+    public static void registerPos(ClientHandler h) {
+        posClients.add(h);
+    }
+
+    public static void releaseStaffRoles(ClientHandler h) {
+        kitchenClients.remove(h);
+        staffClients.remove(h);
+        posClients.remove(h);
     }
 
     public synchronized void startServer() {

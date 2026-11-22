@@ -74,10 +74,7 @@ public class BillDAO {
                     }
                 }
                 try (PreparedStatement ps = conn.prepareStatement(
-                        "UPDATE vouchers v " +
-                                "JOIN orders o ON o.voucher_id = v.id " +
-                                "SET v.used_count = COALESCE(v.used_count, 0) + 1 " +
-                                "WHERE o.table_session_id = ? AND o.status <> 'CANCELLED' AND o.voucher_id IS NOT NULL")) {
+                        "WHERE v.id IN (SELECT DISTINCT o.voucher_id FROM orders o WHERE o.table_session_id = ? AND o.status <> 'CANCELLED' AND o.voucher_id IS NOT NULL)")) {
                     ps.setLong(1, sessionId);
                     ps.executeUpdate();
                 }
@@ -153,7 +150,7 @@ public class BillDAO {
             where.append(" AND b.payment_method = ?");
             params.add(payment.name());
         }
-        if (!billNumber.isEmpty()) {
+        if (billNumber != null && !billNumber.isBlank()) {
             where.append(" AND LOCATE(?, CAST(b.id AS CHAR)) > 0");
             params.add(billNumber);
         }

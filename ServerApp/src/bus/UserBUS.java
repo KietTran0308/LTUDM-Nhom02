@@ -35,7 +35,7 @@ public class UserBUS {
     }
 
     public boolean updateUser(UserDTO user) throws SQLException {
-        if (user == null || user.getId() <= 0) {
+        if (user == null || user.getId() == null || user.getId() <= 0){
             throw new IllegalArgumentException("Thông tin người dùng không hợp lệ");
         }
         if (user.getFullName() == null || user.getFullName().trim().isEmpty()) {

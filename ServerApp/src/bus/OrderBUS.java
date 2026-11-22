@@ -31,6 +31,9 @@ public class OrderBUS {
         order.setStatus(dbEnums.OrderStatus.PENDING);
 
         Long id = orderDAO.createTableOrderTransaction(order);
+        if (voucherCode != null && !voucherCode.isBlank()) {
+            orderDAO.applyVoucherToTableSession(order.getTableId(), voucherCode.trim());
+        }
         return orderDAO.getOrderById(id); // Trả về itemId thật sau khi INSERT
     }
 

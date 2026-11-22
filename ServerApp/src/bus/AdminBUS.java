@@ -209,25 +209,12 @@ public class AdminBUS {
         return userBUS.updateUser(user);
     }
 
-    public boolean lockAccount(Long id) throws SQLException {
-        return userBUS.deactivateUser(id);
-    }
-
-    /** Khóa (active=false) hoặc mở khóa (active=true) theo trạng thái đích do client yêu cầu. */
     public boolean setAccountActive(Long accountId, Long adminId, boolean active) throws SQLException {
         requireValidId(accountId, "ID tài khoản không hợp lệ");
         if (!active && accountId.equals(adminId)) {
             throw new SecurityException("Không thể tự khóa tài khoản đang đăng nhập");
         }
         return userBUS.setAccountActive(accountId, active);
-    }
-
-    public boolean toggleAccountActive(Long accountId, Long adminId) throws SQLException {
-        requireValidId(accountId, "ID tài khoản không hợp lệ");
-        if (accountId.equals(adminId)) {
-            throw new SecurityException("Không thể tự khóa tài khoản đang đăng nhập");
-        }
-        return userBUS.toggleAccountActive(accountId);
     }
 
     // ==========================================================

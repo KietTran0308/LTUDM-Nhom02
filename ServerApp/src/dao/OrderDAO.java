@@ -13,10 +13,6 @@ import java.security.NoSuchAlgorithmException;
 import java.sql.*;
 import java.util.*;
 
-/**
- * Data access for orders, kitchen tracking and table-session checkout.
- * SQL targets MySQL 8 / MariaDB 10.4 and the DTO schema supplied with this project.
- */
 public class OrderDAO {
 
     private static final String ACTIVE_ROOT_SQL =
@@ -747,74 +743,6 @@ public class OrderDAO {
             return HexFormat.of().formatHex(digest);
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);
-        }
-    }
-
-    public boolean cancelOrder(Long orderId, String reason) {
-        if (reason == null || reason.trim().isEmpty()) {
-            throw new IllegalArgumentException("Phải cung cấp lý do hủy đơn");
-        }
-        try (Connection conn = dbConnection.getConnection()) {
-            conn.setAutoCommit(false);
-            try {
-                try (PreparedStatement ps = conn.prepareStatement(
-                        "SELECT status FROM orders WHERE id = ? FOR UPDATE")) {
-                    ps.setLong(1, orderId);
-                    try (ResultSet rs = ps.executeQuery()) {
-                        if (!rs.next() || !"PENDING".equals(rs.getString(1)) &&
-                                !"RECEIVED".equals(rs.getString(1))) {
-                            conn.rollback();
-                            return false;
-                        }
-                    }
-                }
-                try (PreparedStatement ps = conn.prepareStatement(
-                        "SELECT id FROM orders WHERE parent_order_id = ? " +
-                                "AND status <> 'CANCELLED' LIMIT 1")) {
-                    ps.setLong(1, orderId);
-                    try (ResultSet rs = ps.executeQuery()) {
-                        if (rs.next()) {
-                            conn.rollback();
-                            return false;
-                        }
-                    }
-                }
-                try (PreparedStatement ps = conn.prepareStatement(
-                        "SELECT foods_id, quantity, status FROM order_items " +
-                                "WHERE order_id = ? FOR UPDATE")) {
-                    ps.setLong(1, orderId);
-                    try (ResultSet rs = ps.executeQuery()) {
-                        while (rs.next()) {
-                            String itemStatus = rs.getString("status");
-                            if (!"PENDING".equals(itemStatus) && !"RECEIVED".equals(itemStatus) &&
-                                    !"CANCELLED".equals(itemStatus)) {
-                                conn.rollback();
-                                return false;
-                            }
-                        }
-                    }
-                }
-                try (PreparedStatement ps = conn.prepareStatement(
-                        "UPDATE order_items SET status = 'CANCELLED' WHERE order_id = ? " +
-                                "AND status <> 'CANCELLED'")) {
-                    ps.setLong(1, orderId);
-                    ps.executeUpdate();
-                }
-                try (PreparedStatement ps = conn.prepareStatement(
-                        "UPDATE orders SET status = 'CANCELLED', cancel_reason = ?, " +
-                                "cancelled_at = NOW(3) WHERE id = ?")) {
-                    ps.setString(1, reason.trim());
-                    ps.setLong(2, orderId);
-                    if (ps.executeUpdate() != 1) throw new SQLException("Hủy đơn không thành công");
-                }
-                conn.commit();
-                return true;
-            } catch (SQLException | RuntimeException ex) {
-                rollback(conn, ex);
-                throw ex;
-            }
-        } catch (SQLException e) {
-            throw new IllegalStateException("Lỗi hủy đơn", e);
         }
     }
 

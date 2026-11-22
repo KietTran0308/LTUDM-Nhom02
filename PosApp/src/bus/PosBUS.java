@@ -9,6 +9,10 @@ import dto.TableDTO;
 import dto.UserDTO;
 import dto.dbEnums;
 
+import dto.PointDTO;
+import java.util.HashMap;
+import java.util.Map;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -87,13 +91,32 @@ public final class PosBUS {
     }
 
     public List<UserDTO> listCustomers() {
-        Object data = request(SocketAction.ADMIN_GET_ACCOUNTS).getData();
+        Object accountData = request(SocketAction.ADMIN_GET_ACCOUNTS).getData();
+
+        Map<Long, Integer> pointsByUserId = new HashMap<>();
+        try {
+            Object pointData = request(SocketAction.ADMIN_GET_POINTS).getData();
+            if (pointData instanceof List<?> pointList) {
+                for (Object item : pointList) {
+                    if (item instanceof PointDTO p && p.getUserId() != null) {
+                        pointsByUserId.put(p.getUserId(), p.getCurrentPoints());
+                    }
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // Nếu chưa có dữ liệu điểm thì mặc định 0 điểm, không làm gián đoạn tải khách hàng
+        }
+
         List<UserDTO> customers = new ArrayList<>();
-        if (data instanceof List<?> list) {
+        if (accountData instanceof List<?> list) {
             for (Object item : list) {
                 if (item instanceof UserDTO user
                         && ROLE_CUSTOMER.equalsIgnoreCase(user.getRoleName())
                         && Boolean.TRUE.equals(user.getIsActive())) {
+                    int pts = user.getId() != null
+                            ? pointsByUserId.getOrDefault(user.getId(), 0)
+                            : 0;
+                    user.setCurrentPoints(pts);
                     customers.add(user);
                 }
             }
@@ -107,6 +130,12 @@ public final class PosBUS {
     }
 
     public void pay(long tableId, OrderDTO preview, dbEnums.PaymentMethod method, UserDTO customer) {
+        if (preview == null || preview.getTableSessionId() == null || preview.getCheckoutRevision() == null) {
+            throw new IllegalArgumentException("Dữ liệu hóa đơn chưa sẵn sàng, vui lòng tải lại bàn");
+        }
+        if (method == null) {
+            throw new IllegalArgumentException("Vui lòng chọn phương thức thanh toán");
+        }
         BillDTO bill = new BillDTO();
         bill.setTableSessionId(preview.getTableSessionId());
         bill.setPaymentMethod(method);

@@ -18,6 +18,8 @@ import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
+import api.ServerConfig;
+
 public class PasswordReset {
 
     private static final long TTL_MS = 10 * 60_000L;
@@ -166,8 +168,10 @@ public class PasswordReset {
     }
 
     private static boolean smtpConfigured() {
-        return !env("SMTP_HOST").isBlank() && !env("SMTP_USER").isBlank()
-                && !env("SMTP_PASSWORD").isBlank() && !env("SMTP_FROM").isBlank();
+        return !ServerConfig.SMTP_HOST.isBlank()
+                && !ServerConfig.SMTP_USER.isBlank()
+                && !ServerConfig.SMTP_PASSWORD.isBlank()
+                && !ServerConfig.SMTP_FROM.isBlank();
     }
 
     private static String env(String key) {
@@ -176,11 +180,11 @@ public class PasswordReset {
     }
 
     void sendOtpMail(String recipient, String code) throws Exception {
-        String host = env("SMTP_HOST");
-        int port = Integer.parseInt(System.getenv().getOrDefault("SMTP_PORT", "587"));
-        String user = env("SMTP_USER");
-        String password = env("SMTP_PASSWORD");
-        String from = env("SMTP_FROM");
+        String host = ServerConfig.SMTP_HOST;
+        int port = ServerConfig.SMTP_PORT;
+        String user = ServerConfig.SMTP_USER;
+        String password = ServerConfig.SMTP_PASSWORD;
+        String from = ServerConfig.SMTP_FROM;
 
         Properties props = new Properties();
         props.put("mail.smtp.host", host);

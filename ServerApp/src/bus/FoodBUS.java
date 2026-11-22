@@ -154,8 +154,8 @@ public class FoodBUS {
         if (name.isEmpty()) {
             throw new IllegalArgumentException("Tên món ăn không được để trống.");
         }
-        if (food.getPrice() == null || food.getPrice().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("Giá món ăn phải lớn hơn 0.");
+        if (food.getPrice() == null || food.getPrice().compareTo(BigDecimal.ZERO) < 0) {
+            throw new IllegalArgumentException("Giá món ăn phải lớn hơn hoặc  = 0.");
         }
     }
 
